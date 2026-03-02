@@ -1,10 +1,32 @@
 [project]
-name = "nano-egpt"
-version = "0.0.0"
+name = "step"
+version = "0.0.1"
 requires-python = ">=3.12"
-dependencies = ["numpy"]
+dependencies = [
+    "numpy",
+    "transformers",
+    "datasets",
+]
+
+[project.optional-dependencies]
+comparison = ["torch"]
+viz = ["matplotlib"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff",
+    "pre-commit",
+    "ty",
+]
 
 [tool.ruff]
 line-length = 88
 
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
 [tool.ty]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
