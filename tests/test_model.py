@@ -51,24 +51,32 @@ class TestPredict:
 class TestUpdate:
     def setup_method(self):
         self.config = ModelConfig(
-            n=64, k=4, max_lr=0.5, weight_decay=0.999,
-            penalty_factor=0.5, eligibility_window=20,
+            n=64,
+            k=4,
+            max_lr=0.5,
+            weight_decay=0.999,
+            penalty_factor=0.5,
+            eligibility_window=20,
         )
 
     def test_returns_iou(self):
         state = ModelState(weights={}, history={0: frozenset({10})})
-        iou = update(state, t=1,
-                     current_sdr=frozenset({0, 1, 2, 3}),
-                     predicted_sdr=frozenset({0, 1, 4, 5}),
-                     config=self.config)
+        iou = update(
+            state,
+            t=1,
+            current_sdr=frozenset({0, 1, 2, 3}),
+            predicted_sdr=frozenset({0, 1, 4, 5}),
+            config=self.config,
+        )
         assert iou == 0.5
 
     def test_reinforces_correct_bits(self):
         current = frozenset({0, 1, 2, 3})
         predicted = frozenset({0, 1, 4, 5})
         state = ModelState(weights={}, history={0: frozenset({10})})
-        update(state, t=1, current_sdr=current,
-               predicted_sdr=predicted, config=self.config)
+        update(
+            state, t=1, current_sdr=current, predicted_sdr=predicted, config=self.config
+        )
         for idx in current:
             assert state.weights[10][idx] > 0
 
@@ -76,8 +84,9 @@ class TestUpdate:
         current = frozenset({0, 1, 2, 3})
         predicted = frozenset({0, 1, 4, 5})
         state = ModelState(weights={}, history={0: frozenset({10})})
-        update(state, t=1, current_sdr=current,
-               predicted_sdr=predicted, config=self.config)
+        update(
+            state, t=1, current_sdr=current, predicted_sdr=predicted, config=self.config
+        )
         for idx in predicted - current:
             assert state.weights[10][idx] < 0
 
@@ -89,8 +98,9 @@ class TestUpdate:
         original = state.weights[10].copy()
         # Perfect prediction → eta=0, only decay applies
         current = frozenset({0, 1, 2, 3})
-        update(state, t=1, current_sdr=current,
-               predicted_sdr=current, config=self.config)
+        update(
+            state, t=1, current_sdr=current, predicted_sdr=current, config=self.config
+        )
         for idx in range(4, 64):
             assert abs(state.weights[10][idx] - original[idx] * 0.999) < 1e-10
 

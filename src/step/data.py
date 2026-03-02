@@ -11,6 +11,7 @@ def token_stream(
     training_config: TrainingConfig, encoder_config: EncoderConfig
 ) -> Iterator[tuple[int, frozenset[int]]]:
     tokenizer = AutoTokenizer.from_pretrained(encoder_config.model_name)
+    assert tokenizer is not None
     dataset = load_dataset(
         training_config.dataset_name,
         streaming=True,
