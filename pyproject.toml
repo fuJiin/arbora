@@ -1,0 +1,10 @@
+[project]
+name = "nano-egpt"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = ["numpy"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ty]
