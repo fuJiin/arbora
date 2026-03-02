@@ -1,0 +1,24 @@
+{
+  "name": "step_quick",
+  "encoder": {
+    "model_name": "gpt2",
+    "n": 512,
+    "k": 20
+  },
+  "model": {
+    "n": 512,
+    "k": 20,
+    "max_lr": 0.5,
+    "weight_decay": 0.999,
+    "penalty_factor": 0.5,
+    "eligibility_window": 50
+  },
+  "training": {
+    "dataset_name": "roneneldan/TinyStories",
+    "dataset_split": "train",
+    "max_tokens": 5000,
+    "log_interval": 50,
+    "rolling_window": 100
+  },
+  "seeds": [0, 1, 2, 3, 4]
+}
