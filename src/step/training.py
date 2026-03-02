@@ -28,9 +28,9 @@ def train(
     log_fn: Callable[[int, float], None] | None = None,
 ) -> ModelState:
     if log_fn is None:
-        log_fn = lambda t, rolling: print(
-            f"Token {t} | Rolling IoU: {rolling:.4f}"
-        )
+
+        def log_fn(t: int, rolling: float) -> None:
+            print(f"Token {t} | Rolling IoU: {rolling:.4f}")
 
     state = initial_state()
     ious: list[float] = []

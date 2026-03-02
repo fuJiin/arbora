@@ -79,7 +79,5 @@ def observe(
 ) -> ModelState:
     new_history = dict(state.history)
     new_history[t] = sdr
-    cutoff = t - config.eligibility_window
-    if cutoff in new_history:
-        del new_history[cutoff]
+    new_history.pop(t - config.eligibility_window, None)
     return ModelState(weights=state.weights, history=new_history)

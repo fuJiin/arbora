@@ -28,13 +28,12 @@ class TestTrain:
     def test_respects_max_tokens(self):
         encoder_config = EncoderConfig(n=128, k=5)
         model_config = ModelConfig(n=128, k=5, eligibility_window=10)
-        training_config = TrainingConfig(max_tokens=20, log_interval=5, rolling_window=5)
+        training_config = TrainingConfig(
+            max_tokens=20, log_interval=5, rolling_window=5
+        )
 
         # Create a fixed stream instead of using real data
-        stream = [
-            (t, encode_token(t % 10, encoder_config))
-            for t in range(20)
-        ]
+        stream = [(t, encode_token(t % 10, encoder_config)) for t in range(20)]
 
         log_calls: list[tuple[int, float]] = []
 
@@ -42,7 +41,10 @@ class TestTrain:
             log_calls.append((t, rolling))
 
         state = train(
-            iter(stream), model_config, encoder_config, training_config,
+            iter(stream),
+            model_config,
+            encoder_config,
+            training_config,
             log_fn=mock_log,
         )
 
@@ -51,20 +53,20 @@ class TestTrain:
     def test_calls_log_fn_at_intervals(self):
         encoder_config = EncoderConfig(n=128, k=5)
         model_config = ModelConfig(n=128, k=5, eligibility_window=10)
-        training_config = TrainingConfig(max_tokens=30, log_interval=10, rolling_window=5)
+        training_config = TrainingConfig(
+            max_tokens=30, log_interval=10, rolling_window=5
+        )
 
-        stream = [
-            (t, encode_token(t % 5, encoder_config))
-            for t in range(30)
-        ]
+        stream = [(t, encode_token(t % 5, encoder_config)) for t in range(30)]
 
         log_calls: list[tuple[int, float]] = []
 
         def mock_log(t: int, rolling: float) -> None:
             log_calls.append((t, rolling))
 
-        train(iter(stream), model_config, encoder_config, training_config,
-              log_fn=mock_log)
+        train(
+            iter(stream), model_config, encoder_config, training_config, log_fn=mock_log
+        )
 
         # Should log at t=10 and t=20 (multiples of log_interval that are > 0)
         logged_ts = [t for t, _ in log_calls]
