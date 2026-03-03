@@ -9,7 +9,11 @@ from step.sdr import encode_token
 
 def token_stream(
     training_config: TrainingConfig, encoder_config: EncoderConfig
-) -> Iterator[tuple[int, frozenset[int]]]:
+) -> Iterator[tuple[int, int, frozenset[int]]]:
+    """Yield (t, token_id, sdr) tuples from the dataset.
+
+    token_id is needed for SDR definitions and accuracy tracking.
+    """
     tokenizer = AutoTokenizer.from_pretrained(encoder_config.model_name)
     assert tokenizer is not None
     dataset = load_dataset(
@@ -22,7 +26,7 @@ def token_stream(
     for example in dataset:
         token_ids = tokenizer.encode(example["text"])
         for tid in token_ids:
-            yield t, encode_token(tid, encoder_config)
+            yield t, tid, encode_token(tid, encoder_config)
             t += 1
             if t >= training_config.max_tokens:
                 return
