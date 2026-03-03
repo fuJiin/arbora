@@ -6,6 +6,7 @@ class EncoderConfig:
     model_name: str = "gpt2"
     n: int = 2048
     k: int = 40
+    vocab_size: int = 50257
 
 
 @dataclass

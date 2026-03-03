@@ -11,4 +11,6 @@ build/
 *.so
 .DS_Store
 experiments/runs/
+experiments/checkpoints/
 *.db
+*.pt

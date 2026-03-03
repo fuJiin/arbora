@@ -47,7 +47,7 @@ def step_next_token_accuracy(
     vocab_size = 50257
     token_ids = rng.integers(0, vocab_size, size=training_config.max_tokens)
 
-    state = initial_state()
+    state = initial_state(model_config)
     ious: list[float] = []
     accuracies: list[float] = []
     seen_tokens: dict[int, frozenset[int]] = {}
