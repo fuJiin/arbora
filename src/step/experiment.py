@@ -7,7 +7,7 @@ from pathlib import Path
 
 from step.config import EncoderConfig, ModelConfig, TrainingConfig
 from step.metrics import rolling_mean
-from step.model import initial_state, observe, predict, update
+from step.model import initial_state, learn, observe, predict
 from step.sdr import encode_token
 
 
@@ -43,7 +43,6 @@ def run_step_experiment(config: ExperimentConfig) -> RunResult:
     tc = config.training
 
     # Generate a reproducible token sequence by sampling token IDs
-    # We sample from the GPT-2 vocab range
     vocab_size = 50257
     token_ids = rng.integers(0, vocab_size, size=tc.max_tokens)
 
@@ -58,7 +57,7 @@ def run_step_experiment(config: ExperimentConfig) -> RunResult:
 
         if t > 0:
             predicted = predict(state, t, mc)
-            iou = update(state, t, current_sdr, predicted, mc)
+            iou = learn(state, t, current_sdr, predicted, mc)
             ious.append(iou)
 
             if t % tc.log_interval == 0:
@@ -104,7 +103,7 @@ def run_multi_seed(
 def save_result(result: RunResult, output_dir: Path) -> Path:
     """Save a run result as JSON. Returns the path written."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{result.config.name}_seed{result.config.seed}.json"
+    filename = f"seed{result.config.seed}.json"
     path = output_dir / filename
 
     data = {

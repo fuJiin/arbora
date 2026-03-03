@@ -19,7 +19,7 @@ import numpy as np
 
 from step.config import EncoderConfig, ModelConfig, TrainingConfig
 from step.metrics import compute_iou
-from step.model import initial_state, observe, predict, update
+from step.model import initial_state, learn, observe, predict
 from step.sdr import encode_token
 
 
@@ -58,7 +58,7 @@ def step_next_token_accuracy(
 
         if t > 0 and len(seen_tokens) > 1:
             predicted = predict(state, t, model_config)
-            iou = update(state, t, current_sdr, predicted, model_config)
+            iou = learn(state, t, current_sdr, predicted, model_config)
             ious.append(iou)
 
             # Next-token accuracy: find best matching token from seen vocab
@@ -73,7 +73,7 @@ def step_next_token_accuracy(
             accuracies.append(1.0 if best_tid == tid else 0.0)
         elif t > 0:
             predicted = predict(state, t, model_config)
-            iou = update(state, t, current_sdr, predicted, model_config)
+            iou = learn(state, t, current_sdr, predicted, model_config)
             ious.append(iou)
 
         state = observe(state, t, current_sdr, model_config)
