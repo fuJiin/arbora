@@ -32,8 +32,7 @@ class TestTrain:
             max_tokens=20, log_interval=5, rolling_window=5
         )
 
-        # Create a fixed stream instead of using real data
-        stream = [(t, encode_token(t % 10, encoder_config)) for t in range(20)]
+        stream = [(t, t % 10, encode_token(t % 10, encoder_config)) for t in range(20)]
 
         log_calls: list[tuple[int, float]] = []
 
@@ -57,7 +56,7 @@ class TestTrain:
             max_tokens=30, log_interval=10, rolling_window=5
         )
 
-        stream = [(t, encode_token(t % 5, encoder_config)) for t in range(30)]
+        stream = [(t, t % 5, encode_token(t % 5, encoder_config)) for t in range(30)]
 
         log_calls: list[tuple[int, float]] = []
 
