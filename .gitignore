@@ -11,3 +11,4 @@ build/
 *.so
 .DS_Store
 experiments/runs/
+*.db
