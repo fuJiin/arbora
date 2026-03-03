@@ -4,33 +4,42 @@
 Research project comparing biologically-plausible learning (eligibility propagation + sparse distributed representations) against standard backprop in transformers. Built with NumPy (STEP model) and PyTorch (baseline GPT). Python 3.12+, managed with uv.
 
 ## Architecture
-- **Functional core**: Pure functions with explicit state threading via `ModelState` NamedTuple
-- **Key modules**: `sdr.py` (encoding), `model.py` (predict/update/observe), `training.py` (train loop), `data.py` (tokenizer + dataset streaming)
-- **Experiment infra**: `experiment.py` (seed-controlled runner, JSON logging), `figures.py` (matplotlib plots with error bars)
+- **Dual model implementations**:
+  - `model.py`: Functional core with explicit state threading via `ModelState` NamedTuple (in-memory, numpy arrays)
+  - `db.py`: SQLite-backed `StepModel` class with lazy weight decay, SQL aggregation for predict/learn, persistence
+- **Model protocol** (`protocol.py`): `Model` protocol for running STEP and baselines through the same harness
+- **Key modules**: `sdr.py` (encoding), `metrics.py` (IoU, rolling mean), `data.py` (tokenizer + dataset streaming, yields `(t, token_id, sdr)` tuples)
+- **Experiment infra**: `experiment.py` (seed-controlled runner, JSON logging), `figures.py` (matplotlib plots)
+- **Scripts**: `experiments/scripts/run_step.py`, `run_sweep.py` (JSON output only), `visualize.py` (reads JSON, produces figures)
 - **Configs**: `EncoderConfig`, `ModelConfig`, `TrainingConfig`, `ExperimentConfig`
-- **In-place mutation**: Weight arrays mutated inside `update()` for performance (documented, intentional)
+- **Naming**: experiments use `exp{N}_{name}` convention (e.g., `exp0_tinystories`)
 
 ## Current Work
-- Core STEP package extracted and tested (40 tests passing)
-- MiniGPT implemented (from-scratch causal transformer, ~100 lines) but untested — torch unavailable on current platform (macOS x86_64, needs arm64 or Linux)
-- Comparison harness: `step_next_token_accuracy()` implemented in `baselines/compare.py`
-- Initial experiments complete with figures:
-  - `step_quick`: 5 seeds x 5k tokens, learning curve + IoU distribution
-  - SDR size sweep: n={256,512,1024}, 3 seeds each
-  - Learning rate sweep: lr={0.1,0.3,0.5,0.8}, 3 seeds each
-- **Key finding**: IoU is flat at ~0.04 across all configs. Model is not learning above chance. This is the critical issue to investigate.
+- Completed major refactoring:
+  - Renamed `update()` -> `learn()` across all modules
+  - Merged `normalize.py` into `model.py` as `_local_normalize()`
+  - Moved experiment scripts to `experiments/scripts/`, separated visualization
+  - Added experiment versioning (`expN` naming, `seedN.json` output files)
+  - Updated `data.py` to yield `(t, token_id, sdr)` 3-tuples
+  - Implemented SQLite-backed `StepModel` in `db.py` with:
+    - Lazy weight decay via `POWER(decay, dt)` at read time
+    - SQL aggregation for predict (synapse voting) and learn (reinforce + penalize)
+    - Inverted index decode (SDR -> token_id)
+    - Persistence, metrics logging, checkpoint/resume
+  - Created `Model` protocol in `protocol.py`
+  - Added `*.db` to `.gitignore`
+- 60 tests passing (20 new SQLite model tests)
 
 ## Key Decisions
-- `compute_iou` uses proper set IoU (intersection/union), not overlap/k from dump.py
-- `penalty_factor` separated from `weight_decay` (fixes original bug)
-- SDRs are `frozenset[int]` for immutability and hashability
-- Tokenizer isolated in `data.py`; `sdr.py` is pure math with zero I/O deps
-- Experiments use random token sequences (seeded) rather than real dataset streaming, for speed and reproducibility
-- Research outputs: `experiments/configs/` committed, `experiments/runs/` gitignored, `experiments/figures/` committed
+- `learn()` renamed from `update()` for clarity
+- `_local_normalize()` made private, merged into `model.py` (only caller)
+- SQLite model uses lazy decay: `w * POWER(decay, current_t - last_updated_t)` at read time, no batch updates needed
+- `StepModel` owns its SQLite connection, uses context manager pattern
+- Experiment scripts save JSON only; visualization is a separate script
+- `data.py` yields 3-tuples `(t, token_id, sdr)` — token_id needed for SDR definitions and accuracy tracking
 
 ## Next Steps
-- [ ] Investigate why IoU is flat — likely the random token stream has no learnable structure (no repeated sequences). Try repeating short patterns or real text.
-- [ ] Run experiments with real TinyStories data (requires network, slower)
+- [ ] Run exp0 with TinyStories data to verify learning signal
+- [ ] Wire `StepModel` (SQLite) into experiment runner as alternative to functional model
 - [ ] Test MiniGPT on a machine with torch support
-- [ ] Build full comparison figures (STEP vs GPT on shared accuracy metric)
-- [ ] Rename directory `nano_egpt` → `step` (can't be done mid-session; breaks Bash tool cwd)
+- [ ] Build full comparison figures (STEP vs GPT on shared accuracy metric via Model protocol)
