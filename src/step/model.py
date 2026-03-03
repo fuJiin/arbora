@@ -4,7 +4,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 from step.config import ModelConfig
-from step.normalize import local_normalize
 
 
 class ModelState(NamedTuple):
@@ -14,6 +13,11 @@ class ModelState(NamedTuple):
 
 def initial_state() -> ModelState:
     return ModelState(weights={}, history={})
+
+
+def _local_normalize(vector: NDArray[np.floating]) -> NDArray[np.floating]:
+    max_val = np.max(vector)
+    return vector / max_val if max_val > 0 else vector
 
 
 def predict(state: ModelState, t: int, config: ModelConfig) -> frozenset[int]:
@@ -29,13 +33,13 @@ def predict(state: ModelState, t: int, config: ModelConfig) -> frozenset[int]:
             if bit_idx in state.weights:
                 prediction_vector += state.weights[bit_idx] * strength
 
-    prediction_vector = local_normalize(prediction_vector)
+    prediction_vector = _local_normalize(prediction_vector)
 
     top_k_indices = np.argpartition(prediction_vector, -config.k)[-config.k :]
     return frozenset(int(idx) for idx in top_k_indices)
 
 
-def update(
+def learn(
     state: ModelState,
     t: int,
     current_sdr: frozenset[int],
