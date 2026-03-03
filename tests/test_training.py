@@ -7,7 +7,7 @@ from step.training import train, train_step
 class TestTrainStep:
     def test_first_step_no_iou(self):
         config = ModelConfig(n=64, k=4, eligibility_window=10)
-        state = initial_state()
+        state = initial_state(config)
         sdr = frozenset({0, 1, 2, 3})
         state, iou = train_step(state, t=0, current_sdr=sdr, config=config)
         assert iou is None
@@ -15,7 +15,7 @@ class TestTrainStep:
 
     def test_second_step_has_iou(self):
         config = ModelConfig(n=64, k=4, eligibility_window=10)
-        state = initial_state()
+        state = initial_state(config)
         sdr0 = frozenset({0, 1, 2, 3})
         state, _ = train_step(state, t=0, current_sdr=sdr0, config=config)
         sdr1 = frozenset({4, 5, 6, 7})
@@ -78,5 +78,4 @@ class TestTrain:
         training_config = TrainingConfig(max_tokens=0, log_interval=10)
 
         state = train(iter([]), model_config, encoder_config, training_config)
-        assert state.weights == {}
         assert state.history == {}
