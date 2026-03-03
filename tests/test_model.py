@@ -1,7 +1,15 @@
 import numpy as np
+import pytest
 
 from step.config import ModelConfig
-from step.model import ModelState, initial_state, observe, predict, update
+from step.model import (
+    ModelState,
+    _local_normalize,
+    initial_state,
+    learn,
+    observe,
+    predict,
+)
 
 
 class TestInitialState:
@@ -48,7 +56,7 @@ class TestPredict:
         assert len(pred) == 4
 
 
-class TestUpdate:
+class TestLearn:
     def setup_method(self):
         self.config = ModelConfig(
             n=64,
@@ -61,7 +69,7 @@ class TestUpdate:
 
     def test_returns_iou(self):
         state = ModelState(weights={}, history={0: frozenset({10})})
-        iou = update(
+        iou = learn(
             state,
             t=1,
             current_sdr=frozenset({0, 1, 2, 3}),
@@ -74,7 +82,7 @@ class TestUpdate:
         current = frozenset({0, 1, 2, 3})
         predicted = frozenset({0, 1, 4, 5})
         state = ModelState(weights={}, history={0: frozenset({10})})
-        update(
+        learn(
             state, t=1, current_sdr=current, predicted_sdr=predicted, config=self.config
         )
         for idx in current:
@@ -84,7 +92,7 @@ class TestUpdate:
         current = frozenset({0, 1, 2, 3})
         predicted = frozenset({0, 1, 4, 5})
         state = ModelState(weights={}, history={0: frozenset({10})})
-        update(
+        learn(
             state, t=1, current_sdr=current, predicted_sdr=predicted, config=self.config
         )
         for idx in predicted - current:
@@ -98,7 +106,7 @@ class TestUpdate:
         original = state.weights[10].copy()
         # Perfect prediction → eta=0, only decay applies
         current = frozenset({0, 1, 2, 3})
-        update(
+        learn(
             state, t=1, current_sdr=current, predicted_sdr=current, config=self.config
         )
         for idx in range(4, 64):
@@ -135,7 +143,7 @@ class TestObserve:
 
 
 class TestRoundTrip:
-    def test_predict_update_observe_cycle(self):
+    def test_predict_learn_observe_cycle(self):
         config = ModelConfig(n=64, k=4, eligibility_window=10)
         state = initial_state()
 
@@ -145,9 +153,36 @@ class TestRoundTrip:
         for t, sdr in enumerate(sdrs):
             if t > 0:
                 pred = predict(state, t, config)
-                iou = update(state, t, sdr, pred, config)
+                iou = learn(state, t, sdr, pred, config)
                 ious.append(iou)
             state = observe(state, t, sdr, config)
 
         assert len(ious) == len(sdrs) - 1
         assert all(0.0 <= x <= 1.0 for x in ious)
+
+
+class TestLocalNormalize:
+    def test_positive_values(self):
+        vec = np.array([2.0, 4.0, 1.0])
+        result = _local_normalize(vec)
+        np.testing.assert_array_almost_equal(result, [0.5, 1.0, 0.25])
+
+    def test_max_becomes_one(self):
+        vec = np.array([3.0, 7.0, 5.0])
+        result = _local_normalize(vec)
+        assert result.max() == pytest.approx(1.0)
+
+    def test_zero_vector_unchanged(self):
+        vec = np.zeros(5)
+        result = _local_normalize(vec)
+        np.testing.assert_array_equal(result, np.zeros(5))
+
+    def test_all_negative_unchanged(self):
+        vec = np.array([-1.0, -2.0, -3.0])
+        result = _local_normalize(vec)
+        np.testing.assert_array_equal(result, vec)
+
+    def test_mixed_with_positive_max(self):
+        vec = np.array([-1.0, 2.0, 0.0])
+        result = _local_normalize(vec)
+        np.testing.assert_array_almost_equal(result, [-0.5, 1.0, 0.0])
