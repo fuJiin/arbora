@@ -94,8 +94,8 @@ class MiniGPT(nn.Module):
         self.tok_emb.weight = self.lm_head.weight  # weight tying
 
     def forward(self, idx: torch.Tensor) -> torch.Tensor:
-        B, T = idx.size()
-        assert T <= self.config.block_size
+        _B, T = idx.size()
+        assert self.config.block_size >= T
         pos = torch.arange(T, device=idx.device)
         x = self.drop(self.tok_emb(idx) + self.pos_emb(pos))
         x = self.blocks(x)
