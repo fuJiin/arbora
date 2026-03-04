@@ -67,10 +67,12 @@ def pretrain_step_model(
     model: Model,
     config: ExperimentConfig,
     token_cache: list[tuple[int, frozenset[int]]] | None = None,
+    on_step: Callable[[int, Model], None] | None = None,
 ) -> None:
     """Pre-train a STEP model by running observe+learn on a token stream.
 
     This is STEP's equivalent of MiniGPT's pre-training phase.
+    If on_step is provided, it is called with (t, model) each step.
     """
     tc = config.training
     total = tc.max_tokens
@@ -81,6 +83,9 @@ def pretrain_step_model(
             predicted_sdr = model.predict_sdr(t)
             model.learn(t, sdr, predicted_sdr)
         model.observe(t, token_id, sdr)
+
+        if on_step is not None:
+            on_step(t, model)
 
         if t > 0 and t % tc.log_interval == 0:
             elapsed = time.monotonic() - start
@@ -100,10 +105,12 @@ def run_experiment(
     model_name: str,
     native_metric_name: str = "iou",
     token_cache: list[tuple[int, frozenset[int]]] | None = None,
+    on_eval_step: Callable[[int, int, int, float], None] | None = None,
 ) -> ComparisonRunResult:
     """Run an experiment using any Model-protocol-conforming model.
 
     If token_cache is provided, replays from cache (no re-download).
+    If on_eval_step is provided, called with (t, pred, actual, metric).
     Loop: predict_token -> predict_sdr -> learn -> observe.
     """
     tc = config.training
@@ -125,6 +132,9 @@ def run_experiment(
 
             accuracies.append(accuracy)
             native_metrics.append(native_metric)
+
+            if on_eval_step is not None:
+                on_eval_step(t, predicted_token, token_id, native_metric)
 
             if t % tc.log_interval == 0:
                 rolling_acc = rolling_mean(accuracies, tc.rolling_window)
