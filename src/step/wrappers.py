@@ -2,6 +2,7 @@
 
 from step.config import EncoderConfig, ModelConfig
 from step.model import ModelState, initial_state, learn, observe, predict
+from step.sdr import AdaptiveEncoder
 
 
 class StepMemoryModel:
@@ -15,10 +16,38 @@ class StepMemoryModel:
         self.model_config = model_config
         self.encoder_config = encoder_config
         self._state: ModelState = initial_state(model_config)
+        self._encoder: AdaptiveEncoder | None = None
+        if encoder_config.adaptive:
+            self._encoder = AdaptiveEncoder(encoder_config)
         # Inverted index decode: bit_index -> [token_indices]
         self._token_ids: list[int] = []
         self._token_id_to_idx: dict[int, int] = {}
         self._inverted_index: dict[int, list[int]] = {}
+
+    def encode_token_sdr(self, token_id: int, t: int = -1) -> frozenset[int]:
+        """Encode a token using adaptive encoder (if enabled) or hash-based."""
+        if self._encoder is not None:
+            # Only compute context for NEW tokens
+            if token_id not in self._encoder._token_sdrs:
+                context = self._get_seeding_context(t)
+            else:
+                context = None
+            return self._encoder.encode(token_id, context)
+        from step.sdr import encode_token
+
+        return encode_token(token_id, self.encoder_config)
+
+    def _get_seeding_context(self, t: int) -> list[int] | None:
+        """Get context bits for seeding a new token's SDR."""
+        if self.encoder_config.seeding == "predicted" and t >= 0:
+            # Use model's prediction as context — seed from what was EXPECTED
+            predicted = predict(self._state, t, self.model_config)
+            return list(predicted) if predicted else None
+        # Default "active": use all bits from the eligibility window
+        bits: list[int] = []
+        for sdr in self._state.history.values():
+            bits.extend(sdr)
+        return bits or None
 
     def predict_token(self, t: int) -> int:
         sdr = self.predict_sdr(t)

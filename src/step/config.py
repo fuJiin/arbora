@@ -7,6 +7,10 @@ class EncoderConfig:
     n: int = 2048
     k: int = 40
     vocab_size: int = 50257
+    adaptive: bool = False
+    context_fraction: float = 0.5
+    # "active" (eligibility bits) or "predicted" (model prediction)
+    seeding: str = "active"
 
 
 @dataclass
