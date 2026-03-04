@@ -1,7 +1,14 @@
 """Wrap in-memory STEP model into the Model protocol."""
 
 from step.config import EncoderConfig, ModelConfig
-from step.model import ModelState, initial_state, learn, observe, predict
+from step.model import (
+    ModelState,
+    initial_state,
+    learn,
+    observe,
+    predict,
+    predict_with_vector,
+)
 from step.sdr import AdaptiveEncoder
 
 
@@ -50,8 +57,8 @@ class StepMemoryModel:
         return bits or None
 
     def predict_token(self, t: int) -> int:
-        sdr = self.predict_sdr(t)
-        return self._decode(sdr)
+        sdr, vector = predict_with_vector(self._state, t, self.model_config)
+        return self._decode(sdr, vector)
 
     def predict_sdr(self, t: int) -> frozenset[int]:
         return predict(self._state, t, self.model_config)
@@ -70,15 +77,21 @@ class StepMemoryModel:
                 self._inverted_index.setdefault(bit, []).append(idx)
         self._state = observe(self._state, t, sdr, self.model_config)
 
-    def _decode(self, sdr: frozenset[int]) -> int:
-        """Find best-matching token via inverted index overlap count."""
+    def _decode(self, sdr: frozenset[int], vector=None) -> int:
+        """Find best-matching token via inverted index.
+
+        If vector is provided, weights each bit's contribution by
+        prediction strength (weight-aware decode). Otherwise falls
+        back to simple overlap counting.
+        """
         if not sdr or not self._token_ids:
             return -1
-        counts: dict[int, int] = {}
+        scores: dict[int, float] = {}
         for bit in sdr:
+            w = float(vector[bit]) if vector is not None else 1.0
             for idx in self._inverted_index.get(bit, ()):
-                counts[idx] = counts.get(idx, 0) + 1
-        if not counts:
+                scores[idx] = scores.get(idx, 0.0) + w
+        if not scores:
             return -1
-        best_idx = max(counts, key=counts.__getitem__)
+        best_idx = max(scores, key=scores.__getitem__)
         return self._token_ids[best_idx]

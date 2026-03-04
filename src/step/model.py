@@ -24,10 +24,14 @@ def _local_normalize(vector: NDArray[np.floating]) -> NDArray[np.floating]:
     return vector / max_val if max_val > 0 else vector
 
 
-def predict(state: ModelState, t: int, config: ModelConfig) -> frozenset[int]:
-    window = config.eligibility_window
+def _compute_prediction_vector(
+    state: ModelState, t: int, config: ModelConfig
+) -> NDArray[np.floating] | None:
+    """Compute the raw prediction vector (weighted sum of weight rows).
 
-    # Gather all source bits with their strengths
+    Returns None if no history is available.
+    """
+    window = config.eligibility_window
     src_bits: list[int] = []
     strengths: list[float] = []
     for i in range(max(0, t - window), t):
@@ -39,22 +43,39 @@ def predict(state: ModelState, t: int, config: ModelConfig) -> frozenset[int]:
             strengths.append(strength)
 
     if not src_bits:
-        # No history — return arbitrary k indices
-        top_k_indices = np.arange(config.k)
-        return frozenset(int(idx) for idx in top_k_indices)
+        return None
 
-    # Weighted sum of weight rows: prediction = sum(strength_i * weights[src_i])
     src_arr = np.array(src_bits, dtype=np.intp)
     str_arr = np.array(strengths, dtype=np.float32)
-    # Select rows and multiply by strengths, then sum
     prediction_vector = (state.weights[src_arr] * str_arr[:, np.newaxis]).sum(
         axis=0
     )
+    return _local_normalize(prediction_vector)
 
-    prediction_vector = _local_normalize(prediction_vector)
+
+def predict(state: ModelState, t: int, config: ModelConfig) -> frozenset[int]:
+    prediction_vector = _compute_prediction_vector(state, t, config)
+
+    if prediction_vector is None:
+        top_k_indices = np.arange(config.k)
+        return frozenset(int(idx) for idx in top_k_indices)
 
     top_k_indices = np.argpartition(prediction_vector, -config.k)[-config.k :]
     return frozenset(int(idx) for idx in top_k_indices)
+
+
+def predict_with_vector(
+    state: ModelState, t: int, config: ModelConfig
+) -> tuple[frozenset[int], NDArray[np.floating] | None]:
+    """Like predict(), but also returns the raw prediction vector."""
+    prediction_vector = _compute_prediction_vector(state, t, config)
+
+    if prediction_vector is None:
+        top_k_indices = np.arange(config.k)
+        return frozenset(int(idx) for idx in top_k_indices), None
+
+    top_k_indices = np.argpartition(prediction_vector, -config.k)[-config.k :]
+    return frozenset(int(idx) for idx in top_k_indices), prediction_vector
 
 
 def learn(
