@@ -1,6 +1,7 @@
 """Wrap in-memory STEP model into the Model protocol."""
 
 from step.config import EncoderConfig, ModelConfig
+from step.data import STORY_BOUNDARY
 from step.model import (
     ModelState,
     initial_state,
@@ -69,6 +70,9 @@ class StepMemoryModel:
         return learn(self._state, t, actual_sdr, predicted_sdr, self.model_config)
 
     def observe(self, t: int, token_id: int, sdr: frozenset[int]) -> None:
+        if token_id == STORY_BOUNDARY:
+            self._state.history.clear()
+            return
         if token_id not in self._token_id_to_idx:
             idx = len(self._token_ids)
             self._token_ids.append(token_id)
