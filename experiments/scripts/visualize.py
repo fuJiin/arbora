@@ -106,12 +106,14 @@ COLORS = {
     "step_memory": "#2563eb",
     "step_sqlite": "#dc2626",
     "mini_gpt": "#16a34a",
+    "tinystories_1m": "#f59e0b",
 }
 
 LABELS = {
     "step_memory": "STEP (memory)",
     "step_sqlite": "STEP (SQLite)",
     "mini_gpt": "MiniGPT",
+    "tinystories_1m": "TinyStories-1M (ceiling)",
 }
 
 

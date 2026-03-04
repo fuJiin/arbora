@@ -41,6 +41,22 @@ def make_step_sqlite_factory(db_path: Path):
     return factory
 
 
+def make_tinystories_1m_factory():
+    import torch
+    from transformers import AutoModelForCausalLM
+
+    from baselines.wrappers import TinyStories1MModel
+
+    def factory(config: ExperimentConfig):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = AutoModelForCausalLM.from_pretrained("roneneldan/TinyStories-1M")
+        model.to(device)
+        model.eval()
+        return TinyStories1MModel(model, context_length=512)
+
+    return factory
+
+
 def make_mini_gpt_factory(checkpoint_path: Path, gpt_config_dict: dict):
     import torch
 
@@ -132,10 +148,64 @@ def main(config_path: str | None = None) -> None:
             make_mini_gpt_factory(checkpoint_path, raw["mini_gpt"]),
             "cross_entropy_loss",
         )
+    if "tinystories_1m" in models_to_run:
+        factories["tinystories_1m"] = (
+            make_tinystories_1m_factory(),
+            "cross_entropy_loss",
+        )
+
+    # --- Setup diagnostics (if configured) ---
+    diag_cfg = raw.get("diagnostics", {})
+    diagnostics = None
+    if diag_cfg.get("enabled") and any(m.startswith("step_") for m in models_to_run):
+        from step.diagnostics import (
+            DiagnosticCollector,
+            compute_bigram_sdr_overlap,
+            compute_story_boundaries,
+            save_bigram_overlap,
+        )
+
+        print("--- Computing diagnostic baselines ---")
+        # Compute story boundaries from the pretrain dataset
+        story_boundaries = []
+        if step_pretrain_cfg and train_cache is not None:
+            pretrain_tc = TrainingConfig(
+                dataset_name=raw["training"]["dataset_name"],
+                dataset_split=step_pretrain_cfg["dataset_split"],
+                max_tokens=step_pretrain_cfg["max_tokens"],
+            )
+            story_boundaries = compute_story_boundaries(
+                pretrain_tc, exp_config.encoder
+            )
+            print(f"  Found {len(story_boundaries):,} story boundaries")
+
+        # Compute bigram SDR overlap from eval cache
+        bigram_results = compute_bigram_sdr_overlap(
+            eval_cache,
+            exp_config.encoder,
+            top_n=diag_cfg.get("bigram_top_n", 50),
+        )
+        diag_dir = output_base / "diagnostics"
+        save_bigram_overlap(bigram_results, diag_dir)
+        print(f"  Computed bigram overlap for {len(bigram_results)} bigrams")
+
+        diagnostics = DiagnosticCollector(
+            weight_snapshot_interval=diag_cfg.get("weight_snapshot_interval", 1000),
+            log_predictions=diag_cfg.get("log_predictions", True),
+            story_boundaries=story_boundaries,
+        )
+        print()
 
     results: list[ComparisonRunResult] = []
     for model_name in models_to_run:
         factory, native_metric_name = factories[model_name]
+
+        # Prepare diagnostic callbacks for STEP models
+        on_step_cb = None
+        on_eval_cb = None
+        if diagnostics is not None and model_name.startswith("step_"):
+            on_step_cb = diagnostics.on_pretrain_step
+            on_eval_cb = diagnostics.on_eval_step
 
         # Pre-train STEP models on train split
         if model_name.startswith("step_") and train_cache is not None:
@@ -154,7 +224,9 @@ def main(config_path: str | None = None) -> None:
             )
             # Create model, pre-train it, then reuse for eval
             model_instance = factory(exp_config)
-            pretrain_step_model(model_instance, pretrain_config, train_cache)
+            pretrain_step_model(
+                model_instance, pretrain_config, train_cache, on_step=on_step_cb
+            )
             print()
 
             # Wrap in a factory that returns the pre-trained instance
@@ -166,7 +238,7 @@ def main(config_path: str | None = None) -> None:
             print(f"--- Evaluating {model_name} ---")
             result = run_experiment(
                 exp_config, pretrained_factory, model_name,
-                native_metric_name, eval_cache,
+                native_metric_name, eval_cache, on_eval_step=on_eval_cb,
             )
         else:
             print(f"--- Evaluating {model_name} ---")
@@ -194,6 +266,12 @@ def main(config_path: str | None = None) -> None:
             f"elapsed = {result.elapsed_seconds:.1f}s"
         )
         print()
+
+    # Save diagnostics
+    if diagnostics is not None:
+        diag_dir = output_base / "diagnostics"
+        diagnostics.save(diag_dir)
+        print(f"Diagnostics saved to: {diag_dir}")
 
     print(f"Results saved to: {output_base}")
 
