@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
+import step.env  # noqa: F401 — loads HF_TOKEN from .env
 from baselines.mini_gpt import MiniGPT, MiniGPTConfig
 
 
