@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 
 from baselines.mini_gpt import MiniGPT, MiniGPTConfig
+from step.data import STORY_BOUNDARY
 
 
 class MiniGPTModel:
@@ -48,6 +49,9 @@ class MiniGPTModel:
             return float(loss.item())
 
     def observe(self, t: int, token_id: int, sdr: frozenset[int]) -> None:
+        if token_id == STORY_BOUNDARY:
+            self._context.clear()
+            return
         self._context.append(token_id)
         if len(self._context) > self.config.block_size:
             self._context = self._context[-self.config.block_size :]
@@ -60,9 +64,15 @@ class TinyStories1MModel:
     Maintains a rolling context buffer truncated to context_length (512).
     """
 
-    def __init__(self, model: torch.nn.Module, context_length: int = 512):
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        context_length: int = 512,
+        vocab_size: int = 10000,
+    ):
         self.model = model
         self.context_length = context_length
+        self.vocab_size = vocab_size
         self._context: list[int] = []
         self._device = next(model.parameters()).device
 
@@ -71,10 +81,12 @@ class TinyStories1MModel:
             return -1
         self.model.eval()
         with torch.no_grad():
-            idx = torch.tensor([self._context], dtype=torch.long, device=self._device)
+            idx = torch.tensor(
+                [self._context], dtype=torch.long, device=self._device
+            )
             output = self.model(idx)
-            logits = output.logits
-            return int(logits[0, -1].argmax().item())
+            logits = output.logits[0, -1, : self.vocab_size]
+            return int(logits.argmax().item())
 
     def predict_sdr(self, t: int) -> frozenset[int]:
         return frozenset()
@@ -99,6 +111,9 @@ class TinyStories1MModel:
             return float(loss.item())
 
     def observe(self, t: int, token_id: int, sdr: frozenset[int]) -> None:
+        if token_id == STORY_BOUNDARY:
+            self._context.clear()
+            return
         self._context.append(token_id)
         if len(self._context) > self.context_length:
             self._context = self._context[-self.context_length :]

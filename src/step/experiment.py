@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from step.config import EncoderConfig, ModelConfig, TrainingConfig
-from step.data import cached_token_stream, token_stream
+from step.data import STORY_BOUNDARY, cached_token_stream, token_stream
 from step.metrics import rolling_mean
 from step.model import initial_state, learn, observe, predict
 from step.sdr import encode_token
@@ -78,12 +78,18 @@ def pretrain_step_model(
     total = tc.max_tokens
     start = time.monotonic()
 
+    after_boundary = False
     for t, token_id, sdr in _make_stream(config, token_cache):
+        if token_id == STORY_BOUNDARY:
+            model.observe(t, token_id, sdr)
+            after_boundary = True
+            continue
         if hasattr(model, "encode_token_sdr"):
             sdr = model.encode_token_sdr(token_id, t)
-        if t > 0:
+        if t > 0 and not after_boundary:
             predicted_sdr = model.predict_sdr(t)
             model.learn(t, sdr, predicted_sdr)
+        after_boundary = False
         model.observe(t, token_id, sdr)
 
         if on_step is not None:
@@ -125,10 +131,15 @@ def run_experiment(
 
     start = time.monotonic()
 
+    after_boundary = False
     for t, token_id, sdr in _make_stream(config, token_cache):
+        if token_id == STORY_BOUNDARY:
+            model.observe(t, token_id, sdr)
+            after_boundary = True
+            continue
         if hasattr(model, "encode_token_sdr"):
             sdr = model.encode_token_sdr(token_id, t)
-        if t > 0:
+        if t > 0 and not after_boundary:
             predicted_token = model.predict_token(t)
             predicted_sdr = model.predict_sdr(t)
             accuracy = 1.0 if predicted_token == token_id else 0.0
@@ -153,6 +164,7 @@ def run_experiment(
                     f"({elapsed_so_far:.1f}s)"
                 )
 
+        after_boundary = False
         model.observe(t, token_id, sdr)
 
     elapsed = time.monotonic() - start
