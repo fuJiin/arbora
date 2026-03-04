@@ -48,10 +48,41 @@ Branch: `worktree-exp0`
 ### What this means
 The adaptive encoding IS creating useful SDR structure — the model learns better predictions (higher IoU) and longer windows become less harmful. But the inverted index decode (simple overlap count) can't turn structured predictions into correct tokens when tokens share bits.
 
-### Potential next steps (not yet started)
-1. **Weight-aware decode**: Score tokens by sum of weight magnitudes from predicted bits, not just overlap count. Higher architectural complexity but directly addresses discrimination.
-2. **Further tune active f=0.3**: May already be enough with more training data (200K pretrain) or window tuning.
-3. **Structural plasticity**: Post-hoc bit adjustment based on prediction errors — different angle on same problem.
+### Weight-aware decode (implemented)
+Uses raw prediction vector magnitudes instead of flat overlap count: `scores[idx] += vector[bit]` instead of `+= 1`. Same O(k) inverted index. Didn't fix predict f=0.5 accuracy — the weight matrix co-adapted with encoding.
+
+### IoU Lift metric (implemented)
+`lift = (model_IoU - baseline_IoU) / (1 - baseline_IoU)` — normalizes away encoding-scheme baseline overlap. Baselines computed from random pairs of token SDRs per scheme.
+
+### 200K scaling results (hash vs active f=0.3)
+| Scheme | w | Acc | IoU Lift |
+|--------|---|-----|----------|
+| hash | 3 | 30.0% | 0.2793 |
+| hash | 5 | 30.0% | 0.2579 |
+| active f=0.3 | 3 | 30.0% | 0.2839 |
+| active f=0.3 | 5 | 30.0% | 0.2684 |
+
+With 4x more data, gap narrows. Both stuck at bigram ceiling. Active f=0.3 consistently higher IoU lift.
+
+### Decode diagnostics (prediction failure vs discrimination failure)
+| | hash w=3 | predict f=0.5 w=3 | active f=0.3 w=3 |
+|---|---|---|---|
+| Accuracy | 19.2% | 17.0% | 23.6% |
+| When wrong: IoU(pred, correct) | 0.084 | **0.463** | 0.112 |
+| Confusable tokens | 717 | **1,767** | 722 |
+| Median rank of correct | 86 | **440** | 296 |
+
+- **Hash errors = prediction failure**: model doesn't know right answer (0.08 IoU)
+- **Predict f=0.5 errors = discrimination failure**: model IS close (0.46 IoU) but 1767 tokens confusable
+- **Active f=0.3**: best compromise — hash-like confusability but slightly better prediction
+
+### Status: stuck at bigram ceiling
+Both hash and active f=0.3 converge to ~30% at w=3 with enough data. Adaptive encoding adds marginal IoU lift but doesn't break the ceiling. The decoder is not the bottleneck — hash errors are prediction failures, not decode failures.
+
+### Potential next steps
+1. **Break the bigram ceiling** — the model needs to leverage w>3 context. This requires SDR structure that makes longer-range associations learnable.
+2. **Decode-only-on-random-bits** — track which bits are context vs random, decode using only discriminative random bits. Proposed but not yet tried.
+3. **Orthogonal approach**: Instead of encoding tricks, improve the learning rule itself to handle longer windows without noise accumulation.
 
 ## exp2c Results — STEP matches ceiling (completed)
 Branch: `worktree-exp0` — Short eligibility window (w=3) + weight decay/penalty
