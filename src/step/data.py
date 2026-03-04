@@ -7,6 +7,8 @@ import step.env  # noqa: F401 — loads HF_TOKEN from .env
 from step.config import EncoderConfig, TrainingConfig
 from step.sdr import encode_token
 
+STORY_BOUNDARY = -1  # sentinel token_id inserted between stories
+
 
 def token_stream(
     training_config: TrainingConfig, encoder_config: EncoderConfig
@@ -15,6 +17,7 @@ def token_stream(
 
     token_id is needed for SDR definitions and accuracy tracking.
     Uses local cache after first download (no re-streaming).
+    Inserts STORY_BOUNDARY (-1) between stories so models can reset context.
     """
     tokenizer = AutoTokenizer.from_pretrained(encoder_config.model_name)
     assert tokenizer is not None
@@ -24,7 +27,14 @@ def token_stream(
     )
 
     t = 0
+    first_story = True
     for example in dataset:
+        if not first_story:
+            yield t, STORY_BOUNDARY, frozenset()
+            t += 1
+            if t >= training_config.max_tokens:
+                return
+        first_story = False
         token_ids = tokenizer.encode(example["text"])
         for tid in token_ids:
             if tid >= encoder_config.vocab_size:
