@@ -79,6 +79,8 @@ def pretrain_step_model(
     start = time.monotonic()
 
     for t, token_id, sdr in _make_stream(config, token_cache):
+        if hasattr(model, "encode_token_sdr"):
+            sdr = model.encode_token_sdr(token_id, t)
         if t > 0:
             predicted_sdr = model.predict_sdr(t)
             model.learn(t, sdr, predicted_sdr)
@@ -124,6 +126,8 @@ def run_experiment(
     start = time.monotonic()
 
     for t, token_id, sdr in _make_stream(config, token_cache):
+        if hasattr(model, "encode_token_sdr"):
+            sdr = model.encode_token_sdr(token_id, t)
         if t > 0:
             predicted_token = model.predict_token(t)
             predicted_sdr = model.predict_sdr(t)
