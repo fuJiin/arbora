@@ -1,7 +1,10 @@
-"""Tests for model wrappers (StepMemoryModel and MiniGPTModel)."""
+"""Tests for model wrappers (StepMemoryModel, MiniGPTModel, TinyStories1MModel)."""
+
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
+import torch
 
 from step.sdr import encode_token
 from step.wrappers import StepMemoryModel
@@ -209,4 +212,75 @@ class TestMiniGPTModel:
         """learn() with < 2 tokens returns 0.0."""
         gpt_model.observe(0, 5, frozenset())
         loss = gpt_model.learn(1, frozenset(), frozenset())
+        assert loss == 0.0
+
+
+@dataclass
+class MockOutput:
+    """Mock HuggingFace model output with .logits attribute."""
+    logits: torch.Tensor
+
+
+class MockHFModel(torch.nn.Module):
+    """Mock HuggingFace CausalLM that returns MockOutput with .logits."""
+
+    def __init__(self, vocab_size: int = 100):
+        super().__init__()
+        self.vocab_size = vocab_size
+        # Need at least one parameter so next(model.parameters()) works
+        self._dummy = torch.nn.Parameter(torch.zeros(1))
+
+    def forward(self, input_ids: torch.Tensor, **kwargs) -> MockOutput:
+        batch_size, seq_len = input_ids.shape
+        logits = torch.randn(batch_size, seq_len, self.vocab_size)
+        return MockOutput(logits=logits)
+
+
+class TestTinyStories1MModel:
+    @pytest.fixture
+    def ts_model(self):
+        """Create a TinyStories1MModel with mock HF model."""
+        from baselines.wrappers import TinyStories1MModel
+
+        mock_hf = MockHFModel(vocab_size=100)
+        mock_hf.eval()
+        return TinyStories1MModel(mock_hf, context_length=16)
+
+    def test_predict_token_empty_context(self, ts_model):
+        """predict_token with no context returns -1."""
+        assert ts_model.predict_token(0) == -1
+
+    def test_predict_token_after_observe(self, ts_model):
+        """predict_token works after observing tokens."""
+        ts_model.observe(0, 5, frozenset())
+        ts_model.observe(1, 10, frozenset())
+        token = ts_model.predict_token(2)
+        assert isinstance(token, int)
+        assert 0 <= token < 100
+
+    def test_context_truncation(self, ts_model):
+        """Context is truncated to context_length."""
+        for t in range(20):  # context_length is 16
+            ts_model.observe(t, t % 100, frozenset())
+        assert len(ts_model._context) == 16
+
+    def test_predict_sdr_returns_empty(self, ts_model):
+        """predict_sdr always returns empty frozenset."""
+        assert ts_model.predict_sdr(0) == frozenset()
+        ts_model.observe(0, 5, frozenset())
+        assert ts_model.predict_sdr(1) == frozenset()
+
+    def test_learn_returns_loss(self, ts_model):
+        """learn() returns a float loss value."""
+        ts_model.observe(0, 5, frozenset())
+        ts_model.observe(1, 10, frozenset())
+        ts_model.observe(2, 15, frozenset())
+        loss = ts_model.learn(3, frozenset(), frozenset())
+        assert isinstance(loss, float)
+        assert loss >= 0.0
+
+    def test_learn_short_context(self, ts_model):
+        """learn() with < 2 tokens returns 0.0."""
+        ts_model.observe(0, 5, frozenset())
+        loss = ts_model.learn(1, frozenset(), frozenset())
         assert loss == 0.0
