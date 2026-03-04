@@ -53,13 +53,29 @@ Two-model comparison on TinyStories (50K vocab, 100K train tokens) — both at 6
 - **Tackle issues one-by-one** for publishable attribution
 - **eligibility_window=3** is the correct operating point for now (bigram model). Longer windows can be revisited after SDR encoding has structure.
 
-## Next: What to tackle after matching ceiling
+## Critical finding: STEP with w=3 is a bigram model
 
-### Option A: Beat the ceiling — more training data
-With window=3 and 200K tokens, STEP already matches TinyStories-1M at 30%. Could try 2M+ tokens to see if STEP continues to improve (bigram statistics get better with more data). The ceiling model is degraded by vocab mismatch, so STEP might actually surpass it.
+Window sweep (w=3,5,10,20) on 50K pretrain + 5K eval:
+| Window | Mean Accuracy |
+|--------|--------------|
+| 3 | 27.1% |
+| 5 | 26.6% |
+| 10 | 21.8% |
+| 20 | 13.7% |
+| **Pure bigram baseline** | **28.8%** |
 
-### Option B: SDR Adaptation (Adaptive Encoding + Structural Plasticity)
-The SDR encoding still has zero structure. Fixing this could enable longer windows to work (the original vision). Two mechanisms planned:
+STEP with w=3 ≈ bigram frequency lookup. Longer windows strictly hurt. Hash-based SDRs (zero overlap between tokens) mean every additional context token adds noise, not signal. The eligibility window mechanism works — it just needs representations that make longer contexts useful.
+
+## Next: exp3 — Adaptive Encoding (beat bigrams)
+
+**Goal**: Show STEP can generalize beyond bigrams. Success metric: window=5-10 helps instead of hurting, accuracy > 28.8% (bigram ceiling).
+
+**The bottleneck is SDR encoding.** If related tokens shared bits, longer windows would let the model learn patterns like "after a determiner, predict a noun" — actual generalization. Right now each token's bits are random.
+
+**Dataset strategy**: TinyStories is fine for proving the point — it has pronoun resolution, verb agreement, story templates that all require context > 1 token. For a paper: also PTB (classic, well-studied bigram baselines), WikiText-2 (standard), BabyLM (data-efficient, fits bio-plausible narrative).
+
+### SDR Adaptation (Adaptive Encoding + Structural Plasticity)
+The SDR encoding has zero structure. Fixing this enables longer windows (the original vision). Two mechanisms planned:
 
 #### 1. Adaptive Encoding (simpler, do first)
 When encoding a NEW token for the first time, use eligibility traces of recently active bits to determine ~50% of its bits. Remaining 50% random.
