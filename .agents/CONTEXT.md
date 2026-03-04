@@ -17,22 +17,26 @@ Research project comparing biologically-plausible learning (eligibility propagat
 - **Diagnostics** (`step/diagnostics.py`): `DiagnosticCollector` for weight stats, prediction logging, bigram SDR overlap, per-position accuracy
 - **Baselines**: `mini_gpt.py` (2-layer transformer), `pretrain.py` (training loop with cosine LR schedule), `wrappers.py`
 
-## exp2 Results (completed)
-Branch: `worktree-exp0` — TinyStories-1M ceiling + STEP diagnostics (200K pretrain, 10K eval)
+## exp2c Results — STEP matches ceiling (completed)
+Branch: `worktree-exp0` — Short eligibility window (w=3) + weight decay/penalty
 
-| Model | Params | Mean Accuracy | Final Rolling Accuracy | Native Metric |
-|-------|--------|--------------|----------------------|---------------|
-| TinyStories-1M (ceiling) | 3.7M | 24.14% | 30.00% | CE Loss: 4.70 / pplx 110 |
-| step_memory | 4.2M (n=2048) | 9.47% | 3.00% | IoU: 10.76% |
+| Model | Params | Final Rolling Accuracy | Config |
+|-------|--------|----------------------|-------|
+| TinyStories-1M (ceiling) | 3.7M | 30.00% | pre-trained, inference only |
+| **step_memory (exp2c)** | 4.2M (n=2048) | **30.00%** | w=3, decay=0.999, penalty=0.5 |
+| step_memory (exp2) | 4.2M (n=2048) | 3.00% | w=101, decay=1.0, penalty=0.0 |
 
-**Note on ceiling quality**: CE loss 4.70 (pplx 110) is much worse than published 1.71 (pplx 5.5) because we feed clamped 10K-vocab tokens to a model trained on 50K vocab — it sees UNK constantly where it expects real tokens. Still valid as a *relative* ceiling (24% vs 3%) but absolute numbers are degraded. Revisit closer to publishing: either use a 10K-vocab variant or fine-tune on clamped data.
+**Key finding**: Reducing eligibility_window from 101→3 was the breakthrough. Long window floods the (n,n) weight matrix with noise (80K updates/step across all source→target pairs). Short window concentrates learning on bigram associations where the actual predictive signal lives. 200K pretrain in 110s vs 2+ hours.
 
-### Diagnostic Findings (priority order)
-1. **Weight explosion (Critical)**: Weights grow linearly without bound (mean 0→1687, max→100K+ by 200K steps). 100% of weights > 1.0 by step ~15K. The Hebbian learning rule is purely additive with no effective normalization. This is the #1 fix needed.
-2. **Prediction collapse**: All top-20 confusions are `token_0 -> <actual>`. STEP predicts the same dominant SDR for everything, consequence of weight explosion.
-3. **SDR encoding has zero structure**: Bigram SDR overlap averages 0.9 bits (excluding self-bigrams), essentially random (k²/n = 0.78). 17/48 non-self bigrams have zero overlap. Hash-based encoding provides no similarity between related tokens.
-4. **Position accuracy**: Flat ~8-10% across story positions 0-230, drops to 0% at 240+.
-5. **IoU distribution**: Bimodal — mostly near 0, with a bump at ~0.45 from repeated tokens.
+### exp2b intermediate result
+Enabling weight_decay=0.999 + penalty_factor=0.5 with w=101: weights stabilize (mean ~5.9 vs 1687) but accuracy unchanged at ~2%. Matrix becomes uniformly dense — bounded but no discriminative signal. Weight stability is necessary but not sufficient without the short window.
+
+### exp2c weight dynamics
+Weights stabilize by ~100K steps: mean=1.35, max~10, 60% > 1.0. Healthy equilibrium — not exploding, not collapsing.
+
+### exp2 diagnostic findings (still relevant for SDR work)
+- **SDR encoding has zero structure**: Bigram SDR overlap averages 0.9 bits (random expectation k²/n = 0.78). Hash-based encoding provides no similarity between related tokens.
+- **Note on ceiling quality**: CE loss 4.70 (pplx 110) vs published 1.71 (pplx 5.5) due to 10K vocab clamping on 50K-trained model. Valid as relative ceiling.
 
 ## exp1 Results (completed)
 Ceiling transformer attempt with 10K vocab, 2M tokens — both models stuck at 3% accuracy. Key finding: 2M tokens severely insufficient for MiniGPT (needs 50-100M+).
@@ -46,55 +50,26 @@ Two-model comparison on TinyStories (50K vocab, 100K train tokens) — both at 6
 - Inverted index decode replaces dense matrix multiply (identical results, ~2600x fewer ops)
 - Cosine LR schedule with linear warmup added to MiniGPT pretraining
 - TinyStories-1M used as ceiling instead of training MiniGPT (pre-trained, no training needed)
-- **Tackle issues one-by-one** for publishable attribution: weight stability first, then SDR adaptation
+- **Tackle issues one-by-one** for publishable attribution
+- **eligibility_window=3** is the correct operating point for now (bigram model). Longer windows can be revisited after SDR encoding has structure.
 
-## Planned: exp3 — Weight Stability
+## Next: What to tackle after matching ceiling
 
-### Problem
-Hebbian learning rule is purely additive. weight_decay=1.0 is in config but not effective. Need to investigate how it's applied in model.py and fix it.
+### Option A: Beat the ceiling — more training data
+With window=3 and 200K tokens, STEP already matches TinyStories-1M at 30%. Could try 2M+ tokens to see if STEP continues to improve (bigram statistics get better with more data). The ceiling model is degraded by vocab mismatch, so STEP might actually surpass it.
 
-### Biological grounding
-- **Synaptic scaling** (Turrigiano 2008): Neurons multiplicatively scale all incoming synapses to maintain target firing rate → maps to global weight decay
-- **Heterosynaptic depression**: When some synapses strengthen (LTP), neighboring inactive ones weaken (LTD). Net synaptic weight roughly conserved → maps to misfire penalty
-- **BCM theory**: Threshold for potentiation vs depression slides based on recent activity → dynamic equilibrium
-
-Core principle: **total synaptic weight per neuron should be roughly conserved over time.**
-
-### Two levers
-1. **Global weight decay**: Multiplicative decay each step (already a config param, needs to actually work)
-2. **Misfire penalty** (`penalty_factor`): Penalize false positives (predicted bits that weren't in actual SDR). Already a config param at 0.0 — needs nonzero value.
-
-### TODO
-- Investigate why weight_decay=1.0 isn't preventing explosion
-- Determine sensible values for both params
-- Run exp3 with fix, compare to exp2 baseline
-
-## Planned: exp4 — SDR Adaptation (Adaptive Encoding + Structural Plasticity)
-
-### Problem
-Hash-based SDR encoding produces random bit patterns. Semantically related tokens share no structure (0.9 bits overlap vs 0.78 random expectation). Synapses can't learn associations when the representations have nothing in common.
-
-### Two mechanisms (do in order)
+### Option B: SDR Adaptation (Adaptive Encoding + Structural Plasticity)
+The SDR encoding still has zero structure. Fixing this could enable longer windows to work (the original vision). Two mechanisms planned:
 
 #### 1. Adaptive Encoding (simpler, do first)
-When encoding a NEW token for the first time, use eligibility traces of recently active bits to determine ~50% of its bits. Remaining 50% random. This ensures partial overlap with context from the start.
-- **Biological analog**: Hebbian priming — new representations are shaped by the context in which they first appear
-- **Hyperparameter**: overlap fraction (start at 50%, tune later)
+When encoding a NEW token for the first time, use eligibility traces of recently active bits to determine ~50% of its bits. Remaining 50% random.
+- **Biological analog**: Hebbian priming — new representations are shaped by context
 - Stateless operation — just look at eligibility traces when encoding
 
 #### 2. Structural Plasticity (bit swapping)
-Track per-token, per-bit statistics:
-- **Misfires** (false positives): bit fired in prediction but wasn't in actual SDR → accumulates negative score
-- **False negatives**: bit should have fired (was in actual) but wasn't in prediction → accumulates positive score
+Track per-token, per-bit misfires/false-negatives. When an SDR has enough deadwood, swap bits.
+- **Biological analog**: Receptor trafficking — AMPA receptor insertion/removal
+- **Concern**: Bit swaps partially invalidate existing synaptic weights
 
-When an SDR has enough deadwood (high-misfire bits) and high-potential candidates (high false-negative bits), swap them. Run every X steps (e.g., 1000).
-- **Biological analog**: Receptor trafficking — AMPA receptor insertion/removal at synapses based on activity
-- **Concern**: Bit swaps partially invalidate existing synaptic weights for that token. Mitigate with small swaps (1-2 bits at a time) and gradual change.
-
-#### 3. Sleep Consolidation (deferred, future experiment)
-After bit swaps, replay low-IoU sequences involving modified SDRs to let weights adjust. This is a separate, more complex mechanism — good standalone paper contribution. Lightweight version (replay last N occurrences) could accompany structural plasticity if transient accuracy dips are too large.
-
-### Sequencing rationale
-- Adaptive encoding first: simpler, no replay, immediate benefit for new tokens
-- Structural plasticity second: local operation, tractable without replay
-- Sleep consolidation third: complex machinery, best as its own experiment for clean attribution
+#### 3. Sleep Consolidation (deferred)
+Replay low-IoU sequences after bit swaps. Separate, more complex mechanism — good standalone paper contribution.
