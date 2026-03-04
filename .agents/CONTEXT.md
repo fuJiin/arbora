@@ -22,8 +22,10 @@ Branch: `worktree-exp0` — TinyStories-1M ceiling + STEP diagnostics (200K pret
 
 | Model | Params | Mean Accuracy | Final Rolling Accuracy | Native Metric |
 |-------|--------|--------------|----------------------|---------------|
-| TinyStories-1M (ceiling) | 3.7M | 24.14% | 30.00% | CE Loss: 4.70 |
+| TinyStories-1M (ceiling) | 3.7M | 24.14% | 30.00% | CE Loss: 4.70 / pplx 110 |
 | step_memory | 4.2M (n=2048) | 9.47% | 3.00% | IoU: 10.76% |
+
+**Note on ceiling quality**: CE loss 4.70 (pplx 110) is much worse than published 1.71 (pplx 5.5) because we feed clamped 10K-vocab tokens to a model trained on 50K vocab — it sees UNK constantly where it expects real tokens. Still valid as a *relative* ceiling (24% vs 3%) but absolute numbers are degraded. Revisit closer to publishing: either use a 10K-vocab variant or fine-tune on clamped data.
 
 ### Diagnostic Findings (priority order)
 1. **Weight explosion (Critical)**: Weights grow linearly without bound (mean 0→1687, max→100K+ by 200K steps). 100% of weights > 1.0 by step ~15K. The Hebbian learning rule is purely additive with no effective normalization. This is the #1 fix needed.
