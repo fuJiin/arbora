@@ -1,34 +1,11 @@
-import os
 from collections.abc import Iterator
-from pathlib import Path
 
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
+import step.env  # noqa: F401 — loads HF_TOKEN from .env
 from step.config import EncoderConfig, TrainingConfig
 from step.sdr import encode_token
-
-
-def _load_hf_token() -> None:
-    """Load HF token from .env file if not already in environment."""
-    if os.environ.get("HF_TOKEN"):
-        return
-    # Walk up to find .env
-    for parent in [Path.cwd(), *Path.cwd().parents]:
-        env_file = parent / ".env"
-        if env_file.exists():
-            for line in env_file.read_text().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    key, value = key.strip(), value.strip()
-                    if key in ("HF_TOKEN", "HUGGING_FACE_TOKEN"):
-                        os.environ["HF_TOKEN"] = value
-                        return
-            break
-
-
-_load_hf_token()
 
 
 def token_stream(
