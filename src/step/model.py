@@ -13,10 +13,9 @@ class ModelState(NamedTuple):
 
 def initial_state(config: ModelConfig | None = None) -> ModelState:
     n = config.n if config is not None else 0
-    return ModelState(
-        weights=np.zeros((n, n), dtype=np.float32),
-        history={},
-    )
+    init_val = config.weight_init if config is not None else 0.0
+    weights = np.full((n, n), init_val, dtype=np.float32)
+    return ModelState(weights=weights, history={})
 
 
 def _local_normalize(vector: NDArray[np.floating]) -> NDArray[np.floating]:
@@ -116,18 +115,47 @@ def learn(
     if actual_eta == 0.0:
         return iou
 
-    # Reinforce: weights[src, dst] += eta * strength for each dst in actual_sdr
     dst_arr = np.array(list(current_sdr), dtype=np.intp)
-    # Outer product: each src gets eta * its_strength added at each dst
-    delta = actual_eta * str_arr  # (num_src,)
-    state.weights[np.ix_(src_arr, dst_arr)] += delta[:, np.newaxis]
 
-    # Penalize false positives
-    false_positives = predicted_sdr - current_sdr
-    if false_positives and config.penalty_factor > 0:
-        fp_arr = np.array(list(false_positives), dtype=np.intp)
-        penalty = actual_eta * config.penalty_factor * str_arr
-        state.weights[np.ix_(src_arr, fp_arr)] -= penalty[:, np.newaxis]
+    if config.relevance_gate > 0:
+        # Three-factor gated learning (per source bit):
+        # activation = W[i,:] * trace_strength (synapse × trace)
+        # relevance = fraction of top-k(activation) in actual target
+        # Only source bits passing the gate get flat eta update.
+        # Requires weight_init > 0 to bootstrap.
+        activations = state.weights[src_arr] * str_arr[:, np.newaxis]
+        top_k_per_src = np.argpartition(
+            activations, -config.k, axis=1
+        )[:, -config.k :]
+        relevances = np.zeros(len(src_arr), dtype=np.float32)
+        dst_set = current_sdr
+        for idx in range(len(src_arr)):
+            hits = sum(1 for b in top_k_per_src[idx] if b in dst_set)
+            relevances[idx] = hits / config.k
+
+        gate_mask = relevances >= config.relevance_gate
+        if not gate_mask.any():
+            return iou
+
+        gated_src = src_arr[gate_mask]
+        # Flat eta for gated sources (no trace_strength scaling)
+        state.weights[np.ix_(gated_src, dst_arr)] += actual_eta
+
+        false_positives = predicted_sdr - current_sdr
+        if false_positives and config.penalty_factor > 0:
+            fp_arr = np.array(list(false_positives), dtype=np.intp)
+            penalty = actual_eta * config.penalty_factor
+            state.weights[np.ix_(gated_src, fp_arr)] -= penalty
+    else:
+        # Original learning rule
+        delta = actual_eta * str_arr  # (num_src,)
+        state.weights[np.ix_(src_arr, dst_arr)] += delta[:, np.newaxis]
+
+        false_positives = predicted_sdr - current_sdr
+        if false_positives and config.penalty_factor > 0:
+            fp_arr = np.array(list(false_positives), dtype=np.intp)
+            penalty = actual_eta * config.penalty_factor * str_arr
+            state.weights[np.ix_(src_arr, fp_arr)] -= penalty[:, np.newaxis]
 
     return iou
 

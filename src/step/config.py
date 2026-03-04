@@ -21,6 +21,11 @@ class ModelConfig:
     weight_decay: float = 0.999
     penalty_factor: float = 0.5
     eligibility_window: int = 101
+    # Three-factor gated learning: gate source bits by relevance.
+    # 0.0 = disabled (original rule), >0 = relevance threshold
+    relevance_gate: float = 0.0
+    # Initial weight value (default 0.0 = zero init)
+    weight_init: float = 0.0
 
 
 @dataclass
