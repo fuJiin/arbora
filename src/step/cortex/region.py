@@ -64,13 +64,9 @@ class CorticalRegion:
 
         # Feedback weights (neuron-to-neuron)
         self.fb_weights = np.zeros((self.n_l23_total, self.n_l4_total))
-        self.lateral_weights = np.zeros(
-            (self.n_l4_total, self.n_l4_total)
-        )
+        self.lateral_weights = np.zeros((self.n_l4_total, self.n_l4_total))
         # L2/3 lateral weights (associative binding across columns)
-        self.l23_lateral_weights = np.zeros(
-            (self.n_l23_total, self.n_l23_total)
-        )
+        self.l23_lateral_weights = np.zeros((self.n_l23_total, self.n_l23_total))
 
         # Per-neuron eligibility traces
         self.trace_l4 = np.zeros(self.n_l4_total)
@@ -102,10 +98,7 @@ class CorticalRegion:
             v += self.fb_boost * (fb > self.fb_boost_threshold)
 
         if self.active_l4.any():
-            lat = (
-                self.active_l4.astype(np.float64)
-                @ self.lateral_weights
-            )
+            lat = self.active_l4.astype(np.float64) @ self.lateral_weights
             v += self.fb_boost * (lat > self.fb_boost_threshold)
 
         if k >= len(v):
@@ -169,15 +162,10 @@ class CorticalRegion:
             self.voltage_l4 += self.fb_boost * (fb > self.fb_boost_threshold)
 
         if self.active_l4.any():
-            lat = (
-                self.active_l4.astype(np.float64)
-                @ self.lateral_weights
-            )
+            lat = self.active_l4.astype(np.float64) @ self.lateral_weights
             self.voltage_l4 += self.fb_boost * (lat > self.fb_boost_threshold)
 
-    def _activate_l4(
-        self, scores: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _activate_l4(self, scores: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Select top-k columns and winning L4 neuron per column.
 
         Returns (top_cols, winners_in_col) index arrays.
@@ -188,9 +176,7 @@ class CorticalRegion:
         if self.k_columns >= self.n_columns:
             top_cols = np.arange(self.n_columns)
         else:
-            top_cols = np.argpartition(
-                col_scores, -self.k_columns
-            )[-self.k_columns :]
+            top_cols = np.argpartition(col_scores, -self.k_columns)[-self.k_columns :]
 
         winners_in_col = by_col[top_cols].argmax(axis=1)
         global_winners = top_cols * self.n_l4 + winners_in_col
@@ -223,17 +209,12 @@ class CorticalRegion:
 
         # Bonus for L2/3 neuron matching the L4 winner
         valid = l4_winners_in_col < self.n_l23
-        matching = (
-            top_cols[valid] * self.n_l23 + l4_winners_in_col[valid]
-        )
+        matching = top_cols[valid] * self.n_l23 + l4_winners_in_col[valid]
         self.voltage_l23[matching] += 0.5
 
         # L2/3 lateral: previous L2/3 activity biases current selection
         if self.active_l23.any():
-            lat = (
-                self.active_l23.astype(np.float64)
-                @ self.l23_lateral_weights
-            )
+            lat = self.active_l23.astype(np.float64) @ self.l23_lateral_weights
             self.voltage_l23 += lat
 
         # Competitive selection: one winner per active column

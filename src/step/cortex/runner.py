@@ -52,9 +52,7 @@ def run_cortex(
         # Synaptic decode: walk predicted columns back through ff_weights
         predicted_cols = np.unique(predicted_neurons // region.n_l4)
         reconstructed = region.reconstruct(predicted_cols)
-        reconstructed_matrix = reconstructed.reshape(
-            encoder.length, encoder.width
-        )
+        reconstructed_matrix = reconstructed.reshape(encoder.length, encoder.width)
         synaptic_token = encoder.decode(reconstructed_matrix)
 
         # Step: feed input, triggers activation + learning

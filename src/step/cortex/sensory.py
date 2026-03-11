@@ -17,9 +17,7 @@ class SensoryRegion(CorticalRegion):
         self.input_dim = input_dim
 
         # Feedforward weights: encoding dimension → column drive
-        self.ff_weights = self._rng.uniform(
-            0, 0.1, (input_dim, self.n_columns)
-        )
+        self.ff_weights = self._rng.uniform(0, 0.1, (input_dim, self.n_columns))
 
     def process(self, encoding: np.ndarray) -> np.ndarray:
         """Feedforward an encoding through L4 → L2/3 pipeline.

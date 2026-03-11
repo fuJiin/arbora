@@ -82,9 +82,7 @@ def main():
 
     # --- Cortex model ---
     cortex_cfg = CortexConfig()
-    charbit = CharbitEncoder(
-        length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS
-    )
+    charbit = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
     input_dim = CHAR_LENGTH * CHAR_WIDTH
     region = SensoryRegion(
         input_dim=input_dim,
@@ -152,18 +150,16 @@ def main():
     )
 
     # --- Summary ---
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(
         f"{'Model':<12} {'Params':>8} {'Metric':>8} "
         f"{'Idx Acc':>8} {'Syn Acc':>8} {'Time':>8}"
     )
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     def summarize(name, metrics, n_params):
         avg_metric = (
-            sum(metrics.overlaps) / len(metrics.overlaps)
-            if metrics.overlaps
-            else 0.0
+            sum(metrics.overlaps) / len(metrics.overlaps) if metrics.overlaps else 0.0
         )
         avg_acc = (
             sum(metrics.accuracies) / len(metrics.accuracies)
@@ -196,14 +192,11 @@ def main():
         sa_tail = step_metrics.accuracies[-100:]
         cs_tail = cortex_metrics.synaptic_accuracies[-100:]
         print(
-            f"  Cortex: overlap={sum(c_tail)/100:.4f} "
-            f"idx_acc={sum(ca_tail)/100:.1%} "
-            f"syn_acc={sum(cs_tail)/100:.1%}"
+            f"  Cortex: overlap={sum(c_tail) / 100:.4f} "
+            f"idx_acc={sum(ca_tail) / 100:.1%} "
+            f"syn_acc={sum(cs_tail) / 100:.1%}"
         )
-        print(
-            f"  STEP:   iou={sum(s_tail)/100:.4f} "
-            f"acc={sum(sa_tail)/100:.1%}"
-        )
+        print(f"  STEP:   iou={sum(s_tail) / 100:.4f} acc={sum(sa_tail) / 100:.1%}")
 
 
 if __name__ == "__main__":
