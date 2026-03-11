@@ -4,10 +4,11 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
-import torch
 
 from step.sdr import encode_token
 from step.wrappers import StepMemoryModel
+
+torch = pytest.importorskip("torch")
 
 
 class TestStepMemoryModel:
@@ -67,7 +68,9 @@ class TestStepMemoryModel:
         assert model._decode(sdr_b) == tid_b
 
     def test_inverted_index_matches_matrix_decode(
-        self, small_encoder_config, small_model_config,
+        self,
+        small_encoder_config,
+        small_model_config,
     ):
         """Inverted index decode produces same results as dense matrix IoU."""
         model = StepMemoryModel(small_model_config, small_encoder_config)
@@ -104,8 +107,10 @@ class TestStepMemoryModel:
             row_sums = sdr_matrix.sum(axis=1)
             union = row_sums + float(k) - intersection
             iou = np.divide(
-                intersection, union,
-                out=np.zeros_like(intersection), where=union > 0,
+                intersection,
+                union,
+                out=np.zeros_like(intersection),
+                where=union > 0,
             )
             best_iou = float(np.max(iou))
 
@@ -122,7 +127,9 @@ class TestStepMemoryModel:
         assert model._decode(frozenset()) == -1
 
     def test_decode_no_overlap_returns_minus_one(
-        self, small_model_config, small_encoder_config,
+        self,
+        small_model_config,
+        small_encoder_config,
     ):
         """_decode returns -1 when query has no overlap with any stored SDR."""
         model = StepMemoryModel(small_model_config, small_encoder_config)
@@ -158,8 +165,12 @@ class TestMiniGPTModel:
         from baselines.wrappers import MiniGPTModel
 
         config = MiniGPTConfig(
-            vocab_size=100, n_embd=32, n_head=2, n_layer=1,
-            block_size=16, dropout=0.0,
+            vocab_size=100,
+            n_embd=32,
+            n_head=2,
+            n_layer=1,
+            block_size=16,
+            dropout=0.0,
         )
         net = MiniGPT(config)
         net.eval()
@@ -218,6 +229,7 @@ class TestMiniGPTModel:
 @dataclass
 class MockOutput:
     """Mock HuggingFace model output with .logits attribute."""
+
     logits: torch.Tensor
 
 

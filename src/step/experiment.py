@@ -84,8 +84,9 @@ def pretrain_step_model(
             model.observe(t, token_id, sdr)
             after_boundary = True
             continue
-        if hasattr(model, "encode_token_sdr"):
-            sdr = model.encode_token_sdr(token_id, t)
+        encode_fn = getattr(model, "encode_token_sdr", None)
+        if encode_fn is not None:
+            sdr = encode_fn(token_id, t)
         if t > 0 and not after_boundary:
             predicted_sdr = model.predict_sdr(t)
             model.learn(t, sdr, predicted_sdr)
@@ -100,8 +101,9 @@ def pretrain_step_model(
             print(f"  [pretrain] t={t:,}/{total:,} ({elapsed:.1f}s)")
 
     # Flush any pending writes (e.g., SQLite batched commits)
-    if hasattr(model, "flush"):
-        model.flush()
+    flush_fn = getattr(model, "flush", None)
+    if flush_fn is not None:
+        flush_fn()
 
     elapsed = time.monotonic() - start
     print(f"  [pretrain] done in {elapsed:.1f}s")
@@ -137,8 +139,9 @@ def run_experiment(
             model.observe(t, token_id, sdr)
             after_boundary = True
             continue
-        if hasattr(model, "encode_token_sdr"):
-            sdr = model.encode_token_sdr(token_id, t)
+        encode_fn = getattr(model, "encode_token_sdr", None)
+        if encode_fn is not None:
+            sdr = encode_fn(token_id, t)
         if t > 0 and not after_boundary:
             predicted_token = model.predict_token(t)
             predicted_sdr = model.predict_sdr(t)
@@ -170,8 +173,9 @@ def run_experiment(
     elapsed = time.monotonic() - start
 
     # Cleanup if model supports it (e.g., SQLite)
-    if hasattr(model, "close"):
-        model.close()
+    close_fn = getattr(model, "close", None)
+    if close_fn is not None:
+        close_fn()
 
     return ComparisonRunResult(
         model_name=model_name,

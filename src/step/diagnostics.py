@@ -50,19 +50,22 @@ class DiagnosticCollector:
         """Called during STEP pretraining to snapshot weight statistics."""
         if t % self.weight_snapshot_interval != 0:
             return
-        if not hasattr(model, "_state"):
+        state = getattr(model, "_state", None)
+        if state is None:
             return
-        weights = model._state.weights
-        self.weight_stats.append({
-            "step": t,
-            "mean": float(np.mean(weights)),
-            "std": float(np.std(weights)),
-            "max": float(np.max(weights)),
-            "min": float(np.min(weights)),
-            "near_zero_frac": float(np.mean(np.abs(weights) < 0.01)),
-            "gt_one_frac": float(np.mean(np.abs(weights) > 1.0)),
-            "nonzero_frac": float(np.mean(weights != 0.0)),
-        })
+        weights = state.weights
+        self.weight_stats.append(
+            {
+                "step": t,
+                "mean": float(np.mean(weights)),
+                "std": float(np.std(weights)),
+                "max": float(np.max(weights)),
+                "min": float(np.min(weights)),
+                "near_zero_frac": float(np.mean(np.abs(weights) < 0.01)),
+                "gt_one_frac": float(np.mean(np.abs(weights) > 1.0)),
+                "nonzero_frac": float(np.mean(weights != 0.0)),
+            }
+        )
 
     def on_eval_step(
         self, t: int, predicted_token: int, actual_token: int, native_metric: float
@@ -112,16 +115,12 @@ class DiagnosticCollector:
             )
 
         if self.predictions:
-            (output_dir / "predictions.json").write_text(
-                json.dumps(self.predictions)
-            )
+            (output_dir / "predictions.json").write_text(json.dumps(self.predictions))
 
         position_acc = self.get_position_accuracy()
         if position_acc:
             (output_dir / "position_accuracy.json").write_text(
-                json.dumps(
-                    {str(k): v for k, v in position_acc.items()}, indent=2
-                )
+                json.dumps({str(k): v for k, v in position_acc.items()}, indent=2)
             )
 
 
@@ -149,13 +148,17 @@ def compute_bigram_sdr_overlap(
         sdr_a = encode_token(a_id, encoder_config)
         sdr_b = encode_token(b_id, encoder_config)
         overlap = len(sdr_a & sdr_b)
-        results.append({
-            "token_a": a_id,
-            "token_b": b_id,
-            "count": count,
-            "overlap": overlap,
-            "overlap_frac": overlap / encoder_config.k if encoder_config.k > 0 else 0.0,
-        })
+        results.append(
+            {
+                "token_a": a_id,
+                "token_b": b_id,
+                "count": count,
+                "overlap": overlap,
+                "overlap_frac": overlap / encoder_config.k
+                if encoder_config.k > 0
+                else 0.0,
+            }
+        )
 
     return results
 
@@ -183,7 +186,7 @@ def compute_story_boundaries(
     t = 0
     for example in dataset:
         boundaries.append(t)
-        token_ids = tokenizer.encode(example["text"])
+        token_ids = tokenizer.encode(example["text"])  # type: ignore[union-attr]
         t += len(token_ids)
         if t >= training_config.max_tokens:
             break
@@ -191,11 +194,7 @@ def compute_story_boundaries(
     return boundaries
 
 
-def save_bigram_overlap(
-    results: list[dict], output_dir: Path
-) -> None:
+def save_bigram_overlap(results: list[dict], output_dir: Path) -> None:
     """Save bigram overlap analysis to JSON."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "bigram_overlap.json").write_text(
-        json.dumps(results, indent=2)
-    )
+    (output_dir / "bigram_overlap.json").write_text(json.dumps(results, indent=2))

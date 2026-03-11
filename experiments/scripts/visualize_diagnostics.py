@@ -78,12 +78,16 @@ def plot_weight_stats(diag_dir: Path, figures_dir: Path) -> None:
     # Near-zero & nonzero fraction
     ax = axes[1, 0]
     ax.plot(
-        steps, [s["near_zero_frac"] for s in stats],
-        label="|w| < 0.01", color="#8b5cf6",
+        steps,
+        [s["near_zero_frac"] for s in stats],
+        label="|w| < 0.01",
+        color="#8b5cf6",
     )
     ax.plot(
-        steps, [s["nonzero_frac"] for s in stats],
-        label="nonzero", color="#06b6d4",
+        steps,
+        [s["nonzero_frac"] for s in stats],
+        label="nonzero",
+        color="#06b6d4",
     )
     ax.set_title("Weight Sparsity")
     ax.set_ylim(0, 1.05)
@@ -93,8 +97,10 @@ def plot_weight_stats(diag_dir: Path, figures_dir: Path) -> None:
     # Fraction > 1.0
     ax = axes[1, 1]
     ax.plot(
-        steps, [s["gt_one_frac"] for s in stats],
-        label="|w| > 1.0", color="#ef4444",
+        steps,
+        [s["gt_one_frac"] for s in stats],
+        label="|w| > 1.0",
+        color="#ef4444",
     )
     ax.set_title("Fraction of Weights > 1.0")
     ax.set_ylim(bottom=0)
@@ -114,7 +120,10 @@ def plot_weight_stats(diag_dir: Path, figures_dir: Path) -> None:
 
 
 def plot_bigram_overlap(
-    diag_dir: Path, figures_dir: Path, n: int = 2048, k: int = 40,
+    diag_dir: Path,
+    figures_dir: Path,
+    n: int = 2048,
+    k: int = 40,
 ) -> None:
     """Plot bigram frequency vs SDR overlap, with random expectation line."""
     path = diag_dir / "bigram_overlap.json"
@@ -136,7 +145,10 @@ def plot_bigram_overlap(
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.scatter(counts, overlaps, alpha=0.6, color="#2563eb", s=40)
     ax.axhline(
-        y=random_expected, color="#dc2626", linestyle="--", linewidth=1.5,
+        y=random_expected,
+        color="#dc2626",
+        linestyle="--",
+        linewidth=1.5,
         label=f"Random expectation (k²/n = {random_expected:.2f})",
     )
     ax.set_xlabel("Bigram Frequency", fontsize=12)
@@ -226,6 +238,7 @@ def plot_top_confusions(diag_dir: Path, figures_dir: Path, top_n: int = 20) -> N
                 return f"[{tid}]"
             return repr(text) if len(text) < 15 else repr(text[:12] + "...")
     except Exception:
+
         def decode(tid: int) -> str:
             return str(tid)
 
@@ -280,7 +293,9 @@ def main(run_dir_path: str) -> None:
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python visualize_diagnostics.py <run_dir>")
-        print("Example: python visualize_diagnostics.py "
-              "experiments/runs/exp2_diagnostics/")
+        print(
+            "Example: python visualize_diagnostics.py "
+            "experiments/runs/exp2_diagnostics/"
+        )
         sys.exit(1)
     main(sys.argv[1])

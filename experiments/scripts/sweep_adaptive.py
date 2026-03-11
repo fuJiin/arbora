@@ -4,9 +4,7 @@
 Usage: uv run --extra comparison experiments/scripts/sweep_adaptive.py
 """
 
-import json
 import time
-from pathlib import Path
 
 from step.config import EncoderConfig, ModelConfig, TrainingConfig
 from step.data import prepare_token_cache
@@ -23,12 +21,20 @@ EVAL_TOKENS = 5_000
 
 def run_one(adaptive: bool, window: int, train_cache, eval_cache) -> float:
     enc_cfg = EncoderConfig(
-        model_name="gpt2", n=2048, k=40, vocab_size=10000,
-        adaptive=adaptive, context_fraction=0.5,
+        model_name="gpt2",
+        n=2048,
+        k=40,
+        vocab_size=10000,
+        adaptive=adaptive,
+        context_fraction=0.5,
     )
     model_cfg = ModelConfig(
-        n=2048, k=40, max_lr=0.5, weight_decay=0.999,
-        penalty_factor=0.5, eligibility_window=window,
+        n=2048,
+        k=40,
+        max_lr=0.5,
+        weight_decay=0.999,
+        penalty_factor=0.5,
+        eligibility_window=window,
     )
     train_tc = TrainingConfig(
         dataset_name="roneneldan/TinyStories",
@@ -44,10 +50,16 @@ def run_one(adaptive: bool, window: int, train_cache, eval_cache) -> float:
     )
 
     pretrain_config = ExperimentConfig(
-        encoder=enc_cfg, model=model_cfg, training=train_tc, name="sweep",
+        encoder=enc_cfg,
+        model=model_cfg,
+        training=train_tc,
+        name="sweep",
     )
     eval_config = ExperimentConfig(
-        encoder=enc_cfg, model=model_cfg, training=eval_tc, name="sweep",
+        encoder=enc_cfg,
+        model=model_cfg,
+        training=eval_tc,
+        name="sweep",
     )
 
     model = StepMemoryModel(model_cfg, enc_cfg)
@@ -65,11 +77,13 @@ def main():
     # Cache data once (hash-based SDRs — adaptive models will override)
     enc_cfg = EncoderConfig(model_name="gpt2", n=2048, k=40, vocab_size=10000)
     train_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="train",
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="train",
         max_tokens=PRETRAIN_TOKENS,
     )
     eval_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="validation",
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="validation",
         max_tokens=EVAL_TOKENS,
     )
 
@@ -80,8 +94,12 @@ def main():
     print()
 
     configs = [
-        ("hash", 3), ("hash", 5), ("hash", 10),
-        ("adaptive", 3), ("adaptive", 5), ("adaptive", 10),
+        ("hash", 3),
+        ("hash", 5),
+        ("hash", 10),
+        ("adaptive", 3),
+        ("adaptive", 5),
+        ("adaptive", 10),
     ]
 
     results = []
