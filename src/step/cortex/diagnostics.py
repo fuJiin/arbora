@@ -127,20 +127,27 @@ class CortexDiagnostics:
             np.count_nonzero(region.trace_l23 > 0.01)
         )
 
-        # Prediction signal breakdown
+        # Prediction signal breakdown (dendritic spike model)
         v = region.voltage_l4 * region.voltage_decay
         fb_signal = np.zeros_like(v)
         lat_signal = np.zeros_like(v)
 
         if region.active_l23.any():
-            fb_raw = region.active_l23.astype(np.float64) @ region.fb_weights
-            fb_signal = fb_raw * (fb_raw > region.fb_threshold)
+            fb_raw = (
+                region.active_l23.astype(np.float64) @ region.fb_weights
+            )
+            fb_signal = region.fb_boost * (
+                fb_raw > region.fb_boost_threshold
+            )
 
         if region.active_l4.any():
             lat_raw = (
-                region.active_l4.astype(np.float64) @ region.lateral_weights
+                region.active_l4.astype(np.float64)
+                @ region.lateral_weights
             )
-            lat_signal = lat_raw * (lat_raw > region.fb_threshold)
+            lat_signal = region.fb_boost * (
+                lat_raw > region.fb_boost_threshold
+            )
 
         snap.prediction_max = float(np.max(v + fb_signal + lat_signal))
         snap.feedback_contribution = float(np.max(fb_signal))

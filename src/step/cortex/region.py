@@ -9,6 +9,10 @@ Activation uses two-level competition:
 1. Top-k columns selected by strongest L4 neuron score
 2. One winning L4 neuron per active column (voltage + excitability)
 3. One winning L2/3 neuron per active column (L4 bias + lateral + excitability)
+
+Feedback uses a dendritic-spike model: convergent feedback that exceeds
+a threshold triggers a fixed predictive boost (not proportional to
+input magnitude). This prevents runaway voltage accumulation.
 """
 
 import numpy as np
@@ -22,22 +26,26 @@ class CorticalRegion:
         n_l23: int,
         k_columns: int,
         *,
-        fb_threshold: float = 0.5,
         voltage_decay: float = 0.9,
         eligibility_decay: float = 0.95,
         synapse_decay: float = 0.999,
-        learning_rate: float = 0.01,
+        learning_rate: float = 0.05,
+        max_excitability: float = 0.2,
+        fb_boost_threshold: float = 0.3,
+        fb_boost: float = 0.4,
         seed: int = 0,
     ):
         self.n_columns = n_columns
         self.n_l4 = n_l4
         self.n_l23 = n_l23
         self.k_columns = k_columns
-        self.fb_threshold = fb_threshold
         self.voltage_decay = voltage_decay
         self.eligibility_decay = eligibility_decay
         self.synapse_decay = synapse_decay
         self.learning_rate = learning_rate
+        self.max_excitability = max_excitability
+        self.fb_boost_threshold = fb_boost_threshold
+        self.fb_boost = fb_boost
         self._rng = np.random.default_rng(seed)
 
         self.n_l4_total = n_columns * n_l4
@@ -91,11 +99,14 @@ class CorticalRegion:
 
         if self.active_l23.any():
             fb = self.active_l23.astype(np.float64) @ self.fb_weights
-            v += fb * (fb > self.fb_threshold)
+            v += self.fb_boost * (fb > self.fb_boost_threshold)
 
         if self.active_l4.any():
-            lat = self.active_l4.astype(np.float64) @ self.lateral_weights
-            v += lat * (lat > self.fb_threshold)
+            lat = (
+                self.active_l4.astype(np.float64)
+                @ self.lateral_weights
+            )
+            v += self.fb_boost * (lat > self.fb_boost_threshold)
 
         if k >= len(v):
             return np.arange(len(v))
@@ -117,7 +128,7 @@ class CorticalRegion:
         # 2. Feedforward: column drive -> all L4 neurons in each column
         self.voltage_l4 += np.repeat(column_drive, self.n_l4)
 
-        # 3. Feedback from previous activity -> L4 voltage bonus
+        # 3. Feedback from previous activity -> L4 predictive boost
         self._apply_feedback()
 
         # 4. Activate L4: top-k columns, winner per column
@@ -133,7 +144,7 @@ class CorticalRegion:
         # 7. Update eligibility traces for newly active neurons
         self._update_traces()
 
-        # 8. Homeostatic excitability
+        # 8. Homeostatic excitability (capped)
         self._update_excitability()
 
         # 9. Refractory: reset voltage for active neurons
@@ -143,13 +154,22 @@ class CorticalRegion:
         return top_cols * self.n_l4 + l4_winners_in_col
 
     def _apply_feedback(self):
-        """Add threshold-gated feedback voltage to L4 neurons."""
+        """Apply dendritic-spike predictive boost to L4 neurons.
+
+        Convergent feedback/lateral input that exceeds threshold
+        triggers a fixed boost. The boost magnitude is independent
+        of input strength — it's a binary "predicted" signal.
+        """
         if self.active_l23.any():
             fb = self.active_l23.astype(np.float64) @ self.fb_weights
-            self.voltage_l4 += fb * (fb > self.fb_threshold)
+            self.voltage_l4 += self.fb_boost * (fb > self.fb_boost_threshold)
+
         if self.active_l4.any():
-            lat = self.active_l4.astype(np.float64) @ self.lateral_weights
-            self.voltage_l4 += lat * (lat > self.fb_threshold)
+            lat = (
+                self.active_l4.astype(np.float64)
+                @ self.lateral_weights
+            )
+            self.voltage_l4 += self.fb_boost * (lat > self.fb_boost_threshold)
 
     def _activate_l4(
         self, scores: np.ndarray
@@ -269,8 +289,24 @@ class CorticalRegion:
         self.trace_l23[self.active_l23] = 1.0
 
     def _update_excitability(self):
-        """Boost inactive neurons, reset active ones."""
-        self.excitability_l4 += ~self.active_l4
-        self.excitability_l23 += ~self.active_l23
+        """Boost inactive neurons, reset active ones (capped)."""
+        self.excitability_l4 += ~self.active_l4 * (
+            self.excitability_l4 < self.max_excitability
+        )
+        self.excitability_l23 += ~self.active_l23 * (
+            self.excitability_l23 < self.max_excitability
+        )
         self.excitability_l4[self.active_l4] = 0.0
         self.excitability_l23[self.active_l23] = 0.0
+        np.clip(
+            self.excitability_l4,
+            0,
+            self.max_excitability,
+            out=self.excitability_l4,
+        )
+        np.clip(
+            self.excitability_l23,
+            0,
+            self.max_excitability,
+            out=self.excitability_l23,
+        )
