@@ -7,7 +7,7 @@ class CortexConfig:
     n_l4: int = 4
     n_l23: int = 4
     k_columns: int = 4
-    voltage_decay: float = 0.9
+    voltage_decay: float = 0.5
     eligibility_decay: float = 0.95
     synapse_decay: float = 0.999
     learning_rate: float = 0.05
