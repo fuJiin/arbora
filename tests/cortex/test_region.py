@@ -337,7 +337,7 @@ class TestFeedback:
             n_l4=4,
             n_l23=4,
             k_columns=1,
-            fb_threshold=0.0,  # low threshold so feedback always applies
+            fb_boost_threshold=0.0,  # low threshold so feedback always applies
         )
         # Manually set fb_weights so L2/3 neuron 0 → L4 neuron 3
         # (col 0, idx 3) gets a strong boost

@@ -92,11 +92,13 @@ def main():
         n_l4=cortex_cfg.n_l4,
         n_l23=cortex_cfg.n_l23,
         k_columns=cortex_cfg.k_columns,
-        fb_threshold=cortex_cfg.fb_threshold,
         voltage_decay=cortex_cfg.voltage_decay,
         eligibility_decay=cortex_cfg.eligibility_decay,
         synapse_decay=cortex_cfg.synapse_decay,
         learning_rate=cortex_cfg.learning_rate,
+        max_excitability=cortex_cfg.max_excitability,
+        fb_boost_threshold=cortex_cfg.fb_boost_threshold,
+        fb_boost=cortex_cfg.fb_boost,
         seed=cortex_cfg.seed,
     )
 
