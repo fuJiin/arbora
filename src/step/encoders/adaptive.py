@@ -3,32 +3,26 @@ import numpy as np
 from step.config import EncoderConfig
 
 
-def encode_token(token_id: int, config: EncoderConfig) -> frozenset[int]:
-    rng = np.random.default_rng(token_id)
-    indices = rng.choice(config.n, config.k, replace=False)
-    return frozenset(int(i) for i in indices)
-
-
 class AdaptiveEncoder:
-    """Context-seeded SDR encoder.
+    """Context-seeded encoder.
 
     First encounter of a token: seed context_fraction of bits from
     recently active bits (weighted by frequency), rest random.
-    Subsequent encounters: return cached SDR.
+    Subsequent encounters: return cached encoding.
     No context available: falls back to hash-based encoding.
     """
 
     def __init__(self, config: EncoderConfig, seed: int = 42):
         self.config = config
         self.context_fraction = config.context_fraction
-        self._token_sdrs: dict[int, frozenset[int]] = {}
+        self._token_encodings: dict[int, frozenset[int]] = {}
         self._rng = np.random.default_rng(seed)
 
     def encode(
         self, token_id: int, active_bits: list[int] | None = None
     ) -> frozenset[int]:
-        if token_id in self._token_sdrs:
-            return self._token_sdrs[token_id]
+        if token_id in self._token_encodings:
+            return self._token_encodings[token_id]
 
         k = self.config.k
         n = self.config.n
@@ -59,10 +53,10 @@ class AdaptiveEncoder:
             random_bits = token_rng.choice(available, remaining, replace=False)
             chosen.update(int(b) for b in random_bits)
 
-        sdr = frozenset(chosen)
-        self._token_sdrs[token_id] = sdr
-        return sdr
+        encoding = frozenset(chosen)
+        self._token_encodings[token_id] = encoding
+        return encoding
 
     @property
     def known_tokens(self) -> int:
-        return len(self._token_sdrs)
+        return len(self._token_encodings)
