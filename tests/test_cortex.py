@@ -17,6 +17,7 @@ class TestCorticalRegionInit:
         assert r.voltage_l23.shape == (512,)
         assert r.fb_weights.shape == (512, 512)
         assert r.lateral_weights.shape == (512, 512)
+        assert r.l23_lateral_weights.shape == (512, 512)
         assert r.trace_l4.shape == (512,)
         assert r.trace_l23.shape == (512,)
 
@@ -348,6 +349,97 @@ class TestFeedback:
         drive = np.array([1.0, 0.0, 0.0, 0.0])
         r.step(drive)
         assert r.active_l4[target]
+
+
+# ---------------------------------------------------------------------------
+# CorticalRegion: L2/3 lateral connections
+# ---------------------------------------------------------------------------
+
+
+class TestL23Lateral:
+    def test_l23_defaults_to_l4_match_without_context(self):
+        """Without lateral context, L2/3 winner matches L4 winner."""
+        r = CorticalRegion(
+            n_columns=4, n_l4=4, n_l23=4, k_columns=1
+        )
+        r.excitability_l4[2] = 10.0  # force L4 neuron 2 to win
+        r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+        assert r.active_l4[2]
+        assert r.active_l23[2]  # L2/3 mirrors L4
+
+    def test_lateral_overrides_l4_match(self):
+        """Strong L2/3 lateral input can make a different L2/3
+        neuron win than the L4-matching one."""
+        r = CorticalRegion(
+            n_columns=4, n_l4=4, n_l23=4, k_columns=1
+        )
+        # L4 neuron 0 (col 0, idx 0) will win via feedforward
+        # But set up L2/3 lateral so neuron 3 in col 0 gets
+        # strong input from a previously active L2/3 neuron
+        source_l23 = 7  # col 1, neuron 3
+        target_l23 = 3  # col 0, neuron 3
+        r.l23_lateral_weights[source_l23, target_l23] = 5.0
+        r.active_l23[source_l23] = True  # pretend active last step
+
+        r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+        assert r.active_l4[0]  # L4 still picks neuron 0
+        assert r.active_l23[target_l23]  # L2/3 picks neuron 3
+
+    def test_l23_lateral_weights_learn(self):
+        """Co-active L2/3 neurons strengthen lateral connections."""
+        r = CorticalRegion(
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
+            learning_rate=0.1,
+            synapse_decay=1.0,
+            eligibility_decay=0.9,
+        )
+        r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+        l23_a = np.where(r.active_l23)[0][0]
+        r.step(np.array([0.0, 1.0, 0.0, 0.0]))
+        l23_b = np.where(r.active_l23)[0][0]
+        assert r.l23_lateral_weights[l23_a, l23_b] > 0
+
+    def test_l23_one_winner_per_column(self):
+        """Exactly one L2/3 neuron per active column."""
+        r = CorticalRegion(
+            n_columns=8, n_l4=4, n_l23=4, k_columns=3
+        )
+        r.step(np.ones(8) * 0.5)
+        for col in range(8):
+            col_l23 = r.active_l23[col * 4 : (col + 1) * 4]
+            if r.active_columns[col]:
+                assert col_l23.sum() == 1
+            else:
+                assert col_l23.sum() == 0
+
+    def test_l23_voltage_resets_on_activation(self):
+        """Active L2/3 neurons have voltage reset after step."""
+        r = CorticalRegion(
+            n_columns=4, n_l4=2, n_l23=2, k_columns=1
+        )
+        r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+        for idx in np.where(r.active_l23)[0]:
+            assert r.voltage_l23[idx] == 0.0
+
+    def test_l23_excitability_rotation(self):
+        """L2/3 neurons rotate via excitability even when L4
+        winner is stable (lateral context absent)."""
+        r = CorticalRegion(
+            n_columns=4, n_l4=1, n_l23=4, k_columns=1
+        )
+        # L4 has 1 neuron/col, so L4 winner is always idx 0.
+        # L2/3 has 4 neurons/col. The bonus goes to idx 0,
+        # but excitability should rotate the others in eventually.
+        drive = np.array([1.0, 0.0, 0.0, 0.0])
+        activated_l23 = set()
+        for _ in range(20):
+            r.step(drive)
+            activated_l23.update(np.where(r.active_l23)[0].tolist())
+        # All 4 L2/3 neurons in col 0 should have activated
+        assert {0, 1, 2, 3}.issubset(activated_l23)
 
 
 # ---------------------------------------------------------------------------
