@@ -36,7 +36,7 @@ class StepMemoryModel:
         """Encode a token using adaptive encoder (if enabled) or hash-based."""
         if self._encoder is not None:
             # Only compute context for NEW tokens
-            if token_id not in self._encoder._token_sdrs:
+            if token_id not in self._encoder._token_encodings:
                 context = self._get_seeding_context(t)
             else:
                 context = None
