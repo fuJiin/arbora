@@ -18,14 +18,19 @@ class StepModel:
         db_path: Path | str,
         config: ModelConfig,
         encoder_config: EncoderConfig,
+        commit_interval: int = 100,
     ):
         self.config = config
         self.encoder_config = encoder_config
         self.db_path = Path(db_path)
+        self._commit_interval = commit_interval
+        self._ops_since_commit = 0
 
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA cache_size=-64000")  # 64MB cache
+        self.conn.execute("PRAGMA temp_store=MEMORY")
         self._create_schema()
         self._save_metadata()
 
@@ -158,68 +163,55 @@ class StepModel:
         if not recent_bits:
             return iou
 
+        # Aggregate deltas per unique (src, dst) to minimize upserts.
+        # A src_bit appears once per history timestep with different strengths;
+        # summing first collapses O(window * k) rows to O(unique_src * k).
+        aggregated: dict[tuple[int, int], float] = {}
+
         # Reinforcement: for each (src_bit, strength) x each actual_bit
         for src_bit, strength in recent_bits:
             delta = actual_eta * strength
             for dst_bit in actual_sdr:
-                self.conn.execute(
-                    """
-                    INSERT INTO synapses (src, dst, w, last_updated_t)
-                    VALUES (:src, :dst, :delta, :t)
-                    ON CONFLICT(src, dst) DO UPDATE SET
-                        w = synapses.w
-                            * POWER(:decay, :t - synapses.last_updated_t)
-                            + :delta,
-                        last_updated_t = :t
-                    """,
-                    {
-                        "src": src_bit,
-                        "dst": dst_bit,
-                        "delta": delta,
-                        "t": t,
-                        "decay": weight_decay,
-                    },
-                )
+                key = (src_bit, dst_bit)
+                aggregated[key] = aggregated.get(key, 0.0) + delta
 
         # Penalization: for each (src_bit, strength) x each false_positive_bit
         false_positives = predicted_sdr - actual_sdr
-        if false_positives:
+        if false_positives and self.config.penalty_factor > 0:
             for src_bit, strength in recent_bits:
                 delta = -actual_eta * self.config.penalty_factor * strength
                 for dst_bit in false_positives:
-                    self.conn.execute(
-                        """
-                        INSERT INTO synapses (src, dst, w, last_updated_t)
-                        VALUES (:src, :dst, :delta, :t)
-                        ON CONFLICT(src, dst) DO UPDATE SET
-                            w = synapses.w
-                                * POWER(:decay, :t - synapses.last_updated_t)
-                                + :delta,
-                            last_updated_t = :t
-                        """,
-                        {
-                            "src": src_bit,
-                            "dst": dst_bit,
-                            "delta": delta,
-                            "t": t,
-                            "decay": weight_decay,
-                        },
-                    )
+                    key = (src_bit, dst_bit)
+                    aggregated[key] = aggregated.get(key, 0.0) + delta
 
-        self.conn.commit()
+        if aggregated:
+            self.conn.executemany(
+                """
+                INSERT INTO synapses (src, dst, w, last_updated_t)
+                VALUES (:src, :dst, :delta, :t)
+                ON CONFLICT(src, dst) DO UPDATE SET
+                    w = synapses.w
+                        * POWER(:decay, :t - synapses.last_updated_t)
+                        + :delta,
+                    last_updated_t = :t
+                """,
+                [
+                    {"src": s, "dst": d, "delta": delta, "t": t, "decay": weight_decay}
+                    for (s, d), delta in aggregated.items()
+                ],
+            )
+
+        self._maybe_commit()
         return iou
 
     def observe(self, t: int, token_id: int, sdr: frozenset[int]) -> None:
         """Record a token observation and cache its SDR definition."""
         # Cache SDR definition if new token
-        for bit in sdr:
-            self.conn.execute(
-                """
-                INSERT OR IGNORE INTO sdr_definitions (token_id, bit_index, token_str)
-                VALUES (?, ?, ?)
-                """,
-                (token_id, bit, ""),
-            )
+        self.conn.executemany(
+            "INSERT OR IGNORE INTO sdr_definitions (token_id, bit_index, token_str) "
+            "VALUES (?, ?, ?)",
+            [(token_id, bit, "") for bit in sdr],
+        )
 
         # Update history
         self.conn.execute(
@@ -232,7 +224,19 @@ class StepModel:
             "DELETE FROM sdr_history WHERE timestamp_t <= ?",
             (t - self.config.eligibility_window,),
         )
+        self._maybe_commit()
+
+    def _maybe_commit(self) -> None:
+        """Commit periodically to batch disk I/O."""
+        self._ops_since_commit += 1
+        if self._ops_since_commit >= self._commit_interval:
+            self.conn.commit()
+            self._ops_since_commit = 0
+
+    def flush(self) -> None:
+        """Force commit any pending changes."""
         self.conn.commit()
+        self._ops_since_commit = 0
 
     def decode(self, sdr: frozenset[int]) -> int:
         """Decode an SDR to the best-matching token_id via inverted index."""
@@ -260,9 +264,10 @@ class StepModel:
             "INSERT OR REPLACE INTO metrics (step, iou, rolling_iou) VALUES (?, ?, ?)",
             (step, iou, rolling_iou),
         )
-        self.conn.commit()
+        self._maybe_commit()
 
     def close(self) -> None:
+        self.flush()
         self.conn.close()
 
     def __enter__(self) -> "StepModel":

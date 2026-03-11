@@ -1,3 +1,4 @@
+.env
 .venv/
 __pycache__/
 *.pyc
@@ -11,4 +12,7 @@ build/
 *.so
 .DS_Store
 experiments/runs/
+experiments/checkpoints/
+experiments/figures/
 *.db
+*.pt
