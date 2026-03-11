@@ -81,9 +81,7 @@ class TinyStories1MModel:
             return -1
         self.model.eval()
         with torch.no_grad():
-            idx = torch.tensor(
-                [self._context], dtype=torch.long, device=self._device
-            )
+            idx = torch.tensor([self._context], dtype=torch.long, device=self._device)
             output = self.model(idx)
             logits = output.logits[0, -1, : self.vocab_size]
             return int(logits.argmax().item())
@@ -99,9 +97,7 @@ class TinyStories1MModel:
             return 0.0
         self.model.eval()
         with torch.no_grad():
-            idx = torch.tensor(
-                [self._context], dtype=torch.long, device=self._device
-            )
+            idx = torch.tensor([self._context], dtype=torch.long, device=self._device)
             output = self.model(idx)
             logits = output.logits
             targets = torch.tensor(

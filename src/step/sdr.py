@@ -42,9 +42,7 @@ class AdaptiveEncoder:
                 bit_counts[b] = bit_counts.get(b, 0) + 1
 
             unique_bits = list(bit_counts.keys())
-            weights = np.array(
-                [bit_counts[b] for b in unique_bits], dtype=np.float64
-            )
+            weights = np.array([bit_counts[b] for b in unique_bits], dtype=np.float64)
             weights /= weights.sum()
 
             n_sample = min(k_context, len(unique_bits))

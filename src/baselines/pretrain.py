@@ -92,12 +92,10 @@ def pretrain_mini_gpt(
             if warmup > 0 and global_step < warmup:
                 lr = cfg.lr * global_step / warmup
             elif total_steps > warmup:
-                progress = (global_step - warmup) / (
-                    total_steps - warmup
+                progress = (global_step - warmup) / (total_steps - warmup)
+                lr = cfg.min_lr + 0.5 * (cfg.lr - cfg.min_lr) * (
+                    1 + math.cos(math.pi * progress)
                 )
-                lr = cfg.min_lr + 0.5 * (
-                    cfg.lr - cfg.min_lr
-                ) * (1 + math.cos(math.pi * progress))
             else:
                 lr = cfg.lr
             optimizer.param_groups[0]["lr"] = lr

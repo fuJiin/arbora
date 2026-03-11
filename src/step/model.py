@@ -46,9 +46,7 @@ def _compute_prediction_vector(
 
     src_arr = np.array(src_bits, dtype=np.intp)
     str_arr = np.array(strengths, dtype=np.float32)
-    prediction_vector = (state.weights[src_arr] * str_arr[:, np.newaxis]).sum(
-        axis=0
-    )
+    prediction_vector = (state.weights[src_arr] * str_arr[:, np.newaxis]).sum(axis=0)
     return _local_normalize(prediction_vector)
 
 
@@ -104,9 +102,7 @@ def learn(
         return iou
 
     src_arr = np.array(list(src_strength.keys()), dtype=np.intp)
-    str_arr = np.array(
-        list(src_strength.values()), dtype=np.float32
-    )
+    str_arr = np.array(list(src_strength.values()), dtype=np.float32)
 
     # Weight decay (applied to all affected rows at once)
     if config.weight_decay != 1.0:
@@ -119,14 +115,12 @@ def learn(
 
     if config.relevance_gate > 0:
         # Three-factor gated learning (per source bit):
-        # activation = W[i,:] * trace_strength (synapse × trace)
+        # activation = W[i,:] * trace_strength (synapse x trace)
         # relevance = fraction of top-k(activation) in actual target
         # Only source bits passing the gate get flat eta update.
         # Requires weight_init > 0 to bootstrap.
         activations = state.weights[src_arr] * str_arr[:, np.newaxis]
-        top_k_per_src = np.argpartition(
-            activations, -config.k, axis=1
-        )[:, -config.k :]
+        top_k_per_src = np.argpartition(activations, -config.k, axis=1)[:, -config.k :]
         relevances = np.zeros(len(src_arr), dtype=np.float32)
         dst_set = current_sdr
         for idx in range(len(src_arr)):
