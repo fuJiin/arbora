@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING
 
 from step.config import EncoderConfig, ModelConfig, TrainingConfig
 from step.data import STORY_BOUNDARY, cached_token_stream, token_stream
+from step.encoders import RandomEncoder
 from step.metrics import rolling_mean
 from step.model import initial_state, learn, observe, predict
-from step.sdr import encode_token
 
 if TYPE_CHECKING:
     from step.protocol import Model
@@ -249,7 +249,7 @@ def run_step_experiment(config: ExperimentConfig) -> RunResult:
     start = time.monotonic()
 
     for t, tid in enumerate(token_ids):
-        current_sdr = encode_token(int(tid), ec)
+        current_sdr = RandomEncoder(ec).encode(int(tid))
 
         if t > 0:
             predicted = predict(state, t, mc)

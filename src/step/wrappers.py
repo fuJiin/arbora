@@ -2,6 +2,7 @@
 
 from step.config import EncoderConfig, ModelConfig
 from step.data import STORY_BOUNDARY
+from step.encoders import AdaptiveEncoder, RandomEncoder
 from step.model import (
     ModelState,
     initial_state,
@@ -10,7 +11,6 @@ from step.model import (
     predict,
     predict_with_vector,
 )
-from step.sdr import AdaptiveEncoder
 
 
 class StepMemoryModel:
@@ -41,9 +41,7 @@ class StepMemoryModel:
             else:
                 context = None
             return self._encoder.encode(token_id, context)
-        from step.sdr import encode_token
-
-        return encode_token(token_id, self.encoder_config)
+        return RandomEncoder(self.encoder_config).encode(token_id)
 
     def _get_seeding_context(self, t: int) -> list[int] | None:
         """Get context bits for seeding a new token's SDR."""

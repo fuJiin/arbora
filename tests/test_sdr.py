@@ -1,47 +1,48 @@
 from step.config import EncoderConfig
-from step.sdr import AdaptiveEncoder, encode_token
+from step.encoders import AdaptiveEncoder, RandomEncoder
 
 
-class TestEncodeToken:
+class TestRandomEncoder:
     def setup_method(self):
         self.config = EncoderConfig(n=2048, k=40)
+        self.encoder = RandomEncoder(self.config)
 
     def test_determinism(self):
-        a = encode_token(42, self.config)
-        b = encode_token(42, self.config)
+        a = self.encoder.encode(42)
+        b = self.encoder.encode(42)
         assert a == b
 
     def test_different_tokens_differ(self):
-        a = encode_token(42, self.config)
-        b = encode_token(43, self.config)
+        a = self.encoder.encode(42)
+        b = self.encoder.encode(43)
         assert a != b
 
     def test_size(self):
-        sdr = encode_token(100, self.config)
-        assert len(sdr) == 40
+        encoding = self.encoder.encode(100)
+        assert len(encoding) == 40
 
     def test_range(self):
-        sdr = encode_token(100, self.config)
-        assert all(0 <= idx < 2048 for idx in sdr)
+        encoding = self.encoder.encode(100)
+        assert all(0 <= idx < 2048 for idx in encoding)
 
     def test_returns_frozenset(self):
-        sdr = encode_token(100, self.config)
-        assert isinstance(sdr, frozenset)
+        encoding = self.encoder.encode(100)
+        assert isinstance(encoding, frozenset)
 
     def test_custom_config(self):
-        config = EncoderConfig(n=128, k=5)
-        sdr = encode_token(0, config)
-        assert len(sdr) == 5
-        assert all(0 <= idx < 128 for idx in sdr)
+        encoder = RandomEncoder(EncoderConfig(n=128, k=5))
+        encoding = encoder.encode(0)
+        assert len(encoding) == 5
+        assert all(0 <= idx < 128 for idx in encoding)
 
     def test_matches_snapshot_logic(self):
-        """Verify new encode_token produces same indices as dump.py's get_sdr."""
+        """Verify RandomEncoder produces same indices as dump.py's get_sdr."""
         import numpy as np
 
         token_id = 42
         rng = np.random.default_rng(token_id)
         expected = frozenset(int(i) for i in rng.choice(2048, 40, replace=False))
-        actual = encode_token(token_id, self.config)
+        actual = self.encoder.encode(token_id)
         assert actual == expected
 
 

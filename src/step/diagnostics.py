@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from step.config import EncoderConfig, TrainingConfig
-from step.sdr import encode_token
+from step.encoders import RandomEncoder
 
 if TYPE_CHECKING:
     from step.protocol import Model
@@ -143,10 +143,11 @@ def compute_bigram_sdr_overlap(
     # Get top-N bigrams
     top_bigrams = bigram_counts.most_common(top_n)
 
+    encoder = RandomEncoder(encoder_config)
     results = []
     for (a_id, b_id), count in top_bigrams:
-        sdr_a = encode_token(a_id, encoder_config)
-        sdr_b = encode_token(b_id, encoder_config)
+        sdr_a = encoder.encode(a_id)
+        sdr_b = encoder.encode(b_id)
         overlap = len(sdr_a & sdr_b)
         results.append(
             {

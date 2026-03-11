@@ -1,6 +1,6 @@
 from step.config import EncoderConfig, ModelConfig, TrainingConfig
+from step.encoders import RandomEncoder
 from step.model import initial_state
-from step.sdr import encode_token
 from step.training import train, train_step
 
 
@@ -32,7 +32,8 @@ class TestTrain:
             max_tokens=20, log_interval=5, rolling_window=5
         )
 
-        stream = [(t, t % 10, encode_token(t % 10, encoder_config)) for t in range(20)]
+        enc = RandomEncoder(encoder_config)
+        stream = [(t, t % 10, enc.encode(t % 10)) for t in range(20)]
 
         log_calls: list[tuple[int, float]] = []
 
@@ -56,7 +57,8 @@ class TestTrain:
             max_tokens=30, log_interval=10, rolling_window=5
         )
 
-        stream = [(t, t % 5, encode_token(t % 5, encoder_config)) for t in range(30)]
+        enc = RandomEncoder(encoder_config)
+        stream = [(t, t % 5, enc.encode(t % 5)) for t in range(30)]
 
         log_calls: list[tuple[int, float]] = []
 

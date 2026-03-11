@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from step.sdr import encode_token
+from step.encoders import RandomEncoder
 from step.wrappers import StepMemoryModel
 
 
@@ -15,7 +15,7 @@ class TestStepMemoryModel:
     def test_predict_observe_cycle(self, model, small_encoder_config):
         """Model can observe tokens and make predictions."""
         token_id = 42
-        sdr = encode_token(token_id, small_encoder_config)
+        sdr = RandomEncoder(small_encoder_config).encode(token_id)
         model.observe(0, token_id, sdr)
 
         predicted_sdr = model.predict_sdr(1)
@@ -24,10 +24,10 @@ class TestStepMemoryModel:
 
     def test_learn_returns_iou(self, model, small_encoder_config):
         """learn() returns a float IoU value."""
-        t0_sdr = encode_token(100, small_encoder_config)
+        t0_sdr = RandomEncoder(small_encoder_config).encode(100)
         model.observe(0, 100, t0_sdr)
 
-        t1_sdr = encode_token(200, small_encoder_config)
+        t1_sdr = RandomEncoder(small_encoder_config).encode(200)
         predicted = model.predict_sdr(1)
         iou = model.learn(1, t1_sdr, predicted)
         assert isinstance(iou, float)
@@ -37,7 +37,7 @@ class TestStepMemoryModel:
         """predict_token returns a token that has been observed."""
         tokens = [10, 20, 30, 40, 50]
         for t, tid in enumerate(tokens):
-            sdr = encode_token(tid, small_encoder_config)
+            sdr = RandomEncoder(small_encoder_config).encode(tid)
             if t > 0:
                 predicted_sdr = model.predict_sdr(t)
                 model.learn(t, sdr, predicted_sdr)
@@ -54,8 +54,8 @@ class TestStepMemoryModel:
         """_decode finds the token with highest overlap."""
         tid_a = 100
         tid_b = 200
-        sdr_a = encode_token(tid_a, small_encoder_config)
-        sdr_b = encode_token(tid_b, small_encoder_config)
+        sdr_a = RandomEncoder(small_encoder_config).encode(tid_a)
+        sdr_b = RandomEncoder(small_encoder_config).encode(tid_b)
 
         model.observe(0, tid_a, sdr_a)
         model.observe(1, tid_b, sdr_b)
@@ -77,7 +77,7 @@ class TestStepMemoryModel:
         token_ids = list(range(50, 80))
         sdrs = {}
         for t, tid in enumerate(token_ids):
-            sdr = encode_token(tid, small_encoder_config)
+            sdr = RandomEncoder(small_encoder_config).encode(tid)
             sdrs[tid] = sdr
             model.observe(t, tid, sdr)
 
@@ -143,11 +143,12 @@ class TestVocabFiltering:
         from step.config import EncoderConfig
 
         config = EncoderConfig(model_name="gpt2", n=256, k=10, vocab_size=100)
-        sdr_for_0 = encode_token(0, config)
+        encoder = RandomEncoder(config)
+        sdr_for_0 = encoder.encode(0)
 
         # Token 150 is >= vocab_size=100, should be clamped to 0
-        sdr_for_150 = encode_token(150, config)
-        sdr_for_0_check = encode_token(0, config)
+        sdr_for_150 = encoder.encode(150)
+        sdr_for_0_check = encoder.encode(0)
         # After clamping, token 150 would produce the same SDR as token 0
         assert sdr_for_0 == sdr_for_0_check
         assert sdr_for_0 != sdr_for_150  # Different if not clamped
