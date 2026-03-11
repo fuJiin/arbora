@@ -39,6 +39,26 @@ class SensoryRegion(CorticalRegion):
 
         return active
 
+    def reconstruct(self, columns: np.ndarray | None = None) -> np.ndarray:
+        """Reconstruct encoding from active columns via ff_weights.
+
+        Walks backward through feedforward synapses: sums the ff_weight
+        columns for each active column to produce a reconstructed
+        encoding vector (same shape as flattened input).
+
+        Args:
+            columns: Column indices to reconstruct from.
+                     Defaults to currently active columns.
+
+        Returns:
+            Reconstructed encoding vector (input_dim,).
+        """
+        if columns is None:
+            columns = np.nonzero(self.active_columns)[0]
+        if len(columns) == 0:
+            return np.zeros(self.input_dim)
+        return self.ff_weights[:, columns].sum(axis=1)
+
     def _learn_ff(self, flat_input: np.ndarray):
         """Hebbian update: strengthen input→column where both active."""
         active_cols_f = self.active_columns.astype(np.float64)

@@ -33,6 +33,7 @@ class CharbitEncoder:
         self._unknown_col = width - 1
         # Map each character to its column index
         self._char_to_col = {ch: i for i, ch in enumerate(chars)}
+        self._col_to_char: dict[int, str] | None = None
 
     def encode(self, token: str) -> np.ndarray:
         """Encode a token string into a (length, width) boolean matrix."""
@@ -41,3 +42,21 @@ class CharbitEncoder:
             col = self._char_to_col.get(ch, self._unknown_col)
             out[i, col] = True
         return out
+
+    def decode(self, matrix: np.ndarray) -> str:
+        """Decode a (length, width) activation matrix back to a string.
+
+        Takes argmax per row. Zero rows (no activation) produce no character.
+        Unknown-column activations are skipped.
+        """
+        if self._col_to_char is None:
+            self._col_to_char = {i: ch for ch, i in self._char_to_col.items()}
+        chars = []
+        for row in matrix:
+            if row.max() <= 0:
+                break
+            col = int(row.argmax())
+            ch = self._col_to_char.get(col)
+            if ch is not None:
+                chars.append(ch)
+        return "".join(chars)
