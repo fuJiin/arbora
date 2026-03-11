@@ -68,6 +68,39 @@ class CorticalRegion:
         self.trace_l4 = np.zeros(self.n_l4_total)
         self.trace_l23 = np.zeros(self.n_l23_total)
 
+    def reset_working_memory(self):
+        """Reset transient state, preserving learned synaptic weights."""
+        self.voltage_l4[:] = 0.0
+        self.voltage_l23[:] = 0.0
+        self.trace_l4[:] = 0.0
+        self.trace_l23[:] = 0.0
+        self.excitability_l4[:] = 0.0
+        self.excitability_l23[:] = 0.0
+        self.active_l4[:] = False
+        self.active_l23[:] = False
+        self.active_columns[:] = False
+
+    def get_prediction(self, k: int) -> np.ndarray:
+        """Predict which L4 neurons will fire next (read-only).
+
+        Simulates voltage decay + feedback/lateral without feedforward
+        input, returning the top-k neuron indices by predicted score.
+        Excludes excitability so this measures learned prediction only.
+        """
+        v = self.voltage_l4 * self.voltage_decay
+
+        if self.active_l23.any():
+            fb = self.active_l23.astype(np.float64) @ self.fb_weights
+            v += fb * (fb > self.fb_threshold)
+
+        if self.active_l4.any():
+            lat = self.active_l4.astype(np.float64) @ self.lateral_weights
+            v += lat * (lat > self.fb_threshold)
+
+        if k >= len(v):
+            return np.arange(len(v))
+        return np.argpartition(v, -k)[-k:]
+
     def step(self, column_drive: np.ndarray) -> np.ndarray:
         """Run one timestep given column-level feedforward drive.
 
