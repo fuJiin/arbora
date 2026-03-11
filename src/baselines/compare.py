@@ -18,9 +18,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from step.config import EncoderConfig, ModelConfig, TrainingConfig
+from step.encoders import RandomEncoder
 from step.metrics import compute_iou
 from step.model import initial_state, learn, observe, predict
-from step.sdr import encode_token
 
 
 @dataclass
@@ -54,7 +54,7 @@ def step_next_token_accuracy(
 
     for t, tid in enumerate(token_ids):
         tid = int(tid)
-        current_sdr = encode_token(tid, encoder_config)
+        current_sdr = RandomEncoder(encoder_config).encode(tid)
 
         if t > 0 and len(seen_tokens) > 1:
             predicted = predict(state, t, model_config)

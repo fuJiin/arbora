@@ -5,7 +5,7 @@ from transformers import AutoTokenizer
 
 import step.env  # noqa: F401 — loads HF_TOKEN from .env
 from step.config import EncoderConfig, TrainingConfig
-from step.sdr import encode_token
+from step.encoders import RandomEncoder
 
 STORY_BOUNDARY = -1  # sentinel token_id inserted between stories
 
@@ -25,6 +25,7 @@ def token_stream(
         training_config.dataset_name,
         split=training_config.dataset_split,
     )
+    encoder = RandomEncoder(encoder_config)
 
     t = 0
     first_story = True
@@ -39,7 +40,7 @@ def token_stream(
         for tid in token_ids:
             if tid >= encoder_config.vocab_size:
                 tid = 0  # clamp to UNK
-            yield t, tid, encode_token(tid, encoder_config)
+            yield t, tid, encoder.encode(tid)
             t += 1
             if t >= training_config.max_tokens:
                 return

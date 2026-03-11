@@ -18,8 +18,3 @@ class RandomEncoder:
         rng = np.random.default_rng(token_id)
         indices = rng.choice(self.config.n, self.config.k, replace=False)
         return frozenset(int(i) for i in indices)
-
-
-def encode_token(token_id: int, config: EncoderConfig) -> frozenset[int]:
-    """Legacy function interface. Prefer RandomEncoder for new code."""
-    return RandomEncoder(config).encode(token_id)

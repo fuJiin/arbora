@@ -10,12 +10,12 @@ import numpy as np
 
 from step.config import EncoderConfig, ModelConfig, TrainingConfig
 from step.data import prepare_token_cache
+from step.encoders import RandomEncoder
 from step.experiment import (
     ExperimentConfig,
     pretrain_step_model,
     run_experiment,
 )
-from step.sdr import encode_token
 from step.wrappers import StepMemoryModel
 
 PRETRAIN_TOKENS = 200_000
@@ -27,7 +27,7 @@ def compute_baseline_iou(enc_cfg, train_cache):
     token_sdrs = {}
     for token_id, _sdr in train_cache:
         if token_id not in token_sdrs:
-            token_sdrs[token_id] = encode_token(token_id, enc_cfg)
+            token_sdrs[token_id] = RandomEncoder(enc_cfg).encode(token_id)
     sdr_list = list(token_sdrs.values())
     rng = np.random.default_rng(42)
     k = enc_cfg.k

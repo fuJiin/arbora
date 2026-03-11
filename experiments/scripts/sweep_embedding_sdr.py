@@ -231,10 +231,11 @@ def main():
     print(f"  Expected random: {K * K / N:.2f}")
 
     # Also build hash SDRs for comparison
-    from step.sdr import encode_token
+    from step.encoders import RandomEncoder
 
     hash_enc = EncoderConfig(model_name="gpt2", n=N, k=K, vocab_size=VOCAB_SIZE)
-    hash_sdrs = {tid: encode_token(tid, hash_enc) for tid in range(VOCAB_SIZE)}
+    encoder = RandomEncoder(hash_enc)
+    hash_sdrs = {tid: encoder.encode(tid) for tid in range(VOCAB_SIZE)}
     hmean, hstd, hmax = compute_sdr_stats(hash_sdrs)
     print(f"  Hash overlap stats: mean={hmean:.2f}, std={hstd:.2f}, max={hmax}")
 
