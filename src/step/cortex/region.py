@@ -2,11 +2,13 @@
 
 Two-layer architecture modeled on neocortical minicolumns:
 - L4 (input): receives feedforward drive, modulated by feedback context
-- L2/3 (associative): activated via fixed intra-column wiring from L4
+- L2/3 (associative): receives L4 feedforward + lateral context from
+  other L2/3 neurons, enabling associative binding and pattern completion
 
 Activation uses two-level competition:
-1. Top-k columns selected by strongest neuron score (feedforward + feedback)
-2. One winning neuron per active column (highest voltage + excitability)
+1. Top-k columns selected by strongest L4 neuron score
+2. One winning L4 neuron per active column (voltage + excitability)
+3. One winning L2/3 neuron per active column (L4 bias + lateral + excitability)
 """
 
 import numpy as np
@@ -57,6 +59,10 @@ class CorticalRegion:
         self.lateral_weights = np.zeros(
             (self.n_l4_total, self.n_l4_total)
         )
+        # L2/3 lateral weights (associative binding across columns)
+        self.l23_lateral_weights = np.zeros(
+            (self.n_l23_total, self.n_l23_total)
+        )
 
         # Per-neuron eligibility traces
         self.trace_l4 = np.zeros(self.n_l4_total)
@@ -71,32 +77,37 @@ class CorticalRegion:
         Returns:
             Array of global indices of active L4 neurons.
         """
-        # 1. Decay voltages from previous step
+        # 1. Decay voltages
         self.voltage_l4 *= self.voltage_decay
+        self.voltage_l23 *= self.voltage_decay
 
-        # 2. Feedforward: column drive → all neurons in each column
+        # 2. Feedforward: column drive -> all L4 neurons in each column
         self.voltage_l4 += np.repeat(column_drive, self.n_l4)
 
-        # 3. Feedback from previous activity → L4 voltage bonus
+        # 3. Feedback from previous activity -> L4 voltage bonus
         self._apply_feedback()
 
-        # 4. Score = voltage + excitability, then activate
-        scores = self.voltage_l4 + self.excitability_l4
-        active_l4_indices = self._activate(scores)
+        # 4. Activate L4: top-k columns, winner per column
+        scores_l4 = self.voltage_l4 + self.excitability_l4
+        top_cols, l4_winners_in_col = self._activate_l4(scores_l4)
 
-        # 5. Learn (previous traces x current activation)
+        # 5. Activate L2/3: L4 feedforward + lateral context
+        self._activate_l23(top_cols, l4_winners_in_col)
+
+        # 6. Learn (previous traces x current activation)
         self._learn()
 
-        # 6. Update eligibility traces for newly active neurons
+        # 7. Update eligibility traces for newly active neurons
         self._update_traces()
 
-        # 7. Homeostatic excitability
+        # 8. Homeostatic excitability
         self._update_excitability()
 
-        # 8. Refractory: reset voltage for active neurons
+        # 9. Refractory: reset voltage for active neurons
         self.voltage_l4[self.active_l4] = 0.0
+        self.voltage_l23[self.active_l23] = 0.0
 
-        return active_l4_indices
+        return top_cols * self.n_l4 + l4_winners_in_col
 
     def _apply_feedback(self):
         """Add threshold-gated feedback voltage to L4 neurons."""
@@ -107,8 +118,13 @@ class CorticalRegion:
             lat = self.active_l4.astype(np.float64) @ self.lateral_weights
             self.voltage_l4 += lat * (lat > self.fb_threshold)
 
-    def _activate(self, scores: np.ndarray) -> np.ndarray:
-        """Select top-k columns and winning neuron per column."""
+    def _activate_l4(
+        self, scores: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Select top-k columns and winning L4 neuron per column.
+
+        Returns (top_cols, winners_in_col) index arrays.
+        """
         by_col = scores.reshape(self.n_columns, self.n_l4)
         col_scores = by_col.max(axis=1)
 
@@ -128,40 +144,89 @@ class CorticalRegion:
         self.active_l4[:] = False
         self.active_l4[global_winners] = True
 
-        # L2/3: fixed 1-to-1 wiring from L4 (same index within column)
-        self.active_l23[:] = False
-        valid = winners_in_col < self.n_l23
-        l23_indices = (
-            top_cols[valid] * self.n_l23 + winners_in_col[valid]
-        )
-        self.active_l23[l23_indices] = True
+        return top_cols, winners_in_col
 
-        return global_winners
+    def _activate_l23(
+        self,
+        top_cols: np.ndarray,
+        l4_winners_in_col: np.ndarray,
+    ):
+        """Activate L2/3 neurons in active columns.
+
+        All L2/3 neurons in active columns receive base feedforward
+        drive from L4. The L2/3 neuron matching the L4 winner gets a
+        bonus (biologically: denser intra-column connectivity at the
+        same position). Lateral context from previous L2/3 activity
+        can override this bias.
+        """
+        # L4 -> L2/3 feedforward: base drive to all neurons in column
+        for col in top_cols:
+            start = col * self.n_l23
+            self.voltage_l23[start : start + self.n_l23] += 0.5
+
+        # Bonus for L2/3 neuron matching the L4 winner
+        valid = l4_winners_in_col < self.n_l23
+        matching = (
+            top_cols[valid] * self.n_l23 + l4_winners_in_col[valid]
+        )
+        self.voltage_l23[matching] += 0.5
+
+        # L2/3 lateral: previous L2/3 activity biases current selection
+        if self.active_l23.any():
+            lat = (
+                self.active_l23.astype(np.float64)
+                @ self.l23_lateral_weights
+            )
+            self.voltage_l23 += lat
+
+        # Competitive selection: one winner per active column
+        l23_scores = self.voltage_l23 + self.excitability_l23
+        by_col = l23_scores.reshape(self.n_columns, self.n_l23)
+        winners_in_col = by_col[top_cols].argmax(axis=1)
+        l23_winners = top_cols * self.n_l23 + winners_in_col
+
+        self.active_l23[:] = False
+        self.active_l23[l23_winners] = True
 
     def _learn(self):
         """Strengthen synapses where dest is active and source has trace."""
         active_l4_f = self.active_l4.astype(np.float64)
+        active_l23_f = self.active_l23.astype(np.float64)
 
-        # L2/3 → L4 feedback synapses
+        # L2/3 -> L4 feedback synapses
         self.fb_weights += (
             self.learning_rate
             * self.trace_l23[:, np.newaxis]
             * active_l4_f[np.newaxis, :]
         )
 
-        # L4 → L4 lateral synapses
+        # L4 -> L4 lateral synapses
         self.lateral_weights += (
             self.learning_rate
             * self.trace_l4[:, np.newaxis]
             * active_l4_f[np.newaxis, :]
         )
 
+        # L2/3 -> L2/3 lateral synapses
+        self.l23_lateral_weights += (
+            self.learning_rate
+            * self.trace_l23[:, np.newaxis]
+            * active_l23_f[np.newaxis, :]
+        )
+
         # Decay all synapses
         self.fb_weights *= self.synapse_decay
         self.lateral_weights *= self.synapse_decay
+        self.l23_lateral_weights *= self.synapse_decay
 
         np.clip(self.fb_weights, 0, 1, out=self.fb_weights)
         np.clip(self.lateral_weights, 0, 1, out=self.lateral_weights)
+        np.clip(
+            self.l23_lateral_weights,
+            0,
+            1,
+            out=self.l23_lateral_weights,
+        )
 
     def _update_traces(self):
         """Set active neuron traces to 1, decay the rest."""
