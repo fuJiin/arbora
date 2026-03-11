@@ -10,9 +10,7 @@ from step.cortex import CorticalRegion, SensoryRegion
 
 class TestCorticalRegionInit:
     def test_dimensions(self):
-        r = CorticalRegion(
-            n_columns=64, n_l4=8, n_l23=8, k_columns=6
-        )
+        r = CorticalRegion(n_columns=64, n_l4=8, n_l23=8, k_columns=6)
         assert r.voltage_l4.shape == (512,)
         assert r.voltage_l23.shape == (512,)
         assert r.fb_weights.shape == (512, 512)
@@ -22,9 +20,7 @@ class TestCorticalRegionInit:
         assert r.trace_l23.shape == (512,)
 
     def test_initial_state_is_zero(self):
-        r = CorticalRegion(
-            n_columns=32, n_l4=4, n_l23=4, k_columns=4
-        )
+        r = CorticalRegion(n_columns=32, n_l4=4, n_l23=4, k_columns=4)
         assert r.voltage_l4.sum() == 0
         assert r.excitability_l4.sum() == 0
         assert not r.active_l4.any()
@@ -40,9 +36,7 @@ class TestCorticalRegionInit:
 class TestActivation:
     @pytest.fixture()
     def region(self):
-        return CorticalRegion(
-            n_columns=16, n_l4=4, n_l23=4, k_columns=3
-        )
+        return CorticalRegion(n_columns=16, n_l4=4, n_l23=4, k_columns=3)
 
     def test_activates_k_columns(self, region):
         drive = np.zeros(16)
@@ -97,12 +91,8 @@ class TestActivation:
         region.step(drive)
         for col in range(16):
             if not region.active_columns[col]:
-                assert not region.active_l4[
-                    col * 4 : (col + 1) * 4
-                ].any()
-                assert not region.active_l23[
-                    col * 4 : (col + 1) * 4
-                ].any()
+                assert not region.active_l4[col * 4 : (col + 1) * 4].any()
+                assert not region.active_l23[col * 4 : (col + 1) * 4].any()
 
 
 # ---------------------------------------------------------------------------
@@ -112,9 +102,7 @@ class TestActivation:
 
 class TestVoltage:
     def test_active_neuron_voltage_resets(self):
-        r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1
-        )
+        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         drive = np.array([1.0, 0.0, 0.0, 0.0])
         r.step(drive)
         for idx in np.where(r.active_l4)[0]:
@@ -139,7 +127,7 @@ class TestVoltage:
         # Col 3 neurons: decayed (0.3*0.9) + new drive (0.3) = 0.57
         col3_start = 3 * 2
         # At least one neuron in col 3 should have accumulated voltage
-        assert r.voltage_l4[col3_start:col3_start + 2].max() > 0.5
+        assert r.voltage_l4[col3_start : col3_start + 2].max() > 0.5
 
     def test_voltage_decays_each_step(self):
         r = CorticalRegion(
@@ -165,9 +153,7 @@ class TestVoltage:
 
 class TestExcitability:
     def test_grows_for_inactive_neurons(self):
-        r = CorticalRegion(
-            n_columns=8, n_l4=2, n_l23=2, k_columns=1
-        )
+        r = CorticalRegion(n_columns=8, n_l4=2, n_l23=2, k_columns=1)
         drive = np.zeros(8)
         drive[0] = 1.0
         r.step(drive)
@@ -175,9 +161,7 @@ class TestExcitability:
         assert (r.excitability_l4[inactive] > 0).all()
 
     def test_resets_on_activation(self):
-        r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1
-        )
+        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.excitability_l4[:] = 5.0
         drive = np.array([1.0, 0.0, 0.0, 0.0])
         r.step(drive)
@@ -186,9 +170,7 @@ class TestExcitability:
 
     def test_excitability_ensures_rotation(self):
         """Over many steps, all neurons should eventually activate."""
-        r = CorticalRegion(
-            n_columns=4, n_l4=4, n_l23=4, k_columns=1
-        )
+        r = CorticalRegion(n_columns=4, n_l4=4, n_l23=4, k_columns=1)
         # Same drive every step — excitability should cause
         # different neurons to win within the active column.
         drive = np.array([1.0, 0.0, 0.0, 0.0])
@@ -208,9 +190,7 @@ class TestExcitability:
 
 class TestEligibility:
     def test_set_on_activation(self):
-        r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1
-        )
+        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         drive = np.array([1.0, 0.0, 0.0, 0.0])
         r.step(drive)
         for idx in np.where(r.active_l4)[0]:
@@ -237,9 +217,7 @@ class TestEligibility:
                 assert r.trace_l4[idx] == pytest.approx(0.5)
 
     def test_inactive_neurons_have_zero_trace(self):
-        r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1
-        )
+        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
         inactive = ~r.active_l4
         assert (r.trace_l4[inactive] == 0.0).all()
@@ -359,9 +337,7 @@ class TestFeedback:
 class TestL23Lateral:
     def test_l23_defaults_to_l4_match_without_context(self):
         """Without lateral context, L2/3 winner matches L4 winner."""
-        r = CorticalRegion(
-            n_columns=4, n_l4=4, n_l23=4, k_columns=1
-        )
+        r = CorticalRegion(n_columns=4, n_l4=4, n_l23=4, k_columns=1)
         r.excitability_l4[2] = 10.0  # force L4 neuron 2 to win
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
         assert r.active_l4[2]
@@ -370,9 +346,7 @@ class TestL23Lateral:
     def test_lateral_overrides_l4_match(self):
         """Strong L2/3 lateral input can make a different L2/3
         neuron win than the L4-matching one."""
-        r = CorticalRegion(
-            n_columns=4, n_l4=4, n_l23=4, k_columns=1
-        )
+        r = CorticalRegion(n_columns=4, n_l4=4, n_l23=4, k_columns=1)
         # L4 neuron 0 (col 0, idx 0) will win via feedforward
         # But set up L2/3 lateral so neuron 3 in col 0 gets
         # strong input from a previously active L2/3 neuron
@@ -404,9 +378,7 @@ class TestL23Lateral:
 
     def test_l23_one_winner_per_column(self):
         """Exactly one L2/3 neuron per active column."""
-        r = CorticalRegion(
-            n_columns=8, n_l4=4, n_l23=4, k_columns=3
-        )
+        r = CorticalRegion(n_columns=8, n_l4=4, n_l23=4, k_columns=3)
         r.step(np.ones(8) * 0.5)
         for col in range(8):
             col_l23 = r.active_l23[col * 4 : (col + 1) * 4]
@@ -417,9 +389,7 @@ class TestL23Lateral:
 
     def test_l23_voltage_resets_on_activation(self):
         """Active L2/3 neurons have voltage reset after step."""
-        r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1
-        )
+        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
         for idx in np.where(r.active_l23)[0]:
             assert r.voltage_l23[idx] == 0.0
@@ -427,9 +397,7 @@ class TestL23Lateral:
     def test_l23_excitability_rotation(self):
         """L2/3 neurons rotate via excitability when L4 matching
         bias is absent (n_l4 > n_l23, so no match bonus)."""
-        r = CorticalRegion(
-            n_columns=4, n_l4=8, n_l23=4, k_columns=1
-        )
+        r = CorticalRegion(n_columns=4, n_l4=8, n_l23=4, k_columns=1)
         # L4 winner will be idx >= 4 (beyond n_l23), so no L2/3
         # neuron gets the matching bonus. All L2/3 neurons in the
         # active column get equal base drive (0.5).

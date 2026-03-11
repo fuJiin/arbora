@@ -123,9 +123,7 @@ class CortexDiagnostics:
         snap.trace_l4_mean = float(np.mean(region.trace_l4))
         snap.trace_l4_nonzero = int(np.count_nonzero(region.trace_l4 > 0.01))
         snap.trace_l23_mean = float(np.mean(region.trace_l23))
-        snap.trace_l23_nonzero = int(
-            np.count_nonzero(region.trace_l23 > 0.01)
-        )
+        snap.trace_l23_nonzero = int(np.count_nonzero(region.trace_l23 > 0.01))
 
         # Prediction signal breakdown (dendritic spike model)
         v = region.voltage_l4 * region.voltage_decay
@@ -133,21 +131,12 @@ class CortexDiagnostics:
         lat_signal = np.zeros_like(v)
 
         if region.active_l23.any():
-            fb_raw = (
-                region.active_l23.astype(np.float64) @ region.fb_weights
-            )
-            fb_signal = region.fb_boost * (
-                fb_raw > region.fb_boost_threshold
-            )
+            fb_raw = region.active_l23.astype(np.float64) @ region.fb_weights
+            fb_signal = region.fb_boost * (fb_raw > region.fb_boost_threshold)
 
         if region.active_l4.any():
-            lat_raw = (
-                region.active_l4.astype(np.float64)
-                @ region.lateral_weights
-            )
-            lat_signal = region.fb_boost * (
-                lat_raw > region.fb_boost_threshold
-            )
+            lat_raw = region.active_l4.astype(np.float64) @ region.lateral_weights
+            lat_signal = region.fb_boost * (lat_raw > region.fb_boost_threshold)
 
         snap.prediction_max = float(np.max(v + fb_signal + lat_signal))
         snap.feedback_contribution = float(np.max(fb_signal))
@@ -176,9 +165,7 @@ class CortexDiagnostics:
 
         # L4-L2/3 match rate
         match_rate = (
-            self._l4_l23_matches / self._l4_l23_total
-            if self._l4_l23_total > 0
-            else 0.0
+            self._l4_l23_matches / self._l4_l23_total if self._l4_l23_total > 0 else 0.0
         )
 
         return {
@@ -208,8 +195,7 @@ class CortexDiagnostics:
             mx = getattr(s, f"{name}_max")
             sp = getattr(s, f"{name}_sparsity")
             print(
-                f"  {name:>8s}: mean={m:.4f} std={sd:.4f}"
-                f" max={mx:.4f} sparse={sp:.1%}"
+                f"  {name:>8s}: mean={m:.4f} std={sd:.4f} max={mx:.4f} sparse={sp:.1%}"
             )
 
         print("\nExcitability vs voltage:")
@@ -232,15 +218,10 @@ class CortexDiagnostics:
         print(f"  lateral contribution:   {s.lateral_contribution:.4f}")
 
         print("\nActivation diversity:")
-        max_ent = np.log2(
-            max(self._column_counts.keys(), default=1) + 1
-        )
+        max_ent = np.log2(max(self._column_counts.keys(), default=1) + 1)
         ent = summ["column_entropy"]
         ent_r = summ["column_entropy_ratio"]
-        print(
-            f"  column entropy: {ent:.2f} / {max_ent:.2f}"
-            f" ({ent_r:.1%} of max)"
-        )
+        print(f"  column entropy: {ent:.2f} / {max_ent:.2f} ({ent_r:.1%} of max)")
         print(f"  unique L4 neurons:  {summ['unique_l4_neurons']}")
         print(f"  unique L2/3 neurons: {summ['unique_l23_neurons']}")
         print(f"  unique column sets: {summ['unique_column_sets']}")
