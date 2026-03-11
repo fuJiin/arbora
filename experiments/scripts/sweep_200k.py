@@ -41,22 +41,36 @@ def compute_baseline_iou(enc_cfg, train_cache):
 
 def run_one(enc_cfg, window, train_cache, eval_cache):
     model_cfg = ModelConfig(
-        n=2048, k=40, max_lr=0.5, weight_decay=0.999,
-        penalty_factor=0.5, eligibility_window=window,
+        n=2048,
+        k=40,
+        max_lr=0.5,
+        weight_decay=0.999,
+        penalty_factor=0.5,
+        eligibility_window=window,
     )
     train_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="train",
-        max_tokens=PRETRAIN_TOKENS, log_interval=50_000,
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="train",
+        max_tokens=PRETRAIN_TOKENS,
+        log_interval=50_000,
     )
     eval_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="validation",
-        max_tokens=EVAL_TOKENS, log_interval=2_000,
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="validation",
+        max_tokens=EVAL_TOKENS,
+        log_interval=2_000,
     )
     pretrain_cfg = ExperimentConfig(
-        encoder=enc_cfg, model=model_cfg, training=train_tc, name="sweep200k",
+        encoder=enc_cfg,
+        model=model_cfg,
+        training=train_tc,
+        name="sweep200k",
     )
     eval_cfg = ExperimentConfig(
-        encoder=enc_cfg, model=model_cfg, training=eval_tc, name="sweep200k",
+        encoder=enc_cfg,
+        model=model_cfg,
+        training=eval_tc,
+        name="sweep200k",
     )
 
     model = StepMemoryModel(model_cfg, enc_cfg)
@@ -74,11 +88,13 @@ def run_one(enc_cfg, window, train_cache, eval_cache):
 def main():
     base_enc = EncoderConfig(model_name="gpt2", n=2048, k=40, vocab_size=10000)
     train_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="train",
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="train",
         max_tokens=PRETRAIN_TOKENS,
     )
     eval_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="validation",
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="validation",
         max_tokens=EVAL_TOKENS,
     )
 
@@ -88,11 +104,16 @@ def main():
     print(f"  Train: {len(train_cache):,}, Eval: {len(eval_cache):,}\n")
 
     schemes = {
-        "hash": EncoderConfig(
-            model_name="gpt2", n=2048, k=40, vocab_size=10000),
+        "hash": EncoderConfig(model_name="gpt2", n=2048, k=40, vocab_size=10000),
         "active f=0.3": EncoderConfig(
-            model_name="gpt2", n=2048, k=40, vocab_size=10000,
-            adaptive=True, context_fraction=0.3, seeding="active"),
+            model_name="gpt2",
+            n=2048,
+            k=40,
+            vocab_size=10000,
+            adaptive=True,
+            context_fraction=0.3,
+            seeding="active",
+        ),
     }
 
     # Baselines
@@ -114,14 +135,16 @@ def main():
             bl = baselines[name]
             lift = (iou - bl) / (1 - bl)
             results.append((name, w, acc, iou, bl, lift, elapsed))
-            print(f"  {name:15s} w={w:2d}: acc={acc:.1%} iou={iou:.4f} "
-                  f"lift={lift:.4f} ({elapsed:.0f}s)")
+            print(
+                f"  {name:15s} w={w:2d}: acc={acc:.1%} iou={iou:.4f} "
+                f"lift={lift:.4f} ({elapsed:.0f}s)"
+            )
 
-    print(f"\n{'Scheme':15s} {'w':>3s} {'Acc':>7s} {'IoU':>7s} "
-          f"{'Base':>7s} {'Lift':>7s}")
+    print(
+        f"\n{'Scheme':15s} {'w':>3s} {'Acc':>7s} {'IoU':>7s} {'Base':>7s} {'Lift':>7s}"
+    )
     for name, w, acc, iou, bl, lift, _ in results:
-        print(f"{name:15s} {w:3d} {acc:7.1%} {iou:7.4f} "
-              f"{bl:7.4f} {lift:7.4f}")
+        print(f"{name:15s} {w:3d} {acc:7.1%} {iou:7.4f} {bl:7.4f} {lift:7.4f}")
 
 
 if __name__ == "__main__":

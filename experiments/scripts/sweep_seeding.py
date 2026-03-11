@@ -21,26 +21,45 @@ EVAL_TOKENS = 5_000
 
 def run_one(adaptive, seeding, fraction, window, train_cache, eval_cache):
     enc_cfg = EncoderConfig(
-        model_name="gpt2", n=2048, k=40, vocab_size=10000,
-        adaptive=adaptive, context_fraction=fraction, seeding=seeding,
+        model_name="gpt2",
+        n=2048,
+        k=40,
+        vocab_size=10000,
+        adaptive=adaptive,
+        context_fraction=fraction,
+        seeding=seeding,
     )
     model_cfg = ModelConfig(
-        n=2048, k=40, max_lr=0.5, weight_decay=0.999,
-        penalty_factor=0.5, eligibility_window=window,
+        n=2048,
+        k=40,
+        max_lr=0.5,
+        weight_decay=0.999,
+        penalty_factor=0.5,
+        eligibility_window=window,
     )
     train_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="train",
-        max_tokens=PRETRAIN_TOKENS, log_interval=50_000,
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="train",
+        max_tokens=PRETRAIN_TOKENS,
+        log_interval=50_000,
     )
     eval_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="validation",
-        max_tokens=EVAL_TOKENS, log_interval=1_000,
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="validation",
+        max_tokens=EVAL_TOKENS,
+        log_interval=1_000,
     )
     pretrain_cfg = ExperimentConfig(
-        encoder=enc_cfg, model=model_cfg, training=train_tc, name="sweep",
+        encoder=enc_cfg,
+        model=model_cfg,
+        training=train_tc,
+        name="sweep",
     )
     eval_cfg = ExperimentConfig(
-        encoder=enc_cfg, model=model_cfg, training=eval_tc, name="sweep",
+        encoder=enc_cfg,
+        model=model_cfg,
+        training=eval_tc,
+        name="sweep",
     )
 
     model = StepMemoryModel(model_cfg, enc_cfg)
@@ -58,11 +77,13 @@ def run_one(adaptive, seeding, fraction, window, train_cache, eval_cache):
 def main():
     enc_cfg = EncoderConfig(model_name="gpt2", n=2048, k=40, vocab_size=10000)
     train_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="train",
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="train",
         max_tokens=PRETRAIN_TOKENS,
     )
     eval_tc = TrainingConfig(
-        dataset_name="roneneldan/TinyStories", dataset_split="validation",
+        dataset_name="roneneldan/TinyStories",
+        dataset_split="validation",
         max_tokens=EVAL_TOKENS,
     )
 

@@ -174,9 +174,7 @@ def main(config_path: str | None = None) -> None:
                 dataset_split=step_pretrain_cfg["dataset_split"],
                 max_tokens=step_pretrain_cfg["max_tokens"],
             )
-            story_boundaries = compute_story_boundaries(
-                pretrain_tc, exp_config.encoder
-            )
+            story_boundaries = compute_story_boundaries(pretrain_tc, exp_config.encoder)
             print(f"  Found {len(story_boundaries):,} story boundaries")
 
         # Compute bigram SDR overlap from eval cache
@@ -237,14 +235,21 @@ def main(config_path: str | None = None) -> None:
 
             print(f"--- Evaluating {model_name} ---")
             result = run_experiment(
-                exp_config, pretrained_factory, model_name,
-                native_metric_name, eval_cache, on_eval_step=on_eval_cb,
+                exp_config,
+                pretrained_factory,
+                model_name,
+                native_metric_name,
+                eval_cache,
+                on_eval_step=on_eval_cb,
             )
         else:
             print(f"--- Evaluating {model_name} ---")
             result = run_experiment(
-                exp_config, factory, model_name,
-                native_metric_name, eval_cache,
+                exp_config,
+                factory,
+                model_name,
+                native_metric_name,
+                eval_cache,
             )
 
         results.append(result)
@@ -256,9 +261,7 @@ def main(config_path: str | None = None) -> None:
         final_acc = (
             result.rolling_accuracies[-1][1] if result.rolling_accuracies else 0.0
         )
-        final_native = (
-            result.rolling_native[-1][1] if result.rolling_native else 0.0
-        )
+        final_native = result.rolling_native[-1][1] if result.rolling_native else 0.0
         print(
             f"  {model_name}: "
             f"final rolling accuracy = {final_acc:.4f}, "

@@ -15,19 +15,14 @@ import time
 from collections import Counter
 
 import numpy as np
-import torch
 from transformers import AutoModelForCausalLM
 
 from step.config import EncoderConfig, ModelConfig, TrainingConfig
 from step.data import (
     STORY_BOUNDARY,
-    cached_token_stream,
     prepare_token_cache,
 )
-from step.experiment import ExperimentConfig, pretrain_step_model
 from step.model import learn, observe, predict, predict_with_vector
-from step.wrappers import StepMemoryModel
-
 
 PRETRAIN_TOKENS = 200_000
 EVAL_TOKENS = 10_000
@@ -95,9 +90,7 @@ def bigram_baseline(train_cache, eval_cache):
 
     best_next: dict[int, int] = {}
     for (a, b), count in bigrams.items():
-        if a not in best_next or count > bigrams.get(
-            (a, best_next[a]), 0
-        ):
+        if a not in best_next or count > bigrams.get((a, best_next[a]), 0):
             best_next[a] = b
 
     correct = 0
@@ -143,18 +136,14 @@ class EmbeddingSTEP:
         self._state = observe(self._state, t, sdr, self.model_config)
 
     def predict_token(self, t: int) -> int:
-        sdr, vector = predict_with_vector(
-            self._state, t, self.model_config
-        )
+        sdr, vector = predict_with_vector(self._state, t, self.model_config)
         return self._decode(sdr, vector)
 
     def predict_sdr(self, t: int) -> frozenset[int]:
         return predict(self._state, t, self.model_config)
 
     def learn(self, t, actual_sdr, predicted_sdr) -> float:
-        return learn(
-            self._state, t, actual_sdr, predicted_sdr, self.model_config
-        )
+        return learn(self._state, t, actual_sdr, predicted_sdr, self.model_config)
 
     def get_sdr(self, token_id: int) -> frozenset[int]:
         return self._sdrs.get(token_id, frozenset())
@@ -244,23 +233,14 @@ def main():
     # Also build hash SDRs for comparison
     from step.sdr import encode_token
 
-    hash_enc = EncoderConfig(
-        model_name="gpt2", n=N, k=K, vocab_size=VOCAB_SIZE
-    )
-    hash_sdrs = {
-        tid: encode_token(tid, hash_enc) for tid in range(VOCAB_SIZE)
-    }
+    hash_enc = EncoderConfig(model_name="gpt2", n=N, k=K, vocab_size=VOCAB_SIZE)
+    hash_sdrs = {tid: encode_token(tid, hash_enc) for tid in range(VOCAB_SIZE)}
     hmean, hstd, hmax = compute_sdr_stats(hash_sdrs)
-    print(
-        f"  Hash overlap stats: mean={hmean:.2f}, "
-        f"std={hstd:.2f}, max={hmax}"
-    )
+    print(f"  Hash overlap stats: mean={hmean:.2f}, std={hstd:.2f}, max={hmax}")
 
     # Cache data
     print("\nCaching data...")
-    base_enc = EncoderConfig(
-        model_name="gpt2", n=N, k=K, vocab_size=VOCAB_SIZE
-    )
+    base_enc = EncoderConfig(model_name="gpt2", n=N, k=K, vocab_size=VOCAB_SIZE)
     train_tc = TrainingConfig(
         dataset_name="roneneldan/TinyStories",
         dataset_split="train",
@@ -297,12 +277,10 @@ def main():
             acc, iou = run_one(sdr_dict, model_cfg, train_cache, eval_cache)
             elapsed = time.monotonic() - start
             results.append((sdr_type, w, acc, iou, elapsed))
-            print(
-                f"    acc={acc:.1%} iou={iou:.4f} ({elapsed:.0f}s)"
-            )
+            print(f"    acc={acc:.1%} iou={iou:.4f} ({elapsed:.0f}s)")
 
     print(f"\n{'SDR Type':12s} {'w':>3s} {'Acc':>7s} {'IoU':>7s}")
-    print(f"{'bigram':12s} {'–':>3s} {bigram_acc:7.1%} {'–':>7s}")
+    print(f"{'bigram':12s} {'-':>3s} {bigram_acc:7.1%} {'-':>7s}")
     for sdr_type, w, acc, iou, _ in results:
         print(f"{sdr_type:12s} {w:3d} {acc:7.1%} {iou:7.4f}")
 
