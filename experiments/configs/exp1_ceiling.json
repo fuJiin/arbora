@@ -1,0 +1,29 @@
+{
+  "name": "exp1_ceiling",
+  "encoder": { "model_name": "gpt2", "n": 2048, "k": 40, "vocab_size": 10000 },
+  "model": {
+    "n": 2048, "k": 40, "max_lr": 0.5, "weight_decay": 1.0,
+    "penalty_factor": 0.0, "eligibility_window": 101
+  },
+  "training": {
+    "dataset_name": "roneneldan/TinyStories",
+    "dataset_split": "validation",
+    "max_tokens": 10000,
+    "log_interval": 100,
+    "rolling_window": 100
+  },
+  "step_pretrain": {
+    "dataset_split": "train",
+    "max_tokens": 2000000
+  },
+  "mini_gpt": {
+    "vocab_size": 10000, "n_embd": 128, "n_head": 4,
+    "n_layer": 2, "block_size": 256, "dropout": 0.1
+  },
+  "pretrain": {
+    "dataset_split": "train", "max_tokens": 2000000,
+    "batch_size": 64, "epochs": 5, "lr": 3e-4,
+    "warmup_steps": 500, "min_lr": 1e-5
+  },
+  "models": ["step_memory", "mini_gpt"]
+}

@@ -32,7 +32,7 @@ def train(
         def log_fn(t: int, rolling: float) -> None:
             print(f"Token {t} | Rolling IoU: {rolling:.4f}")
 
-    state = initial_state()
+    state = initial_state(model_config)
     ious: list[float] = []
 
     for t, _token_id, current_sdr in stream:
