@@ -26,7 +26,7 @@ class CorticalRegion:
         n_l23: int,
         k_columns: int,
         *,
-        voltage_decay: float = 0.9,
+        voltage_decay: float = 0.5,
         eligibility_decay: float = 0.95,
         synapse_decay: float = 0.999,
         learning_rate: float = 0.05,
@@ -150,6 +150,10 @@ class CorticalRegion:
         # 9. Refractory: reset voltage for active neurons
         self.voltage_l4[self.active_l4] = 0.0
         self.voltage_l23[self.active_l23] = 0.0
+
+        # 10. Clamp voltage (bounded membrane potential)
+        np.clip(self.voltage_l4, 0.0, 1.0, out=self.voltage_l4)
+        np.clip(self.voltage_l23, 0.0, 1.0, out=self.voltage_l23)
 
         return top_cols * self.n_l4 + l4_winners_in_col
 
@@ -289,13 +293,16 @@ class CorticalRegion:
         self.trace_l23[self.active_l23] = 1.0
 
     def _update_excitability(self):
-        """Boost inactive neurons, reset active ones (capped)."""
-        self.excitability_l4 += ~self.active_l4 * (
-            self.excitability_l4 < self.max_excitability
-        )
-        self.excitability_l23 += ~self.active_l23 * (
-            self.excitability_l23 < self.max_excitability
-        )
+        """Boost inactive neurons, reset active ones (capped).
+
+        Increment is max_excitability / n_l4, so it takes n_l4 steps
+        for an inactive neuron to reach full excitability — enough for
+        one complete rotation through all neurons in a column.
+        """
+        inc_l4 = self.max_excitability / self.n_l4
+        inc_l23 = self.max_excitability / self.n_l23
+        self.excitability_l4[~self.active_l4] += inc_l4
+        self.excitability_l23[~self.active_l23] += inc_l23
         self.excitability_l4[self.active_l4] = 0.0
         self.excitability_l23[self.active_l23] = 0.0
         np.clip(

@@ -425,14 +425,17 @@ class TestL23Lateral:
             assert r.voltage_l23[idx] == 0.0
 
     def test_l23_excitability_rotation(self):
-        """L2/3 neurons rotate via excitability even when L4
-        winner is stable (lateral context absent)."""
+        """L2/3 neurons rotate via excitability when L4 matching
+        bias is absent (n_l4 > n_l23, so no match bonus)."""
         r = CorticalRegion(
-            n_columns=4, n_l4=1, n_l23=4, k_columns=1
+            n_columns=4, n_l4=8, n_l23=4, k_columns=1
         )
-        # L4 has 1 neuron/col, so L4 winner is always idx 0.
-        # L2/3 has 4 neurons/col. The bonus goes to idx 0,
-        # but excitability should rotate the others in eventually.
+        # L4 winner will be idx >= 4 (beyond n_l23), so no L2/3
+        # neuron gets the matching bonus. All L2/3 neurons in the
+        # active column get equal base drive (0.5).
+        # Excitability should rotate them.
+        # Bias L4 neuron 7 (idx > n_l23) to always win in col 0
+        r.excitability_l4[7] = 100.0
         drive = np.array([1.0, 0.0, 0.0, 0.0])
         activated_l23 = set()
         for _ in range(20):
