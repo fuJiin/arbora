@@ -13,6 +13,7 @@ from transformers import AutoTokenizer
 import step.env  # noqa: F401
 from step.config import EncoderConfig, ModelConfig
 from step.cortex.config import CortexConfig
+from step.cortex.diagnostics import CortexDiagnostics
 from step.cortex.runner import STORY_BOUNDARY, run_cortex, run_step_baseline
 from step.cortex.sensory import SensoryRegion
 from step.encoders.charbit import CharbitEncoder
@@ -106,6 +107,8 @@ def main():
         + region.l23_lateral_weights.size
     )
 
+    diag = CortexDiagnostics(snapshot_interval=args.log_interval)
+
     print("\n--- Cortex model ---")
     print(
         f"  Columns={cortex_cfg.n_columns} "
@@ -120,7 +123,10 @@ def main():
         charbit,
         cortex_tokens,
         log_interval=args.log_interval,
+        diagnostics=diag,
     )
+
+    diag.print_report()
 
     # --- STEP baseline ---
     step_cfg = ModelConfig(
@@ -144,23 +150,35 @@ def main():
     )
 
     # --- Summary ---
-    print(f"\n{'='*50}")
-    print(f"{'Model':<12} {'Params':>8} {'Metric':>8} {'Accuracy':>10} {'Time':>8}")
-    print(f"{'='*50}")
+    print(f"\n{'='*60}")
+    print(
+        f"{'Model':<12} {'Params':>8} {'Metric':>8} "
+        f"{'Idx Acc':>8} {'Syn Acc':>8} {'Time':>8}"
+    )
+    print(f"{'='*60}")
 
     def summarize(name, metrics, n_params):
-        if metrics.overlaps:
-            avg_metric = sum(metrics.overlaps) / len(metrics.overlaps)
-        else:
-            avg_metric = 0.0
-        if metrics.accuracies:
-            avg_acc = sum(metrics.accuracies) / len(metrics.accuracies)
-        else:
-            avg_acc = 0.0
+        avg_metric = (
+            sum(metrics.overlaps) / len(metrics.overlaps)
+            if metrics.overlaps
+            else 0.0
+        )
+        avg_acc = (
+            sum(metrics.accuracies) / len(metrics.accuracies)
+            if metrics.accuracies
+            else 0.0
+        )
+        avg_syn = (
+            sum(metrics.synaptic_accuracies) / len(metrics.synaptic_accuracies)
+            if metrics.synaptic_accuracies
+            else 0.0
+        )
+        syn_str = f"{avg_syn:>7.1%}" if metrics.synaptic_accuracies else "    n/a"
         print(
             f"{name:<12} {n_params:>8,} "
             f"{avg_metric:>8.4f} "
-            f"{avg_acc:>9.1%} "
+            f"{avg_acc:>7.1%} "
+            f"{syn_str} "
             f"{metrics.elapsed_seconds:>7.1f}s"
         )
 
@@ -174,9 +192,11 @@ def main():
         s_tail = step_metrics.overlaps[-100:]
         ca_tail = cortex_metrics.accuracies[-100:]
         sa_tail = step_metrics.accuracies[-100:]
+        cs_tail = cortex_metrics.synaptic_accuracies[-100:]
         print(
             f"  Cortex: overlap={sum(c_tail)/100:.4f} "
-            f"acc={sum(ca_tail)/100:.1%}"
+            f"idx_acc={sum(ca_tail)/100:.1%} "
+            f"syn_acc={sum(cs_tail)/100:.1%}"
         )
         print(
             f"  STEP:   iou={sum(s_tail)/100:.4f} "
