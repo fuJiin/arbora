@@ -4,11 +4,11 @@
 Research project comparing biologically-plausible learning (eligibility propagation + sparse distributed representations) against standard backprop in transformers. Built with NumPy (STEP model) and PyTorch (baseline GPT). Python 3.12+, managed with uv.
 
 ## Architecture
-- **Model core** (`model.py`): Functional with explicit state threading via `ModelState` NamedTuple (dense numpy (n,n) weight matrix). Learning rule: Hebbian reinforcement of source→target connections + anti-Hebbian penalty for false positives.
+- **Model core** (`model.py`): Functional with explicit state threading via `ModelState` NamedTuple (dense numpy (n,n) weight matrix). Learning rule: Hebbian reinforcement of source→target connections + anti-Hebbian penalty for false positives. Experimental three-factor gated rule (relevance_gate, weight_init params).
 - **Model wrappers** (`step/wrappers.py`, `baselines/wrappers.py`): Wrap implementations into `Model` protocol
-  - `StepMemoryModel`: In-memory STEP with inverted index decode (O(k) per query), optional `AdaptiveEncoder`
-  - `TinyStories1MModel`: Pre-trained HuggingFace model wrapper (inference-only, 3.7M params, 10K vocab restriction)
-- **Key modules**: `sdr.py` (hash-based encoding + `AdaptiveEncoder`), `data.py` (tokenizer + dataset caching + story boundary detection + vocab filtering)
+  - `StepMemoryModel`: In-memory STEP with inverted index decode (O(k) per query), optional `AdaptiveEncoder`, weight-aware decode
+  - `TinyStories1MModel`: Pre-trained HuggingFace model wrapper (inference-only, 3.7M params, 10K vocab restriction, per-story context reset)
+- **Key modules**: `sdr.py` (hash-based encoding + `AdaptiveEncoder`), `data.py` (tokenizer + dataset caching + story boundary detection via STORY_BOUNDARY sentinel + vocab filtering)
 - **Experiment infra**: `experiment.py` (generic `run_experiment()` + `pretrain_step_model()` with story boundary handling, callback hooks, JSON logging)
 
 ## Corrected Accuracy Measurements (with story boundaries)
@@ -17,47 +17,41 @@ Research project comparing biologically-plausible learning (eligibility propagat
 |-------|----------|-------|
 | TinyStories-1M ceiling | **42.2%** | Clamped 10K vocab, per-story context reset |
 | Bigram baseline | **28.9%** | |
-| STEP w=3 (hash, 200K) | **21.7%** | Below bigrams — old 30% was inflated by cross-story contamination |
 | STEP w=3 (embedding SDRs, 200K) | **28.9%** | Matches bigrams with optimal SDRs |
+| STEP w=3 (hash, 200K) | **21.7%** | Below bigrams with hash encoding |
 
 Previous 30% measurements were inflated by cross-story context bleeding. Fixed in commit 6dd4d5d.
 
-## Key Finding: Learning Rule is the Bottleneck
+## Key Findings (exp3)
 
-**Encoding is NOT the bottleneck.** Embedding-derived SDRs (from TinyStories-1M word embeddings with pre-trained semantic structure) match bigrams at w=3 but w=5 still degrades. Even with optimal SDRs, the learning rule can't use longer context.
+### 1. Encoding is NOT the bottleneck
+Embedding-derived SDRs (from TinyStories-1M word embeddings) match bigrams at w=3 (28.9%) but w=5 still degrades (28.4%). Even with optimal SDRs, the learning rule can't use longer context.
 
-**Root cause**: The learning rule treats all source bits in the eligibility window equally (modulo time decay). With w>3, noise from irrelevant context tokens drowns the signal. The model has no mechanism to focus on relevant context vs noise — which is exactly what attention solves in transformers.
+### 2. Learning rule is the bottleneck
+The rule treats all source bits in the eligibility window equally (modulo time decay). With w>3, noise from irrelevant context drowns the signal. No mechanism to focus on relevant context vs noise.
 
-## Current Work: Three-Factor Gated Learning Rule
-Branch: `worktree-exp0`
+### 3. Per-bit gating doesn't work
+Three-factor gated learning (gate source bits by W[i,:] relevance to target) hurts at all thresholds. Root cause: each W[i,:] is a superposition of ~195 tokens' prediction targets, so per-bit relevance to one specific target is low even for genuinely relevant source bits. Positive weight initialization doesn't fix this.
 
-### Motivation
-Current rule: `W[src, dst] += eta * trace_strength` for ALL source bits in window.
-Proposed: gate eligibility by relevance — only learn from source bits that actually contributed to the prediction.
+### 4. Token-level credit assignment needed
+The model needs to learn which CONTEXT TOKENS (not bits) are relevant for each prediction. This is fundamentally what attention solves in transformers. Biologically-plausible approaches: neuromodulatory gating (dopamine), competitive inhibition, or separate fast/slow pathways.
 
-### Design (biologically-plausible three-factor rule)
-1. **Activation** = `W[i, :] * trace_strength[i]` (synapse weight × pre-synaptic trace)
-2. **Relevance gate** = how well this source bit's activation matches the actual target (neuromodulatory signal)
-3. **Learning** = flat `eta` for everyone who passes the gate
+## Adaptive Encoding Results (superseded by learning rule work)
+- `AdaptiveEncoder` in `sdr.py`: seeds context_fraction of bits from context
+- Active f=0.3 makes w=5 viable (doesn't degrade), but doesn't beat bigrams
+- Predict f=0.5: high IoU but accuracy collapses (discrimination failure — 1767 confusable tokens)
+- Weight-aware decode, IoU lift metric implemented
+- Decode diagnostics: hash errors = prediction failure (IoU 0.08), predict f=0.5 errors = discrimination failure (IoU 0.46)
 
-Maps to neuroscience: eligibility traces exist on all synapses, but only convert to actual plasticity when a neuromodulatory signal (dopamine/prediction error) confirms relevance. This is a "three-factor learning rule" in computational neuroscience: pre × post × neuromodulator.
-
-Key insight from user: the current rule incorrectly uses trace_strength for both activation AND learning magnitude. In biology, activation (weight × trace) determines IF plasticity happens, while the plasticity magnitude is relatively uniform (LTP/LTD has characteristic magnitudes).
-
-## exp3 Results — Adaptive Encoding (completed, superseded)
-
-Adaptive encoding (seeding SDR bits from context) adds marginal IoU lift but doesn't break the bigram ceiling. Decode diagnostics separated prediction failure (hash) from discrimination failure (predict f=0.5). Weight-aware decode implemented but didn't fix the core issue. All this work confirmed encoding isn't the bottleneck.
-
-Key files: `sdr.py` (AdaptiveEncoder), `sweep_final.py` (IoU lift), `diagnose_decode.py`, `sweep_embedding_sdr.py`
-
-## Previous Experiments
-- **exp2c**: STEP matches TinyStories-1M at 30% with w=3 (now known to be inflated)
-- **exp2b**: Weight decay/penalty necessary but not sufficient
-- **exp1**: 10K vocab, 2M tokens — both models stuck at 3%
-- **exp0**: Initial comparison, both at 6%
+## Open Questions / Next Steps
+- **Token-level gating**: Gate entire context tokens instead of individual bits. Compute per-token contribution to the prediction, gate based on that.
+- **Biologically-plausible attention**: Can competitive inhibition among context tokens implement attention? Different cortical layers for different timescales?
+- **Three-factor learning at token level**: The user's insight that activation (weight × trace) should determine IF plasticity happens, while plasticity magnitude should be uniform, hasn't been fully explored at the token level.
+- **Structural plasticity**: Moving SDR bits based on prediction errors. Discussed but deprioritized since encoding isn't the bottleneck.
 
 ## Key Decisions
-- **Story boundaries**: STORY_BOUNDARY sentinel (-1) between stories in token_stream. All models reset context at boundaries.
-- **10K vocab ceiling**: TinyStories1MModel restricts argmax to vocab_size (10K) since targets are clamped
+- **Story boundaries**: STORY_BOUNDARY sentinel (-1) between stories. All models reset context.
+- **10K vocab ceiling**: TinyStories1MModel restricts argmax to vocab_size
 - Inverted index decode with weight-aware scoring
-- **Learning rule is the focus** — encoding experiments completed, bottleneck identified
+- **IoU is primary STEP-internal metric** (accuracy for external comparison)
+- **Tackle issues one-by-one** for publishable attribution
