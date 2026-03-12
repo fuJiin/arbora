@@ -468,48 +468,82 @@ def build_column_selectivity_bar(
     return fig
 
 
+def _health_color(value: float, green_range: tuple, yellow_range: tuple) -> str:
+    """Return CSS color based on whether value is in healthy range.
+
+    green_range: (low, high) — green if value is in this range
+    yellow_range: (low, high) — yellow if in this but not green
+    Otherwise red.
+    """
+    if green_range[0] <= value <= green_range[1]:
+        return "#06d6a0"  # green
+    if yellow_range[0] <= value <= yellow_range[1]:
+        return "#ffd166"  # yellow
+    return "#e94560"  # red
+
+
 def build_representation_summary_cards(
     rep_summary: dict, burst_rate: float
 ) -> str:
-    """Build HTML stat cards for representation metrics."""
+    """Build HTML stat cards with health-based color coding.
+
+    Color coding detects degenerate states rather than defining
+    "optimal" — healthy representations have a range of acceptable
+    values, not a single target.
+    """
+    sel = rep_summary.get("column_selectivity_mean", 0)
+    sim = rep_summary.get("similarity_mean", 0)
+    ctx = rep_summary.get("context_discrimination", 0)
+    spar = rep_summary.get("ff_sparsity", 0)
+    div = rep_summary.get("ff_cross_col_cosine", 0)
+
+    # (value_str, label, hint, color)
     cards = [
         (
             f"{burst_rate:.0%}",
             "Surprise Rate",
             "how often the cortex can't anticipate what's next",
+            _health_color(burst_rate, (0, 0.4), (0, 0.7)),
         ),
         (
-            f"{rep_summary.get('column_selectivity_mean', 0):.2f}",
+            f"{sel:.2f}",
             "Feature Selectivity",
             "how picky columns are (lower = more specialized)",
+            _health_color(sel, (0.05, 0.5), (0.02, 0.8)),
         ),
         (
-            f"{rep_summary.get('similarity_mean', 0):.2f}",
+            f"{sim:.2f}",
             "Token Similarity",
             "do similar tokens share columns? (want > 0, < 1)",
+            _health_color(sim, (0.01, 0.8), (0.001, 0.95)),
         ),
         (
-            f"{rep_summary.get('context_discrimination', 0):.2f}",
+            f"{ctx:.2f}",
             "Context Sensitivity",
             "same token, different context = different neurons?",
+            _health_color(ctx, (0.1, 0.95), (0.05, 0.98)),
         ),
         (
-            f"{rep_summary.get('ff_sparsity', 0):.2f}",
+            f"{spar:.2f}",
             "Receptive Field Focus",
             "how sharp each column's input filter is",
+            _health_color(spar, (0.9, 1.0), (0.7, 1.0)),
         ),
         (
-            f"{rep_summary.get('ff_cross_col_cosine', 0):.2f}",
+            f"{div:.2f}",
             "Column Diversity",
             "are columns learning different things? (lower = yes)",
+            _health_color(div, (0, 0.1), (0, 0.5)),
         ),
     ]
 
     html = '<div class="summary">'
-    for value, label, hint in cards:
+    for value, label, hint, color in cards:
         html += f"""
-        <div class="stat-card">
-            <div class="stat-value">{value}</div>
+        <div class="stat-card" style="border-color: {color}">
+            <div class="stat-value" style="color: {color}">
+                {value}
+            </div>
             <div class="stat-label">{label}</div>
             <div class="stat-label" style="font-size:0.75em">
                 {hint}
