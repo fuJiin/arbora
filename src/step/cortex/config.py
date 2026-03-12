@@ -18,6 +18,7 @@ class CortexConfig:
     # Dendritic segment parameters
     n_fb_segments: int = 4
     n_lat_segments: int = 4
+    n_l23_segments: int = 4
     n_synapses_per_segment: int = 24
     perm_threshold: float = 0.5
     perm_init: float = 0.6
