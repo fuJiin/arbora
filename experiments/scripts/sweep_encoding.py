@@ -24,7 +24,7 @@ from step.cortex.config import CortexConfig
 from step.cortex.diagnostics import CortexDiagnostics
 from step.cortex.runner import STORY_BOUNDARY
 from step.cortex.sensory import SensoryRegion
-from step.decode import DecodeIndex
+from step.decoders import InvertedIndexDecoder
 from step.encoders.charbit import CharbitEncoder
 
 CHARS = string.printable
@@ -131,7 +131,7 @@ def run_experiment(
     )
 
     diag = CortexDiagnostics(snapshot_interval=log_interval)
-    decode_index = DecodeIndex()
+    decode_index = InvertedIndexDecoder()
     # Column-level inverted index
     col_index: dict[int, list[int]] = {}
     token_ids: list[int] = []

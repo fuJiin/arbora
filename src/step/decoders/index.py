@@ -1,7 +1,7 @@
 """Shared inverted-index decode: maps activation patterns to token IDs."""
 
 
-class DecodeIndex:
+class InvertedIndexDecoder:
     """Maps sparse activation patterns to token IDs via inverted index.
 
     Each token is recorded as a set of active indices. To decode a query
