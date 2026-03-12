@@ -35,6 +35,13 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 [tool.ty]
 
 [[tool.ty.overrides]]
+include = ["src/step/data.py"]
+
+[tool.ty.overrides.rules]
+unresolved-attribute = "ignore"
+invalid-argument-type = "ignore"
+
+[[tool.ty.overrides]]
 include = ["experiments/scripts/**"]
 
 [tool.ty.overrides.rules]
