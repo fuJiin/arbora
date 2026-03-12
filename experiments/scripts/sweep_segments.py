@@ -17,11 +17,10 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.decoder import SynapticDecoder
 from step.cortex.diagnostics import CortexDiagnostics
 from step.cortex.runner import STORY_BOUNDARY
 from step.cortex.sensory import SensoryRegion
-from step.decode import DecodeIndex
+from step.decoders import InvertedIndexDecoder, SynapticDecoder
 
 
 @dataclass
@@ -124,7 +123,7 @@ def run_config(
     )
 
     diag = CortexDiagnostics(snapshot_interval=log_interval)
-    decode_index = DecodeIndex()
+    decode_index = InvertedIndexDecoder()
     syn_decoder = SynapticDecoder()
     metrics = RunMetrics()
     k = region.k_columns

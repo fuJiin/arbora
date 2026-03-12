@@ -19,12 +19,11 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.decoder import SynapticDecoder
 from step.cortex.diagnostics import CortexDiagnostics
 from step.cortex.representation import RepresentationTracker
 from step.cortex.runner import STORY_BOUNDARY
 from step.cortex.sensory import SensoryRegion
-from step.decode import DecodeIndex
+from step.decoders import InvertedIndexDecoder, SynapticDecoder
 from step.encoders.charbit import CharbitEncoder
 
 CHARS = string.printable
@@ -192,7 +191,7 @@ def main():
 
     diag = CortexDiagnostics(snapshot_interval=args.log_interval)
     rep = RepresentationTracker(region.n_columns, region.n_l4)
-    decode_index = DecodeIndex()
+    decode_index = InvertedIndexDecoder()
     syn_decoder = SynapticDecoder()
     k = region.k_columns
     start = time.monotonic()

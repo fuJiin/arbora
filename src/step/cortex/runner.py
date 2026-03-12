@@ -4,11 +4,10 @@ import time
 from dataclasses import dataclass, field
 
 from step.config import ModelConfig
-from step.cortex.decoder import SynapticDecoder
 from step.cortex.diagnostics import CortexDiagnostics
 from step.cortex.representation import RepresentationTracker
 from step.cortex.sensory import SensoryRegion
-from step.decode import DecodeIndex
+from step.decoders import InvertedIndexDecoder, SynapticDecoder
 from step.encoders.charbit import CharbitEncoder
 
 STORY_BOUNDARY = -1
@@ -40,7 +39,7 @@ def run_cortex(
     show_predictions: if > 0, print this many prediction samples at each
                       log interval (actual vs predicted for each decoder).
     """
-    decode_index = DecodeIndex()
+    decode_index = InvertedIndexDecoder()
     syn_decoder = SynapticDecoder()
     rep_tracker = RepresentationTracker(region.n_columns, region.n_l4)
     metrics = RunMetrics()
@@ -180,7 +179,7 @@ def run_step_baseline(
     from step.model import initial_state, learn, observe, predict
 
     state = initial_state(model_config)
-    decode_index = DecodeIndex()
+    decode_index = InvertedIndexDecoder()
     metrics = RunMetrics()
     start = time.monotonic()
 
