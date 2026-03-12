@@ -95,6 +95,10 @@ class CorticalRegion:
         self.bursting_columns = np.zeros(n_columns, dtype=np.bool_)
         self.predicted_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
 
+        # L2/3 firing rate estimate (EMA of boolean activations).
+        # Models postsynaptic temporal integration of spike trains.
+        self.firing_rate_l23 = np.zeros(self.n_l23_total)
+
         # L2/3 lateral weights (associative binding across columns)
         self.l23_lateral_weights = np.zeros((self.n_l23_total, self.n_l23_total))
 
@@ -165,6 +169,7 @@ class CorticalRegion:
         """Reset transient state, preserving learned synaptic weights and segments."""
         self.voltage_l4[:] = 0.0
         self.voltage_l23[:] = 0.0
+        self.firing_rate_l23[:] = 0.0
         self.trace_l4[:] = 0.0
         self.trace_l23[:] = 0.0
         self.excitability_l4[:] = 0.0
@@ -271,6 +276,10 @@ class CorticalRegion:
         # 12. Clamp voltage (bounded membrane potential)
         np.clip(self.voltage_l4, 0.0, 1.0, out=self.voltage_l4)
         np.clip(self.voltage_l23, 0.0, 1.0, out=self.voltage_l23)
+
+        # 13. Update L2/3 firing rate estimate (EMA of spike train)
+        self.firing_rate_l23 *= self.voltage_decay
+        self.firing_rate_l23[self.active_l23] += 1.0 - self.voltage_decay
 
         return np.nonzero(self.active_l4)[0]
 

@@ -3,8 +3,6 @@
 import time
 from dataclasses import dataclass, field
 
-import numpy as np
-
 from step.config import ModelConfig
 from step.cortex.diagnostics import CortexDiagnostics
 from step.cortex.representation import RepresentationTracker
@@ -289,9 +287,10 @@ def run_hierarchy(
         region2.surprise_modulator = modulator
         metrics.surprise_modulators.append(modulator)
 
-        # --- Region 2: receives Region 1 L2/3 output ---
-        r2_encoding = region1.active_l23.astype(np.float64)
-        region2.process(r2_encoding)
+        # --- Region 2: receives Region 1 L2/3 firing rates ---
+        # Rate-coded signal (EMA of spikes) rather than instantaneous boolean,
+        # modeling postsynaptic temporal integration of spike trains.
+        region2.process(region1.firing_rate_l23)
 
         rep_tracker2.observe(token_id, region2.active_columns, region2.active_l4)
         if diagnostics2 is not None:
