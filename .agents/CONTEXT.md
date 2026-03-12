@@ -1,57 +1,58 @@
 # Context: STEP (Sparse Temporal Eligibility Propagation)
 
 ## Overview
-Research project exploring biologically-plausible learning for next-token prediction. Two architectures: (1) original flat STEP model, (2) cortical region model (neocortical minicolumn with L4/L2/3 layers, dendritic segments). Built with NumPy, Python 3.12+, managed with uv.
+Research project exploring biologically-plausible learning for next-token prediction. Cortical region model: neocortical minicolumn with L4/L2/3 layers, dendritic segments for prediction, per-neuron feedforward weights. Built with NumPy, Python 3.12+, managed with uv.
 
 ## Architecture (`src/step/cortex/`)
 
 - **L4/L2/3 minicolumn model** with burst/precise activation
 - **Dendritic segments** for prediction: fb (L2/3→L4) + lat (L4→L4), HTM-style permanence learning
-- **SensoryRegion**: local connectivity (radius = n_columns//4), structural ff/fb/lat masks
-- **RepresentationTracker** (`representation.py`): primary metrics for evaluating sensory cortex quality
-- **Synaptic decoder**: kept for monitoring, NOT the primary optimization target
-- **Dense weights**: kept for diagnostics/decoder backward compat
+- **Per-neuron ff_weights**: each L4 neuron has own weights within column's structural mask
+- **SensoryRegion**: local connectivity (radius = n_columns//4), structural masks on ff and segments
+- **L2/3 lateral weights**: dense Hebbian (no segments yet)
+- **RepresentationTracker** (`representation.py`): primary metrics for evaluating cortex quality
+- **Decoders** (`src/step/decoders/`): InvertedIndexDecoder + SynapticDecoder (monitoring only)
+- **SurpriseTracker** (`surprise.py`): EMA-based burst rate tracker, outputs learning modulator [0, 2]
+- **HierarchyConfig** (`config.py`): two-region config with R2 defaults
+- **run_hierarchy()** (`runner.py`): two-region training loop with surprise modulation
+- **Dashboard** (`cortex_dashboard.py`): single-region default, `--hierarchy` for dual-region view
 
-## Current Work
+## Two-Region Hierarchy (complete, tuned)
+- **Region 1** (sensory): CharbitEncoder → 32 cols, standard config
+- **Region 2** (secondary): R1's L2/3 firing rate → 16 cols, sliding window receptive fields
+- **Inter-region signal**: `firing_rate_l23` — EMA of L2/3 spikes using `voltage_decay` as time constant (not boolean). Biologically grounded: postsynaptic temporal integration of spike trains.
+- **R2 receptive fields**: `encoding_width=0` (sliding window). Tiled mode gave 75% overlap / 0.600 Jaccard between columns — columns couldn't differentiate. Sliding window gives 12.5% coverage with topographic neighbor-only overlap.
+- **Surprise modulation**: R1 burst rate → SurpriseTracker → scales all R2 learning (ff LTP/LTD, lateral Hebbian, segment permanences). Models NE from locus coeruleus.
+- **R2 tuned defaults**: lr=0.01, ltd=0.4, voltage_decay=0.8, eligibility_decay=0.98, synapse_decay=0.9999
 
-### Branch: `main`
-- Dendritic segments committed (`15ff0e6`)
-- Uncommitted: RepresentationTracker + eval script + BabyLM support
+## Results at 5k tokens (BabyLM, final config)
+| Metric | R1 | R2 |
+|--------|----|----|
+| Burst rate | 63.7% | 60.8% |
+| Selectivity | 0.607 | 0.694 |
+| Context discrimination | 0.546 | **0.867** |
+| Cross-col cosine | 0.073 | 0.098 |
+| FF sparsity | 0.913 | 0.950 |
+| Runtime overhead | — | ~1.3x |
 
-### Representation metrics (new, primary)
-Replaced decoder accuracy as primary evaluation with representation quality:
-1. **Column selectivity** — normalized entropy per column (0=feature detector, 1=uniform)
-2. **Representational similarity** — pairwise Jaccard of column profiles (non-trivial structure check)
-3. **Context discrimination** — Jaccard distance of neuron patterns for same token in different contexts
-4. **FF convergence** — weight sparsity, RF entropy, cross-column cosine
-
-### Results at 10K tokens (random encoder, t2+i0.2 segments)
-| Metric | TinyStories | BabyLM |
-|---|---|---|
-| Selectivity | 0.605 | 0.625 |
-| Similarity (nontrivial) | 0.054 ✓ | 0.052 ✓ |
-| Context discrimination | 0.602 | 0.591 |
-| Cross-col cosine | 0.018 | 0.016 |
-| Burst rate | 36.5% | 35.2% |
-
-Both datasets produce similar results with random encoder (expected). Switching to BabyLM as default for biological plausibility.
-
-## Key Decisions
-- **Representation quality over decoder accuracy** — sensory cortex builds representations for downstream regions (motor cortex, PFC), not for next-token prediction
-- **Motor cortex will generate responses** (not predict next token) — important architectural distinction
-- **BabyLM over TinyStories** — more naturalistic, developmentally plausible data
-- **Dendritic segments over dense Hebbian** for prediction
+## Canonical Setup
+- **CharbitEncoder** — 6x richer similarity structure vs random encoder
+- **BabyLM** dataset — more naturalistic, developmentally plausible
+- **Per-neuron ff_weights** — always on, column-level path removed
+- **Dendritic segments** — sole prediction mechanism
 - **Segment params**: thresh=2, perm_inc=0.2 (best from sweep)
 
-## Long-term Architecture Vision
-- Sensory cortex (current) → low-level features, semantic representations
-- Secondary sensory region → higher-level features (planned)
-- Motor cortex → response generation (planned)
-- PFC → longer-range reasoning (planned)
+## Key Decisions
+- **Representation quality over decoder accuracy** — sensory cortex builds representations for downstream regions
+- **Motor cortex will generate responses** (not predict next token)
+- **Firing rate > boolean for inter-region** — rate-coded EMA is biologically grounded and gives R2 smooth gradients to learn from
+- **Sliding window > tiled for R2 receptive fields** — R1's L2/3 output has no character-position structure; tiled mode created near-total overlap. Sliding window creates topographic map with neighbor-only overlap.
+- **Low lr + high LTD for R2** — secondary region should learn slowly and prune aggressively for stable higher-level features
+- **Feedback R2→R1 deferred** — requires thalamic relay (pulvinar) + apical dendrite compartments
+- **Surprise-modulated learning (third-factor)** — R1 burst rate modulates R2 plasticity via NE-like signal
 
 ## Next Steps
-- [ ] Switch default dataset to BabyLM
-- [ ] Improve column selectivity (currently 0.6, want lower)
-- [ ] Add secondary sensory region for higher-level features
-- [ ] Consider real (learned) encoder to replace random binary encoder
+- [ ] Re-sweep segment params with CharbitEncoder (current sweep used random encoder)
+- [ ] Add thalamic relay + feedback R2→R1 (activates prediction_gain, apical dendrites)
+- [ ] Add L2/3 dendritic segments
 - [ ] Explore motor cortex design for response generation
