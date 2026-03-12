@@ -19,12 +19,12 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.representation import RepresentationTracker
-from step.cortex.runner import STORY_BOUNDARY
 from step.cortex.sensory import SensoryRegion
 from step.decoders import InvertedIndexDecoder, SynapticDecoder
 from step.encoders.charbit import CharbitEncoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.probes.representation import RepresentationTracker
+from step.runner import STORY_BOUNDARY
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -74,10 +74,7 @@ def prepare_tokens_tinystories(max_tokens: int):
 
     unique = len({tid for tid, _ in tokens if tid != STORY_BOUNDARY})
     boundaries = sum(1 for tid, _ in tokens if tid == STORY_BOUNDARY)
-    print(
-        f"  {len(tokens):,} tokens, {unique} unique, "
-        f"{boundaries + 1} documents\n"
-    )
+    print(f"  {len(tokens):,} tokens, {unique} unique, {boundaries + 1} documents\n")
     return tokens
 
 
@@ -112,10 +109,7 @@ def prepare_tokens_babylm(max_tokens: int):
 
     unique = len({tid for tid, _ in tokens if tid != STORY_BOUNDARY})
     boundaries = sum(1 for tid, _ in tokens if tid == STORY_BOUNDARY)
-    print(
-        f"  {len(tokens):,} tokens, {unique} unique, "
-        f"{boundaries + 1} documents\n"
-    )
+    print(f"  {len(tokens):,} tokens, {unique} unique, {boundaries + 1} documents\n")
     return tokens
 
 
@@ -144,9 +138,7 @@ def main():
     tokens = prepare_tokens(args.dataset, args.tokens)
 
     if args.encoder == "charbit":
-        charbit = CharbitEncoder(
-            length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS
-        )
+        charbit = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
         input_dim = CHAR_LENGTH * CHAR_WIDTH
         encoding_width = CHAR_WIDTH
 
@@ -198,10 +190,7 @@ def main():
     syn_accs: list[float] = []
     overlaps: list[float] = []
 
-    print(
-        f"--- {args.dataset} + {args.encoder} encoder "
-        f"+ segments (t2+i0.2) ---\n"
-    )
+    print(f"--- {args.dataset} + {args.encoder} encoder + segments (t2+i0.2) ---\n")
 
     for t, (token_id, token_str) in enumerate(tokens):
         if token_id == STORY_BOUNDARY:
@@ -232,9 +221,7 @@ def main():
             syn_accs.append(1.0 if syn_id == token_id else 0.0)
 
         decode_index.observe(token_id, active_set)
-        syn_decoder.observe(
-            token_id, token_str, encoding, region.active_columns
-        )
+        syn_decoder.observe(token_id, token_str, encoding, region.active_columns)
 
         if t > 0 and t % args.log_interval == 0 and overlaps:
             tail_s = syn_accs[-100:]
@@ -245,9 +232,9 @@ def main():
             elapsed = time.monotonic() - start
             print(
                 f"  t={t:,} "
-                f"syn={sum(tail_s)/len(tail_s):.4f} "
-                f"overlap={sum(tail_o)/len(tail_o):.4f} "
-                f"burst={bc/total:.1%} "
+                f"syn={sum(tail_s) / len(tail_s):.4f} "
+                f"overlap={sum(tail_o) / len(tail_o):.4f} "
+                f"burst={bc / total:.1%} "
                 f"({elapsed:.1f}s)"
             )
 

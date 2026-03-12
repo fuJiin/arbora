@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 
 from step.cortex import SensoryRegion, SurpriseTracker
-from step.cortex.runner import STORY_BOUNDARY, run_hierarchy
 from step.encoders.charbit import CharbitEncoder
+from step.runner import STORY_BOUNDARY, run_hierarchy
 
 # ---------------------------------------------------------------------------
 # SurpriseTracker
@@ -55,6 +55,7 @@ class TestSurpriseTracker:
 class TestSurpriseModulatorScalesLearning:
     def test_region_learning_modulated(self):
         """Higher surprise_modulator should produce larger weight changes."""
+
         def run_one_step(modulator: float) -> float:
             r = SensoryRegion(
                 input_dim=10,
@@ -126,9 +127,7 @@ class TestHierarchyRuns:
             (0, "a"),
             (1, "b"),
         ]
-        metrics = run_hierarchy(
-            region1, region2, encoder, tokens, log_interval=1000
-        )
+        metrics = run_hierarchy(region1, region2, encoder, tokens, log_interval=1000)
         assert metrics.elapsed_seconds > 0
         assert len(metrics.surprise_modulators) > 0
 

@@ -9,10 +9,10 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.config import CortexConfig
-from step.cortex.runner import STORY_BOUNDARY
+from step.config import CortexConfig
 from step.cortex.sensory import SensoryRegion
 from step.encoders.charbit import CharbitEncoder
+from step.runner import STORY_BOUNDARY
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -86,12 +86,14 @@ def main():
     print(
         f"Tokens per column set: "
         f"min={min(tokens_per_colset)} max={max(tokens_per_colset)} "
-        f"mean={np.mean(tokens_per_colset):.1f} median={np.median(tokens_per_colset):.0f}"
+        f"mean={np.mean(tokens_per_colset):.1f} "
+        f"median={np.median(tokens_per_colset):.0f}"
     )
     print(
         f"Column sets per token: "
         f"min={min(colsets_per_token)} max={max(colsets_per_token)} "
-        f"mean={np.mean(colsets_per_token):.1f} median={np.median(colsets_per_token):.0f}"
+        f"mean={np.mean(colsets_per_token):.1f} "
+        f"median={np.median(colsets_per_token):.0f}"
     )
 
     # Distribution
@@ -104,7 +106,7 @@ def main():
 
     # Uniquely identifiable tokens
     uniquely_identifiable = 0
-    for tid, colsets in token_to_colsets.items():
+    for _tid, colsets in token_to_colsets.items():
         for cs in colsets:
             if len(colset_to_tokens[cs]) == 1:
                 uniquely_identifiable += 1

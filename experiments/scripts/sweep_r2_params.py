@@ -20,11 +20,11 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.runner import STORY_BOUNDARY, run_hierarchy
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
 from step.encoders.charbit import CharbitEncoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.runner import STORY_BOUNDARY, run_hierarchy
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -140,13 +140,11 @@ def main():
     total = len(lr_values) * len(ltd_values)
 
     for i, (lr, ltd) in enumerate(itertools.product(lr_values, ltd_values)):
-        print(f"\n{'='*60}")
-        print(f"[{i+1}/{total}] R2 lr={lr}, ltd={ltd}")
-        print(f"{'='*60}")
+        print(f"\n{'=' * 60}")
+        print(f"[{i + 1}/{total}] R2 lr={lr}, ltd={ltd}")
+        print(f"{'=' * 60}")
 
-        result = run_one(
-            tokens, encoder, input_dim, lr, ltd, args.log_interval
-        )
+        result = run_one(tokens, encoder, input_dim, lr, ltd, args.log_interval)
         results.append(result)
 
         print(
@@ -159,9 +157,9 @@ def main():
         )
 
     # Summary table
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("SWEEP RESULTS")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     header = (
         f"{'lr':>6s} {'ltd':>6s} │ "
         f"{'burst':>6s} {'select':>6s} {'ctx_d':>6s} "

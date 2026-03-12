@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sweep neuron capacity configurations: per-neuron ff_weights × neurons per column.
+"""Sweep neuron capacity configurations: per-neuron ff_weights x neurons per column.
 
 Tests 6 configurations on 10K tokens and reports key metrics.
 
@@ -13,11 +13,11 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.config import CortexConfig
-from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.runner import STORY_BOUNDARY, run_cortex
+from step.config import CortexConfig
 from step.cortex.sensory import SensoryRegion
 from step.encoders.charbit import CharbitEncoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.runner import STORY_BOUNDARY, run_cortex
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -94,7 +94,9 @@ def run_config(name, n_l4, n_l23, tokens, log_interval):
     print(f"  ff_weights: {region.ff_weights.shape}, params: {n_params:,}")
 
     metrics = run_cortex(
-        region, charbit, tokens,
+        region,
+        charbit,
+        tokens,
         log_interval=log_interval,
         diagnostics=diag,
     )
@@ -107,7 +109,9 @@ def run_config(name, n_l4, n_l23, tokens, log_interval):
     tail_overlap = metrics.overlaps[-last_n:] if metrics.overlaps else []
     tail_idx = metrics.accuracies[-last_n:] if metrics.accuracies else []
     tail_col = metrics.column_accuracies[-last_n:] if metrics.column_accuracies else []
-    tail_syn = metrics.synaptic_accuracies[-last_n:] if metrics.synaptic_accuracies else []
+    tail_syn = (
+        metrics.synaptic_accuracies[-last_n:] if metrics.synaptic_accuracies else []
+    )
 
     result = {
         "name": name,
@@ -116,10 +120,19 @@ def run_config(name, n_l4, n_l23, tokens, log_interval):
         "n_params": n_params,
         "time": metrics.elapsed_seconds,
         # Overall averages
-        "avg_overlap": sum(metrics.overlaps) / len(metrics.overlaps) if metrics.overlaps else 0,
-        "avg_idx_acc": sum(metrics.accuracies) / len(metrics.accuracies) if metrics.accuracies else 0,
-        "avg_col_acc": sum(metrics.column_accuracies) / len(metrics.column_accuracies) if metrics.column_accuracies else 0,
-        "avg_syn_acc": sum(metrics.synaptic_accuracies) / len(metrics.synaptic_accuracies) if metrics.synaptic_accuracies else 0,
+        "avg_overlap": sum(metrics.overlaps) / len(metrics.overlaps)
+        if metrics.overlaps
+        else 0,
+        "avg_idx_acc": sum(metrics.accuracies) / len(metrics.accuracies)
+        if metrics.accuracies
+        else 0,
+        "avg_col_acc": sum(metrics.column_accuracies) / len(metrics.column_accuracies)
+        if metrics.column_accuracies
+        else 0,
+        "avg_syn_acc": sum(metrics.synaptic_accuracies)
+        / len(metrics.synaptic_accuracies)
+        if metrics.synaptic_accuracies
+        else 0,
         # Last-100
         "last_overlap": sum(tail_overlap) / len(tail_overlap) if tail_overlap else 0,
         "last_idx": sum(tail_idx) / len(tail_idx) if tail_idx else 0,
@@ -138,11 +151,15 @@ def run_config(name, n_l4, n_l23, tokens, log_interval):
         "lat_cosine": snap.lat_row_cosine_mean if snap else 0,
     }
 
-    print(f"  overlap={result['avg_overlap']:.4f} idx={result['avg_idx_acc']:.1%} "
-          f"col={result['avg_col_acc']:.1%} syn={result['avg_syn_acc']:.1%} "
-          f"({result['time']:.1f}s)")
-    print(f"  entropy={result['entropy_ratio']:.1%} burst={result['burst_rate']:.1%} "
-          f"pred_sets={result['unique_pred_sets']} predicted_n={result['n_predicted']}")
+    print(
+        f"  overlap={result['avg_overlap']:.4f} idx={result['avg_idx_acc']:.1%} "
+        f"col={result['avg_col_acc']:.1%} syn={result['avg_syn_acc']:.1%} "
+        f"({result['time']:.1f}s)"
+    )
+    print(
+        f"  entropy={result['entropy_ratio']:.1%} burst={result['burst_rate']:.1%} "
+        f"pred_sets={result['unique_pred_sets']} predicted_n={result['n_predicted']}"
+    )
     print()
 
     return result
@@ -163,19 +180,27 @@ def main():
 
     # Summary table
     print("\n" + "=" * 120)
-    print(f"{'Config':<14} {'Params':>8} {'Time':>6} "
-          f"{'Overlap':>8} {'Idx':>6} {'Col':>6} {'Syn':>6} "
-          f"{'L-Idx':>6} {'L-Col':>6} {'L-Syn':>6} "
-          f"{'Entropy':>8} {'ColSets':>8} {'Burst':>6} "
-          f"{'PredSets':>9} {'Pred#':>6} {'FbCos':>6}")
+    print(
+        f"{'Config':<14} {'Params':>8} {'Time':>6} "
+        f"{'Overlap':>8} {'Idx':>6} {'Col':>6} {'Syn':>6} "
+        f"{'L-Idx':>6} {'L-Col':>6} {'L-Syn':>6} "
+        f"{'Entropy':>8} {'ColSets':>8} {'Burst':>6} "
+        f"{'PredSets':>9} {'Pred#':>6} {'FbCos':>6}"
+    )
     print("=" * 120)
 
     for r in results:
-        print(f"{r['name']:<14} {r['n_params']:>8,} {r['time']:>5.1f}s "
-              f"{r['avg_overlap']:>8.4f} {r['avg_idx_acc']:>5.1%} {r['avg_col_acc']:>5.1%} {r['avg_syn_acc']:>5.1%} "
-              f"{r['last_idx']:>5.1%} {r['last_col']:>5.1%} {r['last_syn']:>5.1%} "
-              f"{r['entropy_ratio']:>7.1%} {r['unique_col_sets']:>8} {r['burst_rate']:>5.1%} "
-              f"{r['unique_pred_sets']:>9} {r['n_predicted']:>6} {r['fb_cosine']:>6.3f}")
+        print(
+            f"{r['name']:<14} {r['n_params']:>8,} {r['time']:>5.1f}s "
+            f"{r['avg_overlap']:>8.4f} {r['avg_idx_acc']:>5.1%} "
+            f"{r['avg_col_acc']:>5.1%} {r['avg_syn_acc']:>5.1%} "
+            f"{r['last_idx']:>5.1%} {r['last_col']:>5.1%} "
+            f"{r['last_syn']:>5.1%} "
+            f"{r['entropy_ratio']:>7.1%} "
+            f"{r['unique_col_sets']:>8} {r['burst_rate']:>5.1%} "
+            f"{r['unique_pred_sets']:>9} {r['n_predicted']:>6} "
+            f"{r['fb_cosine']:>6.3f}"
+        )
 
     print("=" * 120)
 

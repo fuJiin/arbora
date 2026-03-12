@@ -17,10 +17,10 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.runner import STORY_BOUNDARY
 from step.cortex.sensory import SensoryRegion
 from step.decoders import InvertedIndexDecoder, SynapticDecoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.runner import STORY_BOUNDARY
 
 
 @dataclass
@@ -140,9 +140,7 @@ def run_config(
         predicted_neurons = region.get_prediction(k)
         predicted_set = frozenset(int(i) for i in predicted_neurons)
         idx_predicted = decode_index.decode(predicted_set)
-        syn_id, _syn_str = syn_decoder.decode_synaptic(
-            predicted_neurons, region
-        )
+        syn_id, _syn_str = syn_decoder.decode_synaptic(predicted_neurons, region)
 
         encoding = encoder.encode(token_id)
         active_neurons = region.process(encoding)
@@ -150,9 +148,7 @@ def run_config(
 
         diag.step(t, region)
 
-        cols = frozenset(
-            int(c) for c in np.nonzero(region.active_columns)[0]
-        )
+        cols = frozenset(int(c) for c in np.nonzero(region.active_columns)[0])
         colset_to_tokens[cols].add(token_id)
         token_id_set.add(token_id)
 
@@ -162,17 +158,11 @@ def run_config(
             else:
                 overlap = 0.0
             metrics.overlaps.append(overlap)
-            metrics.accuracies.append(
-                1.0 if idx_predicted == token_id else 0.0
-            )
-            metrics.syn_accuracies.append(
-                1.0 if syn_id == token_id else 0.0
-            )
+            metrics.accuracies.append(1.0 if idx_predicted == token_id else 0.0)
+            metrics.syn_accuracies.append(1.0 if syn_id == token_id else 0.0)
 
         decode_index.observe(token_id, active_set)
-        syn_decoder.observe(
-            token_id, token_str, encoding, region.active_columns
-        )
+        syn_decoder.observe(token_id, token_str, encoding, region.active_columns)
 
         if t > 0 and t % log_interval == 0 and metrics.overlaps:
             tail_s = metrics.syn_accuracies[-100:]
@@ -182,9 +172,9 @@ def run_config(
             pc = diag._precise_count
             print(
                 f"  t={t:,} "
-                f"syn={sum(tail_s)/len(tail_s):.4f} "
-                f"idx={sum(tail_a)/len(tail_a):.4f} "
-                f"burst={bc/(bc+pc):.1%} "
+                f"syn={sum(tail_s) / len(tail_s):.4f} "
+                f"idx={sum(tail_a) / len(tail_a):.4f} "
+                f"burst={bc / (bc + pc):.1%} "
                 f"fb_conn={np.mean(region.fb_seg_perm > region.perm_threshold):.1%} "
                 f"({elapsed:.1f}s)"
             )
@@ -210,9 +200,7 @@ def run_config(
     tail_a = metrics.accuracies[-100:] if metrics.accuracies else []
     tail_s = metrics.syn_accuracies[-100:] if metrics.syn_accuracies else []
     avg_a = (
-        sum(metrics.accuracies) / len(metrics.accuracies)
-        if metrics.accuracies
-        else 0
+        sum(metrics.accuracies) / len(metrics.accuracies) if metrics.accuracies else 0
     )
     avg_s = (
         sum(metrics.syn_accuracies) / len(metrics.syn_accuracies)
@@ -231,12 +219,8 @@ def run_config(
         "entropy": summ["column_entropy_ratio"],
         "unique_colsets": n_unique_colsets,
         "uniquely_id_pct": pct_id,
-        "fb_conn": float(
-            np.mean(region.fb_seg_perm > region.perm_threshold)
-        ),
-        "lat_conn": float(
-            np.mean(region.lat_seg_perm > region.perm_threshold)
-        ),
+        "fb_conn": float(np.mean(region.fb_seg_perm > region.perm_threshold)),
+        "lat_conn": float(np.mean(region.lat_seg_perm > region.perm_threshold)),
         "fb_perm_mean": float(region.fb_seg_perm.mean()),
         "fb_perm_max": float(region.fb_seg_perm.max()),
         "n_active_fb": snap.n_active_fb_segments if snap else 0,

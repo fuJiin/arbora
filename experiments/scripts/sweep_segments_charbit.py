@@ -21,12 +21,12 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.representation import RepresentationTracker
-from step.cortex.runner import STORY_BOUNDARY
 from step.cortex.sensory import SensoryRegion
 from step.decoders import InvertedIndexDecoder, SynapticDecoder
 from step.encoders.charbit import CharbitEncoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.probes.representation import RepresentationTracker
+from step.runner import STORY_BOUNDARY
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -138,8 +138,8 @@ def run_config(
             pc = diag._precise_count
             print(
                 f"  t={t:,} "
-                f"syn={sum(tail_s)/len(tail_s):.4f} "
-                f"burst={bc/(bc+pc):.1%} "
+                f"syn={sum(tail_s) / len(tail_s):.4f} "
+                f"burst={bc / (bc + pc):.1%} "
                 f"fb_conn={np.mean(region.fb_seg_perm > region.perm_threshold):.1%} "
                 f"({elapsed:.1f}s)"
             )
@@ -208,10 +208,24 @@ def main():
         ("t2i2+8syn", {"seg_threshold": 2, "perm_inc": 0.2, "n_synapses": 8}),
         ("t2i2+24syn", {"seg_threshold": 2, "perm_inc": 0.2, "n_synapses": 24}),
         # Segment count variations
-        ("t2i2+2seg", {"seg_threshold": 2, "perm_inc": 0.2,
-                       "n_fb_segments": 2, "n_lat_segments": 2}),
-        ("t2i2+8seg", {"seg_threshold": 2, "perm_inc": 0.2,
-                       "n_fb_segments": 8, "n_lat_segments": 8}),
+        (
+            "t2i2+2seg",
+            {
+                "seg_threshold": 2,
+                "perm_inc": 0.2,
+                "n_fb_segments": 2,
+                "n_lat_segments": 2,
+            },
+        ),
+        (
+            "t2i2+8seg",
+            {
+                "seg_threshold": 2,
+                "perm_inc": 0.2,
+                "n_fb_segments": 8,
+                "n_lat_segments": 8,
+            },
+        ),
         # Init permanence
         ("t2i2+p0.5", {"seg_threshold": 2, "perm_inc": 0.2, "perm_init": 0.5}),
         ("t2i2+p0.8", {"seg_threshold": 2, "perm_inc": 0.2, "perm_init": 0.8}),

@@ -19,13 +19,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 import step.env  # noqa: F401
-from step.cortex.config import CortexConfig
-from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.runner import STORY_BOUNDARY, run_cortex, run_hierarchy
+from step.config import CortexConfig
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
-from step.cortex.timeline import Timeline
 from step.encoders.charbit import CharbitEncoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.probes.timeline import Timeline
+from step.runner import STORY_BOUNDARY, run_cortex, run_hierarchy
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -75,9 +75,7 @@ def run_with_timeline(tokens, region, encoder, log_interval):
 
     def instrumented_process(encoding):
         result = original_process(encoding)
-        timeline.capture(
-            len(timeline.frames), region, region.last_column_drive
-        )
+        timeline.capture(len(timeline.frames), region, region.last_column_drive)
         return result
 
     region.process = instrumented_process
@@ -201,10 +199,8 @@ def build_voltage_excitability(timeline: Timeline, n_columns: int) -> go.Figure:
         shared_xaxes=True,
         vertical_spacing=0.08,
         subplot_titles=[
-            "Input Signal vs Homeostatic Boost"
-            " (green should stay above yellow)",
-            "How Much Does Input Vary Across Columns?"
-            " (higher = more discriminating)",
+            "Input Signal vs Homeostatic Boost (green should stay above yellow)",
+            "How Much Does Input Vary Across Columns? (higher = more discriminating)",
         ],
     )
 
@@ -290,8 +286,7 @@ def build_column_drive_histogram(timeline: Timeline) -> go.Figure:
 
     fig.update_layout(
         title=(
-            "How Strongly Does Input Activate Each Column?"
-            " (snapshots over training)"
+            "How Strongly Does Input Activate Each Column? (snapshots over training)"
         ),
         xaxis_title="Activation Strength",
         yaxis_title="Number of Columns",
@@ -333,8 +328,7 @@ def build_column_entropy_over_time(
         shared_xaxes=True,
         vertical_spacing=0.08,
         subplot_titles=[
-            f"Column Usage Fairness (window={window})"
-            " — 1.0 = all columns used equally",
+            f"Column Usage Fairness (window={window}) — 1.0 = all columns used equally",
             f"How Many Different Columns Are Active (window={window})",
         ],
     )
@@ -385,9 +379,7 @@ def build_column_entropy_over_time(
     return fig
 
 
-def build_burst_rate_over_time(
-    timeline: Timeline, window: int = 50
-) -> go.Figure:
+def build_burst_rate_over_time(timeline: Timeline, window: int = 50) -> go.Figure:
     """Rolling burst rate over time — primary temporal prediction metric."""
     n_steps = len(timeline.frames)
     burst_rates = []
@@ -445,10 +437,7 @@ def build_column_selectivity_bar(
 
     n = len(sel)
     colors = [
-        "#06d6a0" if s < 0.3
-        else "#ffd166" if s < 0.6
-        else "#e94560"
-        for s in sel
+        "#06d6a0" if s < 0.3 else "#ffd166" if s < 0.6 else "#e94560" for s in sel
     ]
 
     fig = go.Figure(
@@ -563,8 +552,7 @@ def build_dual_burst_rate(
     )
     fig.update_layout(
         title=(
-            f"Surprise Rate by Region (window={window})"
-            " — lower = better predictions"
+            f"Surprise Rate by Region (window={window}) — lower = better predictions"
         ),
         xaxis_title="Timestep",
         yaxis_title="Surprise Rate",
@@ -652,9 +640,7 @@ def _health_color(value: float, green_range: tuple, yellow_range: tuple) -> str:
     return "#e94560"  # red
 
 
-def build_representation_summary_cards(
-    rep_summary: dict, burst_rate: float
-) -> str:
+def build_representation_summary_cards(rep_summary: dict, burst_rate: float) -> str:
     """Build HTML stat cards with health-based color coding.
 
     Color coding detects degenerate states rather than defining
@@ -731,9 +717,7 @@ def build_dashboard_html(
     """Combine all figures into a single HTML page."""
     chart_divs = []
     for _title, fig in figures:
-        chart_divs.append(
-            fig.to_html(full_html=False, include_plotlyjs=False)
-        )
+        chart_divs.append(fig.to_html(full_html=False, include_plotlyjs=False))
 
     return f"""<!DOCTYPE html>
 <html>
@@ -922,7 +906,10 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
     hier_metrics = run_hierarchy(
-        region1, region2, charbit, tokens,
+        region1,
+        region2,
+        charbit,
+        tokens,
         surprise_tracker=surprise,
         log_interval=args.log_interval,
         diagnostics1=diag1,
@@ -941,7 +928,10 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
     summ2 = diag2.summary()
 
     cards_html = build_hierarchy_summary_cards(
-        rep1, rep2, summ1["burst_rate"], summ2["burst_rate"],
+        rep1,
+        rep2,
+        summ1["burst_rate"],
+        summ2["burst_rate"],
         hier_metrics.surprise_modulators,
     )
 
@@ -949,27 +939,28 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
     n_cols_r2 = 16
     figures = [
         ("Dual Burst Rate", build_dual_burst_rate(timeline1, timeline2)),
-        ("Surprise Modulator", build_surprise_modulator_over_time(
-            hier_metrics.surprise_modulators
-        )),
+        (
+            "Surprise Modulator",
+            build_surprise_modulator_over_time(hier_metrics.surprise_modulators),
+        ),
         ("R1 Column Selectivity", build_column_selectivity_bar(rep1)),
         ("R2 Column Selectivity", build_column_selectivity_bar(rep2)),
         ("R1 Surprise Rate", build_burst_rate_over_time(timeline1)),
         ("R1 Column Usage", build_column_entropy_over_time(timeline1, n_cols_r1)),
         ("R1 Column Activation", build_column_activation_heatmap(timeline1, n_cols_r1)),
         ("R2 Column Activation", build_column_activation_heatmap(timeline2, n_cols_r2)),
-        ("R1 Feature Differentiation", build_ff_weight_divergence(
-            timeline1, n_cols_r1
-        )),
-        ("R2 Feature Differentiation", build_ff_weight_divergence(
-            timeline2, n_cols_r2
-        )),
+        (
+            "R1 Feature Differentiation",
+            build_ff_weight_divergence(timeline1, n_cols_r1),
+        ),
+        (
+            "R2 Feature Differentiation",
+            build_ff_weight_divergence(timeline2, n_cols_r2),
+        ),
         ("R1 Signal Balance", build_voltage_excitability(timeline1, n_cols_r1)),
     ]
 
-    return build_dashboard_html(
-        figures, cards_html, title="Cortex Hierarchy Dashboard"
-    )
+    return build_dashboard_html(figures, cards_html, title="Cortex Hierarchy Dashboard")
 
 
 def _serve_or_save(html: str, args):

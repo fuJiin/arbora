@@ -19,11 +19,11 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.representation import RepresentationTracker
-from step.cortex.runner import STORY_BOUNDARY
 from step.cortex.sensory import SensoryRegion
 from step.encoders.charbit import CharbitEncoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.probes.representation import RepresentationTracker
+from step.runner import STORY_BOUNDARY
 
 CHARS = string.printable
 CHAR_LENGTH = 8

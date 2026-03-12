@@ -19,10 +19,10 @@ import time
 import numpy as np
 
 import step.env  # noqa: F401
-from step.cortex.config import CortexConfig
-from step.cortex.runner import STORY_BOUNDARY
+from step.config import CortexConfig
 from step.cortex.sensory import SensoryRegion
 from step.encoders.charbit import CharbitEncoder
+from step.runner import STORY_BOUNDARY
 
 CHARS = string.printable
 CHAR_LENGTH = 8

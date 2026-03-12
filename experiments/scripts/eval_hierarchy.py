@@ -19,11 +19,11 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.runner import STORY_BOUNDARY, run_cortex, run_hierarchy
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
 from step.encoders.charbit import CharbitEncoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.runner import STORY_BOUNDARY, run_cortex, run_hierarchy
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -75,8 +75,11 @@ def main():
     parser.add_argument(
         "--dataset", choices=["tinystories", "babylm"], default="babylm"
     )
-    parser.add_argument("--single-only", action="store_true",
-                        help="Only run single-region baseline (skip hierarchy)")
+    parser.add_argument(
+        "--single-only",
+        action="store_true",
+        help="Only run single-region baseline (skip hierarchy)",
+    )
     args = parser.parse_args()
 
     tokens = prepare_tokens(args.dataset, args.tokens)
@@ -103,7 +106,9 @@ def main():
 
     start_solo = time.monotonic()
     metrics_solo = run_cortex(
-        region_solo, encoder, tokens,
+        region_solo,
+        encoder,
+        tokens,
         log_interval=args.log_interval,
         diagnostics=diag_solo,
     )
@@ -146,7 +151,10 @@ def main():
 
     start_hier = time.monotonic()
     metrics_hier = run_hierarchy(
-        region1, region2, encoder, tokens,
+        region1,
+        region2,
+        encoder,
+        tokens,
         surprise_tracker=surprise,
         log_interval=args.log_interval,
         diagnostics1=diag1,
@@ -159,34 +167,40 @@ def main():
     print("Comparison")
     print("=" * 60)
 
-    print(f"\nRuntime: single={elapsed_solo:.1f}s  hierarchy={elapsed_hier:.1f}s  "
-          f"ratio={elapsed_hier / max(elapsed_solo, 0.01):.2f}x")
+    print(
+        f"\nRuntime: single={elapsed_solo:.1f}s  hierarchy={elapsed_hier:.1f}s  "
+        f"ratio={elapsed_hier / max(elapsed_solo, 0.01):.2f}x"
+    )
 
     # Region 1 decoder accuracy
     if metrics_solo.synaptic_accuracies:
         tail = metrics_solo.synaptic_accuracies[-100:]
-        print(f"\nSingle region syn accuracy (last 100): {sum(tail)/len(tail):.4f}")
+        print(f"\nSingle region syn accuracy (last 100): {sum(tail) / len(tail):.4f}")
     if metrics_hier.region1.synaptic_accuracies:
         tail = metrics_hier.region1.synaptic_accuracies[-100:]
-        print(f"Hierarchy R1 syn accuracy (last 100):  {sum(tail)/len(tail):.4f}")
+        print(f"Hierarchy R1 syn accuracy (last 100):  {sum(tail) / len(tail):.4f}")
 
     # Surprise modulator distribution
     mods = metrics_hier.surprise_modulators
     if mods:
         mods_arr = np.array(mods)
-        print(f"\nSurprise modulator: "
-              f"mean={mods_arr.mean():.3f} "
-              f"std={mods_arr.std():.3f} "
-              f"min={mods_arr.min():.3f} "
-              f"max={mods_arr.max():.3f}")
+        print(
+            f"\nSurprise modulator: "
+            f"mean={mods_arr.mean():.3f} "
+            f"std={mods_arr.std():.3f} "
+            f"min={mods_arr.min():.3f} "
+            f"max={mods_arr.max():.3f}"
+        )
 
     # Region 2 representation summary
     r2_rep = metrics_hier.region2.representation
     if r2_rep:
         print("\nRegion 2 representation:")
-        print(f"  selectivity={r2_rep.get('column_selectivity_mean', 0):.3f} "
-              f"similarity={r2_rep.get('similarity_mean', 0):.3f} "
-              f"ctx_disc={r2_rep.get('context_discrimination', 0):.3f}")
+        print(
+            f"  selectivity={r2_rep.get('column_selectivity_mean', 0):.3f} "
+            f"similarity={r2_rep.get('similarity_mean', 0):.3f} "
+            f"ctx_disc={r2_rep.get('context_discrimination', 0):.3f}"
+        )
 
     # Burst rates
     summ1 = diag1.summary()

@@ -12,7 +12,7 @@ Usage: uv run experiments/scripts/sweep_encoding.py [--tokens N]
 import argparse
 import string
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -20,12 +20,12 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.cortex.config import CortexConfig
-from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.runner import STORY_BOUNDARY
+from step.config import CortexConfig
 from step.cortex.sensory import SensoryRegion
 from step.decoders import InvertedIndexDecoder
 from step.encoders.charbit import CharbitEncoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.runner import STORY_BOUNDARY
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -140,7 +140,9 @@ def run_experiment(
     prediction_log: list[tuple[str, str, str]] = []
 
     print(f"--- {name} ---")
-    print(f"  input_dim={input_dim} encoding_width={encoding_width} params={n_params:,}")
+    print(
+        f"  input_dim={input_dim} encoding_width={encoding_width} params={n_params:,}"
+    )
 
     for t, (token_id, token_str) in enumerate(tokens):
         if token_id == STORY_BOUNDARY:
@@ -160,7 +162,9 @@ def run_experiment(
         for col in pred_cols:
             for idx in col_index.get(int(col), ()):
                 col_scores[idx] = col_scores.get(idx, 0.0) + 1.0
-        col_predicted = token_ids[max(col_scores, key=col_scores.__getitem__)] if col_scores else -1
+        col_predicted = (
+            token_ids[max(col_scores, key=col_scores.__getitem__)] if col_scores else -1
+        )
 
         # Look up strings for display
         idx_str = ""
@@ -216,19 +220,21 @@ def run_experiment(
             elapsed = time.monotonic() - start
             print(
                 f"  t={t:,} "
-                f"overlap={sum(tail_o)/len(tail_o):.4f} "
-                f"idx={sum(tail_a)/len(tail_a):.4f} "
-                f"col={sum(tail_c)/len(tail_c):.4f} "
+                f"overlap={sum(tail_o) / len(tail_o):.4f} "
+                f"idx={sum(tail_a) / len(tail_a):.4f} "
+                f"col={sum(tail_c) / len(tail_c):.4f} "
                 f"({elapsed:.1f}s)"
             )
 
             if show_predictions > 0 and prediction_log:
                 samples = prediction_log[-show_predictions:]
                 print(f"    {'actual':>12s} | {'idx':>12s} | {'col':>12s}")
-                print(f"    {'-'*12}-+-{'-'*12}-+-{'-'*12}")
+                print(f"    {'-' * 12}-+-{'-' * 12}-+-{'-' * 12}")
                 for actual, ip, cp in samples:
+
                     def fmt(s):
                         return repr(s)[:12].ljust(12)
+
                     hit_i = "*" if ip == actual else " "
                     hit_c = "*" if cp == actual else " "
                     print(f"    {fmt(actual)} |{hit_i}{fmt(ip)} |{hit_c}{fmt(cp)}")
@@ -262,9 +268,15 @@ def run_experiment(
         "name": name,
         "n_params": n_params,
         "time": metrics.elapsed_seconds,
-        "avg_overlap": sum(metrics.overlaps) / len(metrics.overlaps) if metrics.overlaps else 0,
-        "avg_idx": sum(metrics.accuracies) / len(metrics.accuracies) if metrics.accuracies else 0,
-        "avg_col": sum(metrics.column_accuracies) / len(metrics.column_accuracies) if metrics.column_accuracies else 0,
+        "avg_overlap": sum(metrics.overlaps) / len(metrics.overlaps)
+        if metrics.overlaps
+        else 0,
+        "avg_idx": sum(metrics.accuracies) / len(metrics.accuracies)
+        if metrics.accuracies
+        else 0,
+        "avg_col": sum(metrics.column_accuracies) / len(metrics.column_accuracies)
+        if metrics.column_accuracies
+        else 0,
         "last_overlap": sum(tail_o) / len(tail_o) if tail_o else 0,
         "last_idx": sum(tail_a) / len(tail_a) if tail_a else 0,
         "last_col": sum(tail_c) / len(tail_c) if tail_c else 0,
@@ -285,12 +297,14 @@ def run_experiment(
         f"overlap={result['avg_overlap']:.4f} ({result['time']:.1f}s)"
     )
     print(
-        f"  colsets={n_unique_colsets} uniquely_id={uniquely_identifiable}/{n_unique_tokens} "
-        f"({pct_id:.1%}) max_ambiguity={max_ambiguity}"
+        f"  colsets={n_unique_colsets} "
+        f"uniquely_id={uniquely_identifiable}/{n_unique_tokens} "
+        f"({pct_id:.1%}) max_ambig={max_ambiguity}"
     )
     print(
         f"  entropy={summ['column_entropy_ratio']:.1%} burst={summ['burst_rate']:.1%} "
-        f"pred_sets={summ['unique_prediction_sets']} predicted_n={result['n_predicted']}"
+        f"pred_sets={summ['unique_prediction_sets']} "
+        f"predicted_n={result['n_predicted']}"
     )
     print()
     return result
@@ -337,8 +351,13 @@ def main():
     results = []
     for name, encode_fn, input_dim, enc_width in experiments:
         result = run_experiment(
-            name, tokens, encode_fn, input_dim, enc_width,
-            args.log_interval, args.show_predictions,
+            name,
+            tokens,
+            encode_fn,
+            input_dim,
+            enc_width,
+            args.log_interval,
+            args.show_predictions,
         )
         results.append(result)
 
@@ -356,7 +375,8 @@ def main():
         pct = r["uniquely_id"] / r["unique_tokens"] if r["unique_tokens"] else 0
         print(
             f"{r['name']:<16} {r['n_params']:>8,} {r['time']:>5.1f}s "
-            f"{r['avg_idx']:>6.1%} {r['avg_col']:>6.1%} {r['last_idx']:>5.1%} {r['last_col']:>5.1%} "
+            f"{r['avg_idx']:>6.1%} {r['avg_col']:>6.1%} "
+            f"{r['last_idx']:>5.1%} {r['last_col']:>5.1%} "
             f"{r['unique_colsets']:>8} {pct:>6.1%} {r['max_ambiguity']:>7} "
             f"{r['entropy']:>7.1%} {r['burst_rate']:>5.1%} {r['n_predicted']:>6}"
         )
