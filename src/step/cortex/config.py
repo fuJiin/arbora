@@ -16,4 +16,5 @@ class CortexConfig:
     fb_boost: float = 0.4
     ltd_rate: float = 0.2
     burst_learning_scale: float = 3.0
+    prediction_ltd_rate: float = 0.1
     seed: int = 0

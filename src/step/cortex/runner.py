@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from step.config import ModelConfig
+from step.cortex.decoder import SynapticDecoder
 from step.cortex.diagnostics import CortexDiagnostics
 from step.cortex.sensory import SensoryRegion
 from step.decode import DecodeIndex
@@ -19,6 +20,7 @@ class RunMetrics:
     overlaps: list[float] = field(default_factory=list)
     accuracies: list[float] = field(default_factory=list)
     synaptic_accuracies: list[float] = field(default_factory=list)
+    column_accuracies: list[float] = field(default_factory=list)
     elapsed_seconds: float = 0.0
 
 
@@ -29,16 +31,23 @@ def run_cortex(
     log_interval: int = 100,
     rolling_window: int = 100,
     diagnostics: CortexDiagnostics | None = None,
+    show_predictions: int = 0,
 ) -> RunMetrics:
     """Run cortex model on a token sequence, measuring prediction quality.
 
     tokens: list of (token_id, token_string) pairs.
             token_id == STORY_BOUNDARY signals a story boundary.
+    show_predictions: if > 0, print this many prediction samples at each
+                      log interval (actual vs predicted for each decoder).
     """
     decode_index = DecodeIndex()
+    syn_decoder = SynapticDecoder()
     metrics = RunMetrics()
     k = region.k_columns
     start = time.monotonic()
+
+    # Buffer for prediction samples (for display)
+    prediction_log: list[tuple[str, str, str, str]] = []
 
     for t, (token_id, token_str) in enumerate(tokens):
         if token_id == STORY_BOUNDARY:
@@ -49,21 +58,29 @@ def run_cortex(
         predicted_neurons = region.get_prediction(k)
         predicted_set = frozenset(int(i) for i in predicted_neurons)
 
-        # Synaptic decode: walk predicted columns back through ff_weights
-        predicted_cols = np.unique(predicted_neurons // region.n_l4)
-        reconstructed = region.reconstruct(predicted_cols)
-        reconstructed_matrix = reconstructed.reshape(encoder.length, encoder.width)
-        synaptic_token = encoder.decode(reconstructed_matrix)
+        # Three decode paths
+        syn_id, syn_str = syn_decoder.decode_synaptic(predicted_neurons, region)
+        col_id, col_str = syn_decoder.decode_columns(predicted_neurons, region.n_l4)
+        idx_predicted = decode_index.decode(predicted_set)
+
+        # Look up string for idx decode
+        idx_str = ""
+        if idx_predicted >= 0 and idx_predicted in syn_decoder._token_id_set:
+            for i, tid in enumerate(syn_decoder._token_ids):
+                if tid == idx_predicted:
+                    idx_str = syn_decoder._token_strs[i]
+                    break
 
         # Step: feed input, triggers activation + learning
-        active_neurons = region.process(encoder.encode(token_str))
+        encoding = encoder.encode(token_str)
+        active_neurons = region.process(encoding)
         active_set = frozenset(int(i) for i in active_neurons)
 
         if diagnostics is not None:
             diagnostics.step(t, region)
 
         if t > 0:
-            # Prediction overlap: fraction of predicted neurons that fired
+            # Prediction overlap
             if active_set:
                 overlap = len(predicted_set & active_set) / len(active_set)
             else:
@@ -71,15 +88,22 @@ def run_cortex(
             metrics.overlaps.append(overlap)
 
             # Inverted index decode accuracy
-            predicted_token = decode_index.decode(predicted_set)
-            accuracy = 1.0 if predicted_token == token_id else 0.0
+            accuracy = 1.0 if idx_predicted == token_id else 0.0
             metrics.accuracies.append(accuracy)
 
             # Synaptic decode accuracy
-            syn_acc = 1.0 if synaptic_token == token_str else 0.0
+            syn_acc = 1.0 if syn_id == token_id else 0.0
             metrics.synaptic_accuracies.append(syn_acc)
 
+            # Column decode accuracy
+            col_acc = 1.0 if col_id == token_id else 0.0
+            metrics.column_accuracies.append(col_acc)
+
+            if show_predictions > 0:
+                prediction_log.append((token_str, idx_str, col_str, syn_str))
+
         decode_index.observe(token_id, active_set)
+        syn_decoder.observe(token_id, token_str, encoding, region.active_columns)
 
         if t > 0 and t % log_interval == 0 and metrics.overlaps:
             tail = metrics.overlaps[-rolling_window:]
@@ -88,14 +112,33 @@ def run_cortex(
             roll_acc = sum(tail_acc) / len(tail_acc)
             tail_syn = metrics.synaptic_accuracies[-rolling_window:]
             roll_syn = sum(tail_syn) / len(tail_syn)
+            tail_col = metrics.column_accuracies[-rolling_window:]
+            roll_col = sum(tail_col) / len(tail_col)
             elapsed = time.monotonic() - start
             print(
                 f"  [cortex] t={t:,} "
                 f"overlap={roll_overlap:.4f} "
-                f"acc={roll_acc:.4f} "
-                f"syn_acc={roll_syn:.4f} "
+                f"idx={roll_acc:.4f} "
+                f"col={roll_col:.4f} "
+                f"syn={roll_syn:.4f} "
                 f"({elapsed:.1f}s)"
             )
+
+            # Show prediction samples
+            if show_predictions > 0 and prediction_log:
+                samples = prediction_log[-show_predictions:]
+                print(f"    {'actual':>12s} | {'idx':>12s} | {'col':>12s} | {'syn':>12s}")
+                print(f"    {'-'*12}-+-{'-'*12}-+-{'-'*12}-+-{'-'*12}")
+                for actual, idx_p, col_p, syn_p in samples:
+                    def fmt(s):
+                        return repr(s)[:12].ljust(12)
+                    hit_idx = "*" if idx_p == actual else " "
+                    hit_col = "*" if col_p == actual else " "
+                    hit_syn = "*" if syn_p == actual else " "
+                    print(
+                        f"    {fmt(actual)} |{hit_idx}{fmt(idx_p)} |{hit_col}{fmt(col_p)} |{hit_syn}{fmt(syn_p)}"
+                    )
+                prediction_log.clear()
 
     metrics.elapsed_seconds = time.monotonic() - start
     return metrics

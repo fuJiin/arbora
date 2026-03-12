@@ -53,6 +53,13 @@ class Snapshot:
     feedback_contribution: float = 0.0
     lateral_contribution: float = 0.0
 
+    # Prediction quality diagnostics
+    n_predicted_neurons: int = 0
+    prediction_voltage_std: float = 0.0
+    prediction_voltage_range: float = 0.0
+    fb_row_cosine_mean: float = 0.0
+    lat_row_cosine_mean: float = 0.0
+
 
 @dataclass
 class CortexDiagnostics:
@@ -70,6 +77,12 @@ class CortexDiagnostics:
     _unique_col_sets: list[frozenset] = field(default_factory=list)
     _burst_count: int = 0
     _precise_count: int = 0
+
+    # Prediction diversity (accumulated per step)
+    _unique_prediction_sets: list[frozenset] = field(default_factory=list)
+    _prediction_correct_neuron: int = 0
+    _prediction_correct_column: int = 0
+    _prediction_total: int = 0
 
     def step(self, t: int, region: SensoryRegion) -> None:
         """Call after each region.process(). Cheap per-step bookkeeping."""
@@ -102,6 +115,26 @@ class CortexDiagnostics:
         n_active = len(active_cols)
         self._burst_count += n_bursting
         self._precise_count += n_active - n_bursting
+
+        # Track prediction diversity: what did predicted_l4 look like?
+        predicted_neurons = np.nonzero(region.predicted_l4)[0]
+        self._unique_prediction_sets.append(
+            frozenset(int(i) for i in predicted_neurons)
+        )
+
+        # Prediction-activation alignment
+        if len(predicted_neurons) > 0:
+            self._prediction_total += 1
+            predicted_set = set(int(i) for i in predicted_neurons)
+            active_set = set(int(i) for i in l4_active)
+            # Neuron-level: did any predicted neuron actually fire?
+            if predicted_set & active_set:
+                self._prediction_correct_neuron += 1
+            # Column-level: did predicted columns match active columns?
+            predicted_cols = set(i // region.n_l4 for i in predicted_set)
+            active_col_set = set(int(c) for c in active_cols)
+            if predicted_cols & active_col_set:
+                self._prediction_correct_column += 1
 
         # Periodic snapshot
         if t % self.snapshot_interval == 0:
@@ -146,9 +179,20 @@ class CortexDiagnostics:
             lat_raw = region.active_l4.astype(np.float64) @ region.lateral_weights
             lat_signal = region.fb_boost * (lat_raw > region.fb_boost_threshold)
 
-        snap.prediction_max = float(np.max(v + fb_signal + lat_signal))
+        pred_v = v + fb_signal + lat_signal
+        snap.prediction_max = float(np.max(pred_v))
         snap.feedback_contribution = float(np.max(fb_signal))
         snap.lateral_contribution = float(np.max(lat_signal))
+
+        # Prediction voltage distribution — is there real signal or flat?
+        snap.n_predicted_neurons = int((fb_signal + lat_signal > 0).sum())
+        snap.prediction_voltage_std = float(np.std(pred_v))
+        snap.prediction_voltage_range = float(np.max(pred_v) - np.min(pred_v))
+
+        # Weight differentiation: mean pairwise cosine similarity of rows
+        # High cosine = all rows learned the same thing = no differentiation
+        snap.fb_row_cosine_mean = _row_cosine_sample(region.fb_weights)
+        snap.lat_row_cosine_mean = _row_cosine_sample(region.lateral_weights)
 
         return snap
 
@@ -180,6 +224,19 @@ class CortexDiagnostics:
         total_cols = self._burst_count + self._precise_count
         burst_rate = self._burst_count / total_cols if total_cols > 0 else 0.0
 
+        # Prediction diversity
+        unique_pred_sets = len(set(self._unique_prediction_sets))
+        pred_neuron_rate = (
+            self._prediction_correct_neuron / self._prediction_total
+            if self._prediction_total > 0
+            else 0.0
+        )
+        pred_column_rate = (
+            self._prediction_correct_column / self._prediction_total
+            if self._prediction_total > 0
+            else 0.0
+        )
+
         return {
             "column_entropy": entropy,
             "column_entropy_ratio": entropy / max_entropy if max_entropy > 0 else 0,
@@ -188,6 +245,9 @@ class CortexDiagnostics:
             "unique_column_sets": unique_col_sets,
             "l4_l23_match_rate": match_rate,
             "burst_rate": burst_rate,
+            "unique_prediction_sets": unique_pred_sets,
+            "prediction_hit_neuron": pred_neuron_rate,
+            "prediction_hit_column": pred_column_rate,
         }
 
     def print_report(self) -> None:
@@ -229,6 +289,18 @@ class CortexDiagnostics:
         print(f"  max prediction voltage: {s.prediction_max:.4f}")
         print(f"  feedback contribution:  {s.feedback_contribution:.4f}")
         print(f"  lateral contribution:   {s.lateral_contribution:.4f}")
+        print(f"  predicted neurons:      {s.n_predicted_neurons}")
+        print(f"  voltage std:            {s.prediction_voltage_std:.4f}")
+        print(f"  voltage range:          {s.prediction_voltage_range:.4f}")
+
+        print("\nWeight differentiation (row cosine similarity, lower=more diverse):")
+        print(f"  fb_weights rows:  {s.fb_row_cosine_mean:.4f}")
+        print(f"  lat_weights rows: {s.lat_row_cosine_mean:.4f}")
+
+        print("\nPrediction quality:")
+        print(f"  unique prediction sets:  {summ['unique_prediction_sets']}")
+        print(f"  hit rate (neuron):       {summ['prediction_hit_neuron']:.1%}")
+        print(f"  hit rate (column):       {summ['prediction_hit_column']:.1%}")
 
         print("\nActivation diversity:")
         max_ent = np.log2(max(self._column_counts.keys(), default=1) + 1)
@@ -240,3 +312,31 @@ class CortexDiagnostics:
         print(f"  unique column sets: {summ['unique_column_sets']}")
         print(f"  L4-L2/3 match rate: {summ['l4_l23_match_rate']:.1%}")
         print(f"  burst rate: {summ['burst_rate']:.1%}")
+
+
+def _row_cosine_sample(weights: np.ndarray, max_pairs: int = 200) -> float:
+    """Mean pairwise cosine similarity of weight matrix rows (sampled).
+
+    1.0 = all rows identical (no differentiation).
+    0.0 = all rows orthogonal (maximum differentiation).
+    """
+    n_rows = weights.shape[0]
+    if n_rows < 2:
+        return 0.0
+
+    # Compute row norms, skip zero rows
+    norms = np.linalg.norm(weights, axis=1)
+    nonzero = np.nonzero(norms > 1e-8)[0]
+    if len(nonzero) < 2:
+        return 0.0
+
+    # Sample pairs for efficiency
+    rng = np.random.default_rng(42)
+    n_pairs = min(max_pairs, len(nonzero) * (len(nonzero) - 1) // 2)
+    cosines = []
+    for _ in range(n_pairs):
+        i, j = rng.choice(nonzero, size=2, replace=False)
+        cos = float(weights[i] @ weights[j] / (norms[i] * norms[j]))
+        cosines.append(cos)
+
+    return float(np.mean(cosines))

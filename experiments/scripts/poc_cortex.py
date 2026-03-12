@@ -76,6 +76,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tokens", type=int, default=1000)
     parser.add_argument("--log-interval", type=int, default=100)
+    parser.add_argument("--show-predictions", type=int, default=0,
+                        help="Show N prediction samples at each log interval")
     args = parser.parse_args()
 
     cortex_tokens, step_tokens = prepare_tokens(args.tokens)
@@ -100,6 +102,7 @@ def main():
         fb_boost=cortex_cfg.fb_boost,
         ltd_rate=cortex_cfg.ltd_rate,
         burst_learning_scale=cortex_cfg.burst_learning_scale,
+        prediction_ltd_rate=cortex_cfg.prediction_ltd_rate,
         seed=cortex_cfg.seed,
     )
 
@@ -127,6 +130,7 @@ def main():
         cortex_tokens,
         log_interval=args.log_interval,
         diagnostics=diag,
+        show_predictions=args.show_predictions,
     )
 
     diag.print_report()
@@ -153,12 +157,12 @@ def main():
     )
 
     # --- Summary ---
-    print(f"\n{'=' * 60}")
+    print(f"\n{'=' * 72}")
     print(
         f"{'Model':<12} {'Params':>8} {'Metric':>8} "
-        f"{'Idx Acc':>8} {'Syn Acc':>8} {'Time':>8}"
+        f"{'Idx Acc':>8} {'Col Acc':>8} {'Syn Acc':>8} {'Time':>8}"
     )
-    print(f"{'=' * 60}")
+    print(f"{'=' * 72}")
 
     def summarize(name, metrics, n_params):
         avg_metric = (
@@ -174,11 +178,18 @@ def main():
             if metrics.synaptic_accuracies
             else 0.0
         )
+        avg_col = (
+            sum(metrics.column_accuracies) / len(metrics.column_accuracies)
+            if metrics.column_accuracies
+            else 0.0
+        )
         syn_str = f"{avg_syn:>7.1%}" if metrics.synaptic_accuracies else "    n/a"
+        col_str = f"{avg_col:>7.1%}" if metrics.column_accuracies else "    n/a"
         print(
             f"{name:<12} {n_params:>8,} "
             f"{avg_metric:>8.4f} "
             f"{avg_acc:>7.1%} "
+            f"{col_str} "
             f"{syn_str} "
             f"{metrics.elapsed_seconds:>7.1f}s"
         )
@@ -194,10 +205,12 @@ def main():
         ca_tail = cortex_metrics.accuracies[-100:]
         sa_tail = step_metrics.accuracies[-100:]
         cs_tail = cortex_metrics.synaptic_accuracies[-100:]
+        cc_tail = cortex_metrics.column_accuracies[-100:]
         print(
             f"  Cortex: overlap={sum(c_tail) / 100:.4f} "
-            f"idx_acc={sum(ca_tail) / 100:.1%} "
-            f"syn_acc={sum(cs_tail) / 100:.1%}"
+            f"idx={sum(ca_tail) / 100:.1%} "
+            f"col={sum(cc_tail) / 100:.1%} "
+            f"syn={sum(cs_tail) / 100:.1%}"
         )
         print(f"  STEP:   iou={sum(s_tail) / 100:.4f} acc={sum(sa_tail) / 100:.1%}")
 

@@ -7,38 +7,44 @@ Research project exploring biologically-plausible learning for next-token predic
 
 ### Branch: `main`
 
-Cortex PoC with three major additions addressing column monopoly:
-1. **LTD (Long-Term Depression)** — weakens ff_weights to inactive inputs when column fires, per-column local sparsity scaling
-2. **Structural sparsity** — width-based ff_mask (columns tile encoding_width), local connectivity masks for fb/lateral weights
-3. **Burst mechanism** — unpredicted columns fire all neurons (surprise signal, 3x learning rate), predicted columns fire one neuron (precise)
+Cortex PoC with structural sparsity, LTD, burst mechanism, prediction LTD, synaptic decoder, per-neuron ff option.
 
-### Results after all three fixes
-- Column entropy: **72.1%** (was 42%)
-- Unique column sets: **411** (was 7)
-- Burst rate: **6.5%** (decreases as learning progresses)
-- 34 tests passing
+### Critical finding: space character monopoly
 
-### Interactive dashboard
-`experiments/scripts/cortex_dashboard.py` — Plotly dashboard on port 80 with 5 charts (entropy, heatmap, ff_weight divergence, voltage/excitability, drive distribution).
+Columns 29-31 fire for almost every token because `string.printable` puts space at index 94, which falls in col 31's receptive field. With k=4 and 3 columns fixed, the model has effectively k=1 discriminative column (~30 patterns for 1,105 tokens). Only 14.4% of tokens are uniquely identifiable by column set.
 
-## Cortex Architecture (`src/step/cortex/`)
+**This is the root cause of low accuracy**, not neuron count or prediction quality.
 
-Two-layer neocortical minicolumn model:
-- **L4 (input):** feedforward drive + dendritic spike prediction from feedback/lateral
-- **L2/3 (associative):** L4 feedforward + lateral context
-- **Burst/precise:** predicted columns → one neuron (precise), unpredicted → all neurons (burst, stronger learning)
-- **LTD:** per-column weakening of inactive input connections (BCM-inspired)
-- **Structural sparsity:** width-based receptive fields, local lateral/feedback masks
+### Capacity sweep results (2026-03-12)
+Swept 6 configs (shared/per-neuron ff × 4/8/16 neurons) on 10K tokens. All land at ~1-2% accuracy. Neither per-neuron ff_weights nor more neurons per column helps — because the column representation itself is undiscriminative.
+
+### Prediction LTD (implemented, working)
+- Predicted neurons dropped from 56 → 3-9 (much sparser)
+- Unique prediction sets: 7,000+ (diverse)
+- Weight differentiation improved (cosine 0.42 → 0.22)
+- But accuracy unchanged because column sets are ambiguous
+
+### Per-neuron ff_weights (implemented, no accuracy improvement)
+- `per_neuron_ff=True` flag on SensoryRegion
+- Each neuron gets own ff_weights within column's mask
+- Better entropy (79% vs 74%) and more prediction diversity
+- But still ~1% accuracy (same column ambiguity problem)
+
+## Architecture Summary (`src/step/cortex/`)
+
+- **L4/L2/3 minicolumn model** with burst/precise mechanism
+- **Structural sparsity**: width-based ff_mask, local lateral/fb masks
+- **LTD on ff_weights** (BCM-inspired) + **prediction LTD on fb/lateral weights**
+- **Synaptic decoder** (`decoder.py`): nearest-neighbor via ff_weight reconstruction + column-level inverted index
+- **Per-neuron ff option**: `per_neuron_ff=True` gives each neuron its own ff_weights
 
 ## Key Decisions
-- **LTD replaces synapse_decay on ff_weights** — double decay killed weights
-- **Width-based tiling** (not position) — columns detect character ranges across all positions
-- **Per-column local LTD scaling** — global scaling was wrong for masked connectivity
-- **Burst fires all neurons** — HTM-inspired surprise signal for unpredicted activations
-- **Pre-commit hooks**: installed but ty/pytest hooks have pre-existing failures. CI only checks ruff format.
+- **Prediction LTD**: weaken fb/lateral synapses when predicted neuron doesn't fire (heterosynaptic depression)
+- **Per-neuron ff_weights**: biologically more accurate (neurons sample different synapses), but doesn't help until column representation is fixed
+- **Shared ff is HTM-faithful** but puts all disambiguation on context pathway
 
 ## Next Steps
-- [ ] Scale to more tokens (10K+) and measure long-term learning curves
-- [ ] Consider sparse weight updates for scaling beyond 128 neurons
-- [ ] Experiment with activation thresholds instead of top-k columns
+- [ ] **Fix space character monopoly** — reorder alphabet, input normalization, or inhibitory mechanism so universal chars don't dominate
+- [ ] Consider k-WTA per receptive field region instead of global top-k
+- [ ] Performance audit for multiple dendritic segments
 - [ ] Fix pre-commit hook config (ty scope, pytest entry)
