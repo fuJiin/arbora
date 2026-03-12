@@ -15,16 +15,14 @@ import string
 import time
 
 import numpy as np
-from datasets import load_dataset
-from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
 from step.cortex.sensory import SensoryRegion
+from step.data import STORY_BOUNDARY, prepare_tokens
 from step.decoders import InvertedIndexDecoder, SynapticDecoder
 from step.encoders.charbit import CharbitEncoder
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
-from step.runner import STORY_BOUNDARY
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -49,76 +47,6 @@ class RandomBinaryEncoder:
         return self._cache[token_id]
 
 
-def prepare_tokens_tinystories(max_tokens: int):
-    print("Loading TinyStories...")
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    dataset = load_dataset("roneneldan/TinyStories", split="train")
-
-    tokens: list[tuple[int, str]] = []
-    t = 0
-    first = True
-    for ex in dataset:
-        if not first:
-            tokens.append((STORY_BOUNDARY, ""))
-            t += 1
-            if t >= max_tokens:
-                break
-        first = False
-        for tid in tokenizer.encode(ex["text"]):
-            tokens.append((tid, tokenizer.decode([tid])))
-            t += 1
-            if t >= max_tokens:
-                break
-        if t >= max_tokens:
-            break
-
-    unique = len({tid for tid, _ in tokens if tid != STORY_BOUNDARY})
-    boundaries = sum(1 for tid, _ in tokens if tid == STORY_BOUNDARY)
-    print(f"  {len(tokens):,} tokens, {unique} unique, {boundaries + 1} documents\n")
-    return tokens
-
-
-def prepare_tokens_babylm(max_tokens: int):
-    print("Loading BabyLM (10M)...")
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    dataset = load_dataset("nilq/babylm-10M", split="train")
-
-    tokens: list[tuple[int, str]] = []
-    t = 0
-    # Group consecutive non-empty lines into documents;
-    # empty lines are document boundaries.
-    in_doc = False
-    for ex in dataset:
-        text = ex.get("text", "").strip()
-        if not text:
-            if in_doc:
-                tokens.append((STORY_BOUNDARY, ""))
-                t += 1
-                in_doc = False
-            if t >= max_tokens:
-                break
-            continue
-        in_doc = True
-        for tid in tokenizer.encode(text):
-            tokens.append((tid, tokenizer.decode([tid])))
-            t += 1
-            if t >= max_tokens:
-                break
-        if t >= max_tokens:
-            break
-
-    unique = len({tid for tid, _ in tokens if tid != STORY_BOUNDARY})
-    boundaries = sum(1 for tid, _ in tokens if tid == STORY_BOUNDARY)
-    print(f"  {len(tokens):,} tokens, {unique} unique, {boundaries + 1} documents\n")
-    return tokens
-
-
-def prepare_tokens(dataset_name: str, max_tokens: int):
-    if dataset_name == "babylm":
-        return prepare_tokens_babylm(max_tokens)
-    return prepare_tokens_tinystories(max_tokens)
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tokens", type=int, default=10000)
@@ -135,7 +63,7 @@ def main():
     )
     args = parser.parse_args()
 
-    tokens = prepare_tokens(args.dataset, args.tokens)
+    tokens = prepare_tokens(args.tokens, dataset=args.dataset)
 
     if args.encoder == "charbit":
         charbit = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
