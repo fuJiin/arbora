@@ -21,8 +21,9 @@ from plotly.subplots import make_subplots
 import step.env  # noqa: F401
 from step.cortex.config import CortexConfig
 from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.runner import STORY_BOUNDARY, run_cortex
+from step.cortex.runner import STORY_BOUNDARY, run_cortex, run_hierarchy
 from step.cortex.sensory import SensoryRegion
+from step.cortex.surprise import SurpriseTracker
 from step.cortex.timeline import Timeline
 from step.encoders.charbit import CharbitEncoder
 
@@ -133,7 +134,10 @@ def build_ff_weight_divergence(timeline: Timeline, n_columns: int) -> go.Figure:
     n_steps = len(timeline.frames)
     norms = np.zeros((n_columns, n_steps))
     for i, frame in enumerate(timeline.frames):
-        norms[:, i] = frame.ff_weight_norms
+        # ff_weight_norms is per-neuron; aggregate to per-column (max)
+        per_neuron = frame.ff_weight_norms
+        n_per_col = len(per_neuron) // n_columns
+        norms[:, i] = per_neuron.reshape(n_columns, n_per_col).max(axis=1)
 
     fig = go.Figure()
     for col in range(n_columns):
@@ -468,6 +472,172 @@ def build_column_selectivity_bar(
     return fig
 
 
+def build_surprise_modulator_over_time(
+    modulators: list[float], window: int = 50
+) -> go.Figure:
+    """Surprise modulator time series — how much Region 2 learning is boosted."""
+    n = len(modulators)
+    if n == 0:
+        return go.Figure()
+
+    # Rolling average
+    rolling = []
+    for i in range(n):
+        start = max(0, i - window + 1)
+        rolling.append(sum(modulators[start : i + 1]) / (i - start + 1))
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=modulators,
+            name="raw",
+            line=dict(color="#118ab2", width=1),
+            opacity=0.3,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=rolling,
+            name=f"rolling avg (w={window})",
+            line=dict(color="#118ab2", width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=[1.0] * n,
+            name="baseline (no modulation)",
+            line=dict(color="gray", dash="dash"),
+        )
+    )
+    fig.update_layout(
+        title=(
+            "Surprise Modulator (Region 2 Learning Rate Scale)"
+            " — >1 = R1 surprised, R2 learns faster"
+        ),
+        xaxis_title="Timestep",
+        yaxis_title="Modulator",
+        yaxis_range=[0, 2.1],
+        height=400,
+        template="plotly_dark",
+    )
+    return fig
+
+
+def build_dual_burst_rate(
+    timeline1: Timeline, timeline2: Timeline, window: int = 50
+) -> go.Figure:
+    """Side-by-side burst rate for Region 1 and Region 2."""
+
+    def _rolling_burst(tl: Timeline) -> list[float]:
+        n = len(tl.frames)
+        rates = []
+        for i in range(n):
+            start = max(0, i - window + 1)
+            total_burst = sum(tl.frames[j].n_bursting for j in range(start, i + 1))
+            total_active = sum(tl.frames[j].n_active for j in range(start, i + 1))
+            rates.append(total_burst / total_active if total_active > 0 else 0.0)
+        return rates
+
+    r1 = _rolling_burst(timeline1)
+    r2 = _rolling_burst(timeline2)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(len(r1))),
+            y=r1,
+            name="Region 1 (sensory)",
+            line=dict(color="#e94560", width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(len(r2))),
+            y=r2,
+            name="Region 2 (secondary)",
+            line=dict(color="#06d6a0", width=2),
+        )
+    )
+    fig.update_layout(
+        title=(
+            f"Surprise Rate by Region (window={window})"
+            " — lower = better predictions"
+        ),
+        xaxis_title="Timestep",
+        yaxis_title="Surprise Rate",
+        yaxis_range=[0, 1.05],
+        height=400,
+        template="plotly_dark",
+    )
+    return fig
+
+
+def build_hierarchy_summary_cards(
+    rep1: dict, rep2: dict, burst1: float, burst2: float, modulators: list[float]
+) -> str:
+    """Build HTML stat cards comparing Region 1 and Region 2."""
+    mod_arr = np.array(modulators) if modulators else np.array([1.0])
+
+    def _card(value: str, label: str, hint: str, color: str) -> str:
+        return f"""
+        <div class="stat-card" style="border-color: {color}">
+            <div class="stat-value" style="color: {color}">{value}</div>
+            <div class="stat-label">{label}</div>
+            <div class="stat-label" style="font-size:0.75em">{hint}</div>
+        </div>"""
+
+    cards = [
+        _card(
+            f"{burst1:.0%} → {burst2:.0%}",
+            "Surprise Rate (R1 → R2)",
+            "R2 should be lower if it learns R1 patterns",
+            _health_color(burst2, (0, 0.4), (0, 0.7)),
+        ),
+        _card(
+            f"{rep1.get('column_selectivity_mean', 0):.2f}",
+            "R1 Feature Selectivity",
+            "how picky R1 columns are",
+            _health_color(
+                rep1.get("column_selectivity_mean", 1), (0.05, 0.5), (0.02, 0.8)
+            ),
+        ),
+        _card(
+            f"{rep2.get('column_selectivity_mean', 0):.2f}",
+            "R2 Feature Selectivity",
+            "how picky R2 columns are",
+            _health_color(
+                rep2.get("column_selectivity_mean", 1), (0.05, 0.7), (0.02, 0.9)
+            ),
+        ),
+        _card(
+            f"{rep1.get('context_discrimination', 0):.2f}"
+            f" → {rep2.get('context_discrimination', 0):.2f}",
+            "Context Sensitivity (R1 → R2)",
+            "R2 should discriminate context better",
+            _health_color(
+                rep2.get("context_discrimination", 0), (0.1, 0.95), (0.05, 0.98)
+            ),
+        ),
+        _card(
+            f"{mod_arr.mean():.2f}",
+            "Avg Surprise Modulator",
+            f"range [{mod_arr.min():.2f}, {mod_arr.max():.2f}]",
+            _health_color(mod_arr.mean(), (0.8, 1.2), (0.5, 1.5)),
+        ),
+        _card(
+            f"{rep2.get('ff_cross_col_cosine', 0):.2f}",
+            "R2 Column Diversity",
+            "are R2 columns learning different things? (lower = yes)",
+            _health_color(rep2.get("ff_cross_col_cosine", 1), (0, 0.3), (0, 0.6)),
+        ),
+    ]
+
+    return '<div class="summary">' + "".join(cards) + "</div>"
+
+
 def _health_color(value: float, green_range: tuple, yellow_range: tuple) -> str:
     """Return CSS color based on whether value is in healthy range.
 
@@ -556,6 +726,7 @@ def build_representation_summary_cards(
 def build_dashboard_html(
     figures: list[tuple[str, go.Figure]],
     summary_cards_html: str = "",
+    title: str = "Cortex Representation Dashboard",
 ) -> str:
     """Combine all figures into a single HTML page."""
     chart_divs = []
@@ -614,7 +785,7 @@ def build_dashboard_html(
     </style>
 </head>
 <body>
-    <h1>Cortex Representation Dashboard</h1>
+    <h1>{title}</h1>
     {summary_cards_html}
     {"".join(f'<div class="chart-container">{div}</div>' for div in chart_divs)}
 </body>
@@ -629,6 +800,9 @@ def main():
     parser.add_argument(
         "--save-only", action="store_true", help="Save HTML without serving"
     )
+    parser.add_argument(
+        "--hierarchy", action="store_true", help="Run two-region hierarchy"
+    )
     args = parser.parse_args()
 
     # Run the PoC with timeline capture
@@ -637,7 +811,17 @@ def main():
     cortex_cfg = CortexConfig()
     charbit = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
     input_dim = CHAR_LENGTH * CHAR_WIDTH
-    region = SensoryRegion(
+
+    if args.hierarchy:
+        html = _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args)
+    else:
+        html = _run_single_dashboard(tokens, cortex_cfg, charbit, input_dim, args)
+
+    _serve_or_save(html, args)
+
+
+def _make_region(cortex_cfg, input_dim):
+    return SensoryRegion(
         input_dim=input_dim,
         n_columns=cortex_cfg.n_columns,
         n_l4=cortex_cfg.n_l4,
@@ -664,6 +848,10 @@ def main():
         seed=cortex_cfg.seed,
     )
 
+
+def _run_single_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> str:
+    region = _make_region(cortex_cfg, input_dim)
+
     print(f"\nRunning cortex on {len(tokens):,} tokens...")
     metrics, timeline, diag, _rep_region = run_with_timeline(
         tokens, region, charbit, args.log_interval
@@ -672,53 +860,117 @@ def main():
     print(f"\nCaptured {len(timeline.frames)} timeline frames")
     print("Building dashboard...")
 
-    # Compute representation summary from run_cortex metrics
     rep_summary = metrics.representation
-    # Add per-column selectivity for bar chart
-    # (run_cortex's RepresentationTracker computed this)
-    # We need to get the per-column data — extract from summary
-    # The runner's tracker is internal, so we add per_column to
-    # the summary dict by convention
     summ = diag.summary()
     burst_rate = summ["burst_rate"]
 
-    # Build summary stat cards
-    cards_html = build_representation_summary_cards(
-        rep_summary, burst_rate
-    )
+    cards_html = build_representation_summary_cards(rep_summary, burst_rate)
 
-    # Build all charts
     n_cols = cortex_cfg.n_columns
     figures = [
         ("Surprise Rate", build_burst_rate_over_time(timeline)),
-        (
-            "Column Selectivity",
-            build_column_selectivity_bar(rep_summary),
-        ),
-        (
-            "Column Usage",
-            build_column_entropy_over_time(timeline, n_cols),
-        ),
-        (
-            "Column Activation",
-            build_column_activation_heatmap(timeline, n_cols),
-        ),
-        (
-            "Feature Differentiation",
-            build_ff_weight_divergence(timeline, n_cols),
-        ),
-        (
-            "Signal Balance",
-            build_voltage_excitability(timeline, n_cols),
-        ),
-        (
-            "Input Distribution",
-            build_column_drive_histogram(timeline),
-        ),
+        ("Column Selectivity", build_column_selectivity_bar(rep_summary)),
+        ("Column Usage", build_column_entropy_over_time(timeline, n_cols)),
+        ("Column Activation", build_column_activation_heatmap(timeline, n_cols)),
+        ("Feature Differentiation", build_ff_weight_divergence(timeline, n_cols)),
+        ("Signal Balance", build_voltage_excitability(timeline, n_cols)),
+        ("Input Distribution", build_column_drive_histogram(timeline)),
     ]
 
-    html = build_dashboard_html(figures, cards_html)
+    return build_dashboard_html(figures, cards_html)
 
+
+def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> str:
+    region1 = _make_region(cortex_cfg, input_dim)
+    region2 = SensoryRegion(
+        input_dim=region1.n_l23_total,
+        encoding_width=region1.n_l23,
+        n_columns=16,
+        n_l4=4,
+        n_l23=4,
+        k_columns=2,
+        voltage_decay=0.8,
+        eligibility_decay=0.98,
+        synapse_decay=0.9999,
+        seed=123,
+    )
+
+    surprise = SurpriseTracker()
+    diag1 = CortexDiagnostics(snapshot_interval=args.log_interval)
+    diag2 = CortexDiagnostics(snapshot_interval=args.log_interval)
+    timeline1 = Timeline()
+    timeline2 = Timeline()
+
+    # Instrument both regions for timeline capture
+    orig_r1_process = region1.process
+    orig_r2_process = region2.process
+
+    def instrumented_r1(encoding):
+        result = orig_r1_process(encoding)
+        timeline1.capture(len(timeline1.frames), region1, region1.last_column_drive)
+        return result
+
+    def instrumented_r2(encoding):
+        result = orig_r2_process(encoding)
+        timeline2.capture(len(timeline2.frames), region2, region2.last_column_drive)
+        return result
+
+    region1.process = instrumented_r1
+    region2.process = instrumented_r2
+
+    print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
+    hier_metrics = run_hierarchy(
+        region1, region2, charbit, tokens,
+        surprise_tracker=surprise,
+        log_interval=args.log_interval,
+        diagnostics1=diag1,
+        diagnostics2=diag2,
+    )
+
+    region1.process = orig_r1_process
+    region2.process = orig_r2_process
+
+    print(f"\nCaptured {len(timeline1.frames)} R1 + {len(timeline2.frames)} R2 frames")
+    print("Building hierarchy dashboard...")
+
+    rep1 = hier_metrics.region1.representation
+    rep2 = hier_metrics.region2.representation
+    summ1 = diag1.summary()
+    summ2 = diag2.summary()
+
+    cards_html = build_hierarchy_summary_cards(
+        rep1, rep2, summ1["burst_rate"], summ2["burst_rate"],
+        hier_metrics.surprise_modulators,
+    )
+
+    n_cols_r1 = cortex_cfg.n_columns
+    n_cols_r2 = 16
+    figures = [
+        ("Dual Burst Rate", build_dual_burst_rate(timeline1, timeline2)),
+        ("Surprise Modulator", build_surprise_modulator_over_time(
+            hier_metrics.surprise_modulators
+        )),
+        ("R1 Column Selectivity", build_column_selectivity_bar(rep1)),
+        ("R2 Column Selectivity", build_column_selectivity_bar(rep2)),
+        ("R1 Surprise Rate", build_burst_rate_over_time(timeline1)),
+        ("R1 Column Usage", build_column_entropy_over_time(timeline1, n_cols_r1)),
+        ("R1 Column Activation", build_column_activation_heatmap(timeline1, n_cols_r1)),
+        ("R2 Column Activation", build_column_activation_heatmap(timeline2, n_cols_r2)),
+        ("R1 Feature Differentiation", build_ff_weight_divergence(
+            timeline1, n_cols_r1
+        )),
+        ("R2 Feature Differentiation", build_ff_weight_divergence(
+            timeline2, n_cols_r2
+        )),
+        ("R1 Signal Balance", build_voltage_excitability(timeline1, n_cols_r1)),
+    ]
+
+    return build_dashboard_html(
+        figures, cards_html, title="Cortex Hierarchy Dashboard"
+    )
+
+
+def _serve_or_save(html: str, args):
     if args.save_only:
         out_path = Path("experiments/figures/cortex_dashboard.html")
         out_path.parent.mkdir(parents=True, exist_ok=True)
