@@ -86,6 +86,7 @@ def main():
     input_dim = CHAR_LENGTH * CHAR_WIDTH
     region = SensoryRegion(
         input_dim=input_dim,
+        encoding_width=CHAR_WIDTH,
         n_columns=cortex_cfg.n_columns,
         n_l4=cortex_cfg.n_l4,
         n_l23=cortex_cfg.n_l23,
@@ -97,6 +98,7 @@ def main():
         max_excitability=cortex_cfg.max_excitability,
         fb_boost_threshold=cortex_cfg.fb_boost_threshold,
         fb_boost=cortex_cfg.fb_boost,
+        ltd_rate=cortex_cfg.ltd_rate,
         seed=cortex_cfg.seed,
     )
 
