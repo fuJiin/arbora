@@ -57,6 +57,7 @@ class CorticalRegion:
         perm_decrement: float = 0.05,
         seg_activation_threshold: int = 2,
         prediction_gain: float = 1.0,
+        l23_prediction_boost: float = 0.0,
         seed: int = 0,
     ):
         self.n_columns = n_columns
@@ -80,6 +81,8 @@ class CorticalRegion:
         self.perm_decrement = perm_decrement
         self.seg_activation_threshold = seg_activation_threshold
         self.prediction_gain = prediction_gain
+        # L2/3 segment prediction boost (0 = use fb_boost for both layers)
+        self.l23_prediction_boost = l23_prediction_boost
         self._rng = np.random.default_rng(seed)
 
         # Third-factor neuromodulatory signal (set externally each step).
@@ -401,7 +404,8 @@ class CorticalRegion:
             self.voltage_l23 += lat
 
         # L2/3 segment prediction boost: predicted neurons are primed
-        self.voltage_l23[self.predicted_l23] += self.fb_boost
+        l23_boost = self.l23_prediction_boost or self.fb_boost
+        self.voltage_l23[self.predicted_l23] += l23_boost
 
         # Competitive selection per column
         self.active_l23[:] = False
@@ -469,51 +473,38 @@ class CorticalRegion:
         for neuron in np.nonzero(false_predicted)[0]:
             self._adapt_segments(neuron, reinforce=False)
 
-    def _find_best_segment(
-        self, neuron: int
-    ) -> tuple[str | None, int, int]:
-        """Find the segment with most overlap with prediction-time context.
+    # ------------------------------------------------------------------
+    # Generic segment operations (shared by L4 and L2/3 segments)
+    # ------------------------------------------------------------------
 
-        Returns (seg_type, seg_index, overlap_count) or (None, 0, 0).
-        """
-        best_overlap = -1
-        best_type = None
-        best_seg_idx = 0
-
-        for seg_type, seg_indices, ctx in [
-            ("fb", self.fb_seg_indices, self._pred_context_l23),
-            ("lat", self.lat_seg_indices, self._pred_context_l4),
-        ]:
-            if not ctx.any():
-                continue
-            for s in range(seg_indices.shape[1]):
-                overlap = int(ctx[seg_indices[neuron, s]].sum())
-                if overlap > best_overlap:
-                    best_overlap = overlap
-                    best_type = seg_type
-                    best_seg_idx = s
-
-        return best_type, best_seg_idx, max(best_overlap, 0)
-
-    def _grow_best_segment(self, neuron: int):
+    def _grow_segment(
+        self,
+        neuron: int,
+        seg_indices: np.ndarray,
+        seg_perm: np.ndarray,
+        ctx: np.ndarray,
+        pool: np.ndarray,
+    ):
         """Grow the best-matching segment for a bursting neuron.
 
-        Finds the segment with most overlap with prediction-time context,
-        then strengthens matching synapses and replaces weakest non-matching
-        ones with new connections to active source neurons.
+        Finds the segment with most overlap with context, strengthens
+        matching synapses, and replaces weakest non-matching ones with
+        new connections to active source neurons.
         """
-        best_type, best_seg_idx, best_overlap = self._find_best_segment(neuron)
-        if best_type is None or best_overlap == 0:
+        if not ctx.any():
             return
 
-        if best_type == "fb":
-            seg_indices = self.fb_seg_indices
-            seg_perm = self.fb_seg_perm
-            ctx = self._pred_context_l23
-        else:
-            seg_indices = self.lat_seg_indices
-            seg_perm = self.lat_seg_perm
-            ctx = self._pred_context_l4
+        # Find best-matching segment
+        best_seg_idx = 0
+        best_overlap = -1
+        for s in range(seg_indices.shape[1]):
+            overlap = int(ctx[seg_indices[neuron, s]].sum())
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_seg_idx = s
+
+        if best_overlap <= 0:
+            return
 
         idx = seg_indices[neuron, best_seg_idx].copy()
         perm = seg_perm[neuron, best_seg_idx].copy()
@@ -526,7 +517,6 @@ class CorticalRegion:
         perm[~syn_active] = np.maximum(perm[~syn_active] - dec, 0.0)
 
         # Grow: replace weakest inactive synapses with active sources
-        pool = self._get_source_pool(neuron, best_type)
         active_in_pool = np.intersect1d(np.nonzero(ctx)[0], pool)
         existing_set = set(idx.tolist())
         new_sources = [s for s in active_in_pool if s not in existing_set]
@@ -544,129 +534,24 @@ class CorticalRegion:
         seg_indices[neuron, best_seg_idx] = idx
         seg_perm[neuron, best_seg_idx] = perm
 
-    def _adapt_segments(self, neuron: int, reinforce: bool):
-        """Reinforce or punish active segments on a neuron.
+    def _adapt_segment_array(
+        self,
+        neuron: int,
+        seg_indices: np.ndarray,
+        seg_perm: np.ndarray,
+        ctx: np.ndarray,
+        reinforce: bool,
+    ):
+        """Reinforce or punish active segments in one segment array.
 
         reinforce=True: strengthen synapses on correctly-predicting segments
         reinforce=False: weaken synapses on falsely-predicting segments
         """
-        for seg_indices, seg_perm, ctx in [
-            (self.fb_seg_indices, self.fb_seg_perm, self._pred_context_l23),
-            (self.lat_seg_indices, self.lat_seg_perm, self._pred_context_l4),
-        ]:
-            if not ctx.any():
-                continue
-            for s in range(seg_indices.shape[1]):
-                idx = seg_indices[neuron, s]
-                perm = seg_perm[neuron, s]
-                syn_active = ctx[idx]
-                connected = perm > self.perm_threshold
-                count = (syn_active & connected).sum()
-
-                if count >= self.seg_activation_threshold:
-                    inc = self.perm_increment * self.surprise_modulator
-                    dec = self.perm_decrement * self.surprise_modulator
-                    if reinforce:
-                        # Strengthen active, weaken inactive
-                        perm[syn_active] = np.minimum(
-                            perm[syn_active] + inc, 1.0
-                        )
-                        perm[~syn_active] = np.maximum(
-                            perm[~syn_active] - dec, 0.0
-                        )
-                    else:
-                        # Punish: weaken active connected synapses
-                        mask = syn_active & connected
-                        perm[mask] = np.maximum(
-                            perm[mask] - dec, 0.0
-                        )
-
-                    seg_perm[neuron, s] = perm
-
-    def _learn_l23_segments(self):
-        """Update L2/3 lateral segment permanences based on prediction outcomes.
-
-        Mirrors L4 segment learning but for L2/3 lateral predictions:
-        - Burst column: grow best-matching L2/3 segment on trace winner
-        - Precise + predicted L2/3: reinforce active segments
-        - Predicted L2/3 but didn't fire: punish active segments
-        """
-        for col in np.nonzero(self.active_columns)[0]:
-            l23_start = col * self.n_l23
-            l23_end = l23_start + self.n_l23
-
-            if self.bursting_columns[col]:
-                # Grow segment on L2/3 trace winner (highest voltage)
-                best = l23_start + np.argmax(
-                    self.voltage_l23[l23_start:l23_end]
-                )
-                self._grow_l23_segment(best)
-            else:
-                # Reinforce segments on precisely-predicted L2/3 neurons
-                for neuron in range(l23_start, l23_end):
-                    if self.active_l23[neuron] and self.predicted_l23[neuron]:
-                        self._adapt_l23_segments(neuron, reinforce=True)
-
-        # Punish false L2/3 predictions
-        false_predicted = self.predicted_l23 & ~self.active_l23
-        for neuron in np.nonzero(false_predicted)[0]:
-            self._adapt_l23_segments(neuron, reinforce=False)
-
-    def _grow_l23_segment(self, neuron: int):
-        """Grow the best-matching L2/3 lateral segment for a bursting neuron."""
-        ctx = self._pred_context_l23
         if not ctx.any():
             return
-
-        # Find best-matching segment
-        best_seg_idx = 0
-        best_overlap = -1
-        for s in range(self.n_l23_segments):
-            overlap = int(ctx[self.l23_seg_indices[neuron, s]].sum())
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_seg_idx = s
-
-        if best_overlap <= 0:
-            return
-
-        idx = self.l23_seg_indices[neuron, best_seg_idx].copy()
-        perm = self.l23_seg_perm[neuron, best_seg_idx].copy()
-        syn_active = ctx[idx]
-
-        # Strengthen active, weaken inactive
-        inc = self.perm_increment * self.surprise_modulator
-        dec = self.perm_decrement * self.surprise_modulator
-        perm[syn_active] = np.minimum(perm[syn_active] + inc, 1.0)
-        perm[~syn_active] = np.maximum(perm[~syn_active] - dec, 0.0)
-
-        # Grow: replace weakest inactive synapses with active sources
-        pool = self._get_l23_source_pool(neuron)
-        active_in_pool = np.intersect1d(np.nonzero(ctx)[0], pool)
-        existing_set = set(idx.tolist())
-        new_sources = [s for s in active_in_pool if s not in existing_set]
-
-        if new_sources:
-            inactive_slots = np.where(~syn_active)[0]
-            if len(inactive_slots) > 0:
-                order = np.argsort(perm[inactive_slots])
-                n_grow = min(len(new_sources), len(inactive_slots))
-                for i in range(n_grow):
-                    slot = inactive_slots[order[i]]
-                    idx[slot] = new_sources[i]
-                    perm[slot] = self.perm_init
-
-        self.l23_seg_indices[neuron, best_seg_idx] = idx
-        self.l23_seg_perm[neuron, best_seg_idx] = perm
-
-    def _adapt_l23_segments(self, neuron: int, reinforce: bool):
-        """Reinforce or punish active L2/3 lateral segments."""
-        ctx = self._pred_context_l23
-        if not ctx.any():
-            return
-        for s in range(self.n_l23_segments):
-            idx = self.l23_seg_indices[neuron, s]
-            perm = self.l23_seg_perm[neuron, s]
+        for s in range(seg_indices.shape[1]):
+            idx = seg_indices[neuron, s]
+            perm = seg_perm[neuron, s]
             syn_active = ctx[idx]
             connected = perm > self.perm_threshold
             count = (syn_active & connected).sum()
@@ -680,7 +565,97 @@ class CorticalRegion:
                 else:
                     mask = syn_active & connected
                     perm[mask] = np.maximum(perm[mask] - dec, 0.0)
-                self.l23_seg_perm[neuron, s] = perm
+                seg_perm[neuron, s] = perm
+
+    # ------------------------------------------------------------------
+    # L4 segment learning (feedback + lateral)
+    # ------------------------------------------------------------------
+
+    def _grow_best_segment(self, neuron: int):
+        """Grow the best-matching L4 segment for a bursting neuron.
+
+        Checks both fb (L2/3→L4) and lat (L4→L4) segment types,
+        picks the one with most context overlap.
+        """
+        best_overlap = -1
+        best_type = None
+
+        for seg_type, seg_indices, ctx in [
+            ("fb", self.fb_seg_indices, self._pred_context_l23),
+            ("lat", self.lat_seg_indices, self._pred_context_l4),
+        ]:
+            if not ctx.any():
+                continue
+            for s in range(seg_indices.shape[1]):
+                overlap = int(ctx[seg_indices[neuron, s]].sum())
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_type = seg_type
+
+        if best_type is None or best_overlap <= 0:
+            return
+
+        if best_type == "fb":
+            seg_indices = self.fb_seg_indices
+            seg_perm = self.fb_seg_perm
+            ctx = self._pred_context_l23
+        else:
+            seg_indices = self.lat_seg_indices
+            seg_perm = self.lat_seg_perm
+            ctx = self._pred_context_l4
+
+        pool = self._get_source_pool(neuron, best_type)
+        self._grow_segment(neuron, seg_indices, seg_perm, ctx, pool)
+
+    def _adapt_segments(self, neuron: int, reinforce: bool):
+        """Reinforce or punish active L4 segments (both fb and lat)."""
+        self._adapt_segment_array(
+            neuron, self.fb_seg_indices, self.fb_seg_perm,
+            self._pred_context_l23, reinforce,
+        )
+        self._adapt_segment_array(
+            neuron, self.lat_seg_indices, self.lat_seg_perm,
+            self._pred_context_l4, reinforce,
+        )
+
+    # ------------------------------------------------------------------
+    # L2/3 segment learning (lateral)
+    # ------------------------------------------------------------------
+
+    def _learn_l23_segments(self):
+        """Update L2/3 lateral segment permanences based on prediction outcomes.
+
+        - Burst column: grow best-matching L2/3 segment on trace winner
+        - Precise + predicted L2/3: reinforce active segments
+        - Predicted L2/3 but didn't fire: punish active segments
+        """
+        for col in np.nonzero(self.active_columns)[0]:
+            l23_start = col * self.n_l23
+            l23_end = l23_start + self.n_l23
+
+            if self.bursting_columns[col]:
+                best = l23_start + np.argmax(
+                    self.voltage_l23[l23_start:l23_end]
+                )
+                pool = self._get_l23_source_pool(best)
+                self._grow_segment(
+                    best, self.l23_seg_indices, self.l23_seg_perm,
+                    self._pred_context_l23, pool,
+                )
+            else:
+                for neuron in range(l23_start, l23_end):
+                    if self.active_l23[neuron] and self.predicted_l23[neuron]:
+                        self._adapt_segment_array(
+                            neuron, self.l23_seg_indices, self.l23_seg_perm,
+                            self._pred_context_l23, reinforce=True,
+                        )
+
+        false_predicted = self.predicted_l23 & ~self.active_l23
+        for neuron in np.nonzero(false_predicted)[0]:
+            self._adapt_segment_array(
+                neuron, self.l23_seg_indices, self.l23_seg_perm,
+                self._pred_context_l23, reinforce=False,
+            )
 
     def _get_l23_source_pool(self, neuron: int) -> np.ndarray:
         """Get valid L2/3 source neuron indices for growing synapses."""
