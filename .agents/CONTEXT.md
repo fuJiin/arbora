@@ -9,7 +9,7 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Dendritic segments** for prediction: fb (L2/3→L4) + lat (L4→L4), HTM-style permanence learning
 - **Per-neuron ff_weights**: each L4 neuron has own weights within column's structural mask
 - **SensoryRegion**: local connectivity (radius = n_columns//4), structural masks on ff and segments
-- **L2/3 lateral weights**: dense Hebbian (no segments yet)
+- **L2/3 lateral weights**: dense Hebbian (broad context) + dendritic segments (selective pattern predictions)
 - **RepresentationTracker** (`representation.py`): primary metrics for evaluating cortex quality
 - **Decoders** (`src/step/decoders/`): InvertedIndexDecoder + SynapticDecoder (monitoring only)
 - **SurpriseTracker** (`surprise.py`): EMA-based burst rate tracker, outputs learning modulator [0, 2]
@@ -51,8 +51,8 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Feedback R2→R1 deferred** — requires thalamic relay (pulvinar) + apical dendrite compartments
 - **Surprise-modulated learning (third-factor)** — R1 burst rate modulates R2 plasticity via NE-like signal
 - **24 synapses/segment** — CharbitEncoder re-sweep (20k tokens, 16 configs) showed wider segments capture richer context. Best ctx_disc (0.593) and prediction diversity (12929 sets) with no runtime cost vs 16 synapses.
+- **L2/3 segments coexist with dense Hebbian** — dense weights provide broad lateral context, segments add selective pattern-specific predictions. Both active simultaneously.
 
 ## Next Steps
-- [ ] Add L2/3 dendritic segments
 - [ ] Add thalamic relay + feedback R2→R1 (activates prediction_gain, apical dendrites)
 - [ ] Explore motor cortex design for response generation
