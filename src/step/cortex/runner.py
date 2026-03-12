@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from step.config import ModelConfig
 from step.cortex.decoder import SynapticDecoder
 from step.cortex.diagnostics import CortexDiagnostics
+from step.cortex.representation import RepresentationTracker
 from step.cortex.sensory import SensoryRegion
 from step.decode import DecodeIndex
 from step.encoders.charbit import CharbitEncoder
@@ -20,6 +21,7 @@ class RunMetrics:
     synaptic_accuracies: list[float] = field(default_factory=list)
     column_accuracies: list[float] = field(default_factory=list)
     elapsed_seconds: float = 0.0
+    representation: dict = field(default_factory=dict)
 
 
 def run_cortex(
@@ -40,6 +42,7 @@ def run_cortex(
     """
     decode_index = DecodeIndex()
     syn_decoder = SynapticDecoder()
+    rep_tracker = RepresentationTracker(region.n_columns, region.n_l4)
     metrics = RunMetrics()
     k = region.k_columns
     start = time.monotonic()
@@ -50,6 +53,7 @@ def run_cortex(
     for t, (token_id, token_str) in enumerate(tokens):
         if token_id == STORY_BOUNDARY:
             region.reset_working_memory()
+            rep_tracker.reset_context()
             continue
 
         # Prediction: what does the network expect before seeing input?
@@ -73,6 +77,8 @@ def run_cortex(
         encoding = encoder.encode(token_str)
         active_neurons = region.process(encoding)
         active_set = frozenset(int(i) for i in active_neurons)
+
+        rep_tracker.observe(token_id, region.active_columns, region.active_l4)
 
         if diagnostics is not None:
             diagnostics.step(t, region)
@@ -104,21 +110,26 @@ def run_cortex(
         syn_decoder.observe(token_id, token_str, encoding, region.active_columns)
 
         if t > 0 and t % log_interval == 0 and metrics.overlaps:
-            tail = metrics.overlaps[-rolling_window:]
-            roll_overlap = sum(tail) / len(tail)
-            tail_acc = metrics.accuracies[-rolling_window:]
-            roll_acc = sum(tail_acc) / len(tail_acc)
             tail_syn = metrics.synaptic_accuracies[-rolling_window:]
             roll_syn = sum(tail_syn) / len(tail_syn)
-            tail_col = metrics.column_accuracies[-rolling_window:]
-            roll_col = sum(tail_col) / len(tail_col)
+            tail = metrics.overlaps[-rolling_window:]
+            roll_overlap = sum(tail) / len(tail)
             elapsed = time.monotonic() - start
+
+            # Burst rate over recent window
+            if diagnostics is not None:
+                bc = diagnostics._burst_count
+                pc = diagnostics._precise_count
+                total = bc + pc
+                burst_pct = bc / total if total > 0 else 0.0
+            else:
+                burst_pct = 0.0
+
             print(
                 f"  [cortex] t={t:,} "
                 f"syn={roll_syn:.4f} "
-                f"col={roll_col:.4f} "
-                f"idx={roll_acc:.4f} "
                 f"overlap={roll_overlap:.4f} "
+                f"burst={burst_pct:.1%} "
                 f"({elapsed:.1f}s)"
             )
 
@@ -143,6 +154,11 @@ def run_cortex(
                 prediction_log.clear()
 
     metrics.elapsed_seconds = time.monotonic() - start
+    metrics.representation = rep_tracker.summary(region.ff_weights)
+
+    # Print representation report
+    rep_tracker.print_report(region.ff_weights)
+
     return metrics
 
 
