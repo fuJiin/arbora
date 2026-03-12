@@ -24,6 +24,7 @@ from step.probes.diagnostics import CortexDiagnostics
 from step.probes.timeline import Timeline
 from step.runner import run_cortex, run_hierarchy
 from step.viz import (
+    build_apical_prediction_over_time,
     build_burst_rate_over_time,
     build_column_activation_heatmap,
     build_column_drive_histogram,
@@ -34,6 +35,7 @@ from step.viz import (
     build_ff_weight_divergence,
     build_hierarchy_summary_cards,
     build_representation_summary_cards,
+    build_segment_health_over_time,
     build_surprise_modulator_over_time,
     build_voltage_excitability,
 )
@@ -62,15 +64,11 @@ def run_with_timeline(tokens, region, encoder, log_interval):
         region, encoder, tokens, log_interval=log_interval, diagnostics=diag
     )
 
-    # Backfill representation tracker from metrics
-    # (run_cortex already tracks this, but we need it for dashboard)
-    # Re-run observe from token data — cheaper than double-patching
-    rep_region = region  # use final state for ff_convergence
     diag.print_report()
 
     # Restore
     region.process = original_process
-    return metrics, timeline, diag, rep_region
+    return metrics, timeline, diag
 
 
 def main():
@@ -86,7 +84,6 @@ def main():
     )
     args = parser.parse_args()
 
-    # Run the PoC with timeline capture
     tokens = prepare_tokens(args.tokens)
 
     cortex_cfg = CortexConfig()
@@ -126,6 +123,7 @@ def _make_region(cortex_cfg, input_dim):
         perm_decrement=cortex_cfg.perm_decrement,
         seg_activation_threshold=cortex_cfg.seg_activation_threshold,
         prediction_gain=cortex_cfg.prediction_gain,
+        n_apical_segments=cortex_cfg.n_apical_segments,
         seed=cortex_cfg.seed,
     )
 
@@ -134,7 +132,7 @@ def _run_single_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> str:
     region = _make_region(cortex_cfg, input_dim)
 
     print(f"\nRunning cortex on {len(tokens):,} tokens...")
-    metrics, timeline, diag, _rep_region = run_with_timeline(
+    metrics, timeline, diag = run_with_timeline(
         tokens, region, charbit, args.log_interval
     )
 
@@ -165,7 +163,7 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
     region1 = _make_region(cortex_cfg, input_dim)
     region2 = SensoryRegion(
         input_dim=region1.n_l23_total,
-        encoding_width=0,  # sliding window — no positional structure in L2/3
+        encoding_width=0,
         n_columns=16,
         n_l4=4,
         n_l23=4,
@@ -177,6 +175,9 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
         ltd_rate=0.4,
         seed=123,
     )
+
+    # Initialize apical feedback: R2 L2/3 -> R1 apical segments
+    region1.init_apical_segments(source_dim=region2.n_l23_total)
 
     surprise = SurpriseTracker()
     diag1 = CortexDiagnostics(snapshot_interval=args.log_interval)
@@ -216,7 +217,10 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
     region1.process = orig_r1_process
     region2.process = orig_r2_process
 
-    print(f"\nCaptured {len(timeline1.frames)} R1 + {len(timeline2.frames)} R2 frames")
+    print(
+        f"\nCaptured {len(timeline1.frames)} R1"
+        f" + {len(timeline2.frames)} R2 frames"
+    )
     print("Building hierarchy dashboard...")
 
     rep1 = hier_metrics.region1.representation
@@ -230,34 +234,77 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
         summ1["burst_rate"],
         summ2["burst_rate"],
         hier_metrics.surprise_modulators,
+        diag1=diag1,
     )
 
     n_cols_r1 = cortex_cfg.n_columns
     n_cols_r2 = 16
-    figures = [
-        ("Dual Burst Rate", build_dual_burst_rate(timeline1, timeline2)),
-        (
-            "Surprise Modulator",
-            build_surprise_modulator_over_time(hier_metrics.surprise_modulators),
-        ),
-        ("R1 Column Selectivity", build_column_selectivity_bar(rep1)),
-        ("R2 Column Selectivity", build_column_selectivity_bar(rep2)),
-        ("R1 Surprise Rate", build_burst_rate_over_time(timeline1)),
-        ("R1 Column Usage", build_column_entropy_over_time(timeline1, n_cols_r1)),
-        ("R1 Column Activation", build_column_activation_heatmap(timeline1, n_cols_r1)),
-        ("R2 Column Activation", build_column_activation_heatmap(timeline2, n_cols_r2)),
-        (
-            "R1 Feature Differentiation",
-            build_ff_weight_divergence(timeline1, n_cols_r1),
-        ),
-        (
-            "R2 Feature Differentiation",
-            build_ff_weight_divergence(timeline2, n_cols_r2),
-        ),
-        ("R1 Signal Balance", build_voltage_excitability(timeline1, n_cols_r1)),
-    ]
 
-    return build_dashboard_html(figures, cards_html, title="Cortex Hierarchy Dashboard")
+    tabs = {
+        "Overview": [
+            ("Dual Burst Rate", build_dual_burst_rate(timeline1, timeline2)),
+            (
+                "Surprise Modulator",
+                build_surprise_modulator_over_time(
+                    hier_metrics.surprise_modulators,
+                ),
+            ),
+            (
+                "R1 Column Selectivity",
+                build_column_selectivity_bar(rep1, region_label="R1 (Sensory)"),
+            ),
+            (
+                "R2 Column Selectivity",
+                build_column_selectivity_bar(rep2, region_label="R2 (Secondary)"),
+            ),
+        ],
+        "Region 1": [
+            ("R1 Surprise Rate", build_burst_rate_over_time(timeline1)),
+            (
+                "R1 Column Usage",
+                build_column_entropy_over_time(timeline1, n_cols_r1),
+            ),
+            (
+                "R1 Column Activation",
+                build_column_activation_heatmap(timeline1, n_cols_r1),
+            ),
+            (
+                "R1 Feature Differentiation",
+                build_ff_weight_divergence(timeline1, n_cols_r1),
+            ),
+            (
+                "R1 Signal Balance",
+                build_voltage_excitability(timeline1, n_cols_r1),
+            ),
+        ],
+        "Region 2": [
+            ("R2 Surprise Rate", build_burst_rate_over_time(timeline2)),
+            (
+                "R2 Column Activation",
+                build_column_activation_heatmap(timeline2, n_cols_r2),
+            ),
+            (
+                "R2 Feature Differentiation",
+                build_ff_weight_divergence(timeline2, n_cols_r2),
+            ),
+            (
+                "R2 Column Usage",
+                build_column_entropy_over_time(timeline2, n_cols_r2),
+            ),
+        ],
+        "Feedback": [
+            ("R1 Segment Health", build_segment_health_over_time(diag1)),
+            ("Apical Predictions", build_apical_prediction_over_time(timeline1)),
+            ("R2 Segment Health", build_segment_health_over_time(diag2)),
+        ],
+    }
+
+    return build_dashboard_html(
+        [],
+        cards_html,
+        title="Cortex Hierarchy Dashboard",
+        tabs=tabs,
+    )
 
 
 def _serve_or_save(html: str, args):

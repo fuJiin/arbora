@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from step.probes.diagnostics import CortexDiagnostics
+
 
 def _health_color(value: float, green_range: tuple, yellow_range: tuple) -> str:
     """Return CSS color based on whether value is in healthy range.
@@ -18,7 +20,12 @@ def _health_color(value: float, green_range: tuple, yellow_range: tuple) -> str:
 
 
 def build_hierarchy_summary_cards(
-    rep1: dict, rep2: dict, burst1: float, burst2: float, modulators: list[float]
+    rep1: dict,
+    rep2: dict,
+    burst1: float,
+    burst2: float,
+    modulators: list[float],
+    diag1: CortexDiagnostics | None = None,
 ) -> str:
     """Build HTML stat cards comparing Region 1 and Region 2."""
     mod_arr = np.array(modulators) if modulators else np.array([1.0])
@@ -31,12 +38,39 @@ def build_hierarchy_summary_cards(
             <div class="stat-label" style="font-size:0.75em">{hint}</div>
         </div>"""
 
+    # Get apical stats from last diagnostic snapshot
+    apical_conn = 0.0
+    apical_pred = 0
+    if diag1 and diag1.snapshots:
+        snap = diag1.snapshots[-1]
+        apical_conn = snap.apical_seg_connected_frac
+        apical_pred = snap.n_apical_predicted_cols
+
+    # Surprise: green if R2 improves on R1, yellow if similar, red if worse
+    burst_delta = burst2 - burst1
+    if burst_delta < -0.03:
+        burst_color = "#06d6a0"  # R2 improved
+    elif burst_delta < 0.03:
+        burst_color = "#ffd166"  # similar
+    else:
+        burst_color = "#e94560"  # R2 worse
+
+    # Context: green if R2 improves on R1
+    ctx1 = rep1.get("context_discrimination", 0)
+    ctx2 = rep2.get("context_discrimination", 0)
+    ctx_improved = ctx2 > ctx1
+    ctx_color = (
+        "#06d6a0" if ctx_improved and ctx2 > 0.5
+        else "#ffd166" if ctx_improved
+        else "#e94560"
+    )
+
     cards = [
         _card(
-            f"{burst1:.0%} → {burst2:.0%}",
-            "Surprise Rate (R1 → R2)",
+            f"{burst1:.0%} -> {burst2:.0%}",
+            "Surprise Rate (R1 -> R2)",
             "R2 should be lower if it learns R1 patterns",
-            _health_color(burst2, (0, 0.4), (0, 0.7)),
+            burst_color,
         ),
         _card(
             f"{rep1.get('column_selectivity_mean', 0):.2f}",
@@ -55,13 +89,10 @@ def build_hierarchy_summary_cards(
             ),
         ),
         _card(
-            f"{rep1.get('context_discrimination', 0):.2f}"
-            f" → {rep2.get('context_discrimination', 0):.2f}",
-            "Context Sensitivity (R1 → R2)",
+            f"{ctx1:.2f} -> {ctx2:.2f}",
+            "Context Sensitivity (R1 -> R2)",
             "R2 should discriminate context better",
-            _health_color(
-                rep2.get("context_discrimination", 0), (0.1, 0.95), (0.05, 0.98)
-            ),
+            ctx_color,
         ),
         _card(
             f"{mod_arr.mean():.2f}",
@@ -70,10 +101,10 @@ def build_hierarchy_summary_cards(
             _health_color(mod_arr.mean(), (0.8, 1.2), (0.5, 1.5)),
         ),
         _card(
-            f"{rep2.get('ff_cross_col_cosine', 0):.2f}",
-            "R2 Column Diversity",
-            "are R2 columns learning different things? (lower = yes)",
-            _health_color(rep2.get("ff_cross_col_cosine", 1), (0, 0.3), (0, 0.6)),
+            f"{apical_conn:.1%}",
+            "Apical Connectivity",
+            f"{apical_pred} cols predicted -- R2->R1 feedback strength",
+            _health_color(apical_conn, (0.02, 0.15), (0.005, 0.3)),
         ),
     ]
 
