@@ -9,9 +9,7 @@ Usage: uv run experiments/scripts/cortex_dashboard.py [--tokens N] [--port 80]
 """
 
 import argparse
-import json
 import string
-import sys
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -81,7 +79,9 @@ def run_with_timeline(tokens, region, encoder, log_interval):
 
     region.process = instrumented_process
 
-    metrics = run_cortex(region, encoder, tokens, log_interval=log_interval, diagnostics=diag)
+    metrics = run_cortex(
+        region, encoder, tokens, log_interval=log_interval, diagnostics=diag
+    )
     diag.print_report()
 
     # Restore
@@ -143,7 +143,7 @@ def build_ff_weight_divergence(timeline: Timeline, n_columns: int) -> go.Figure:
 
     # Add std band
     norm_std = norms.std(axis=0)
-    norm_mean = norms.mean(axis=0)
+    norms.mean(axis=0)
     fig.add_trace(
         go.Scatter(
             x=list(range(n_steps)),
@@ -181,20 +181,65 @@ def build_voltage_excitability(timeline: Timeline, n_columns: int) -> go.Figure:
         excitability_mean[i] = frame.excitability_l4_by_col.mean()
         drive_spread[i] = frame.column_drive.std()
 
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
-                        subplot_titles=["Voltage vs Excitability (max)", "Column Drive Spread (std)"])
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=["Voltage vs Excitability (max)", "Column Drive Spread (std)"],
+    )
 
-    fig.add_trace(go.Scatter(x=list(range(n_steps)), y=voltage_max,
-                             name="voltage max", line=dict(color="#06d6a0")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=list(range(n_steps)), y=voltage_mean,
-                             name="voltage mean", line=dict(color="#06d6a0", dash="dot")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=list(range(n_steps)), y=excitability_max,
-                             name="excitability max", line=dict(color="#ffd166")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=list(range(n_steps)), y=excitability_mean,
-                             name="excitability mean", line=dict(color="#ffd166", dash="dot")), row=1, col=1)
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=voltage_max,
+            name="voltage max",
+            line=dict(color="#06d6a0"),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=voltage_mean,
+            name="voltage mean",
+            line=dict(color="#06d6a0", dash="dot"),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=excitability_max,
+            name="excitability max",
+            line=dict(color="#ffd166"),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=excitability_mean,
+            name="excitability mean",
+            line=dict(color="#ffd166", dash="dot"),
+        ),
+        row=1,
+        col=1,
+    )
 
-    fig.add_trace(go.Scatter(x=list(range(n_steps)), y=drive_spread,
-                             name="drive std", line=dict(color="#118ab2")), row=2, col=1)
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=drive_spread,
+            name="drive std",
+            line=dict(color="#118ab2"),
+        ),
+        row=2,
+        col=1,
+    )
 
     fig.update_layout(
         height=600,
@@ -235,7 +280,9 @@ def build_column_drive_histogram(timeline: Timeline) -> go.Figure:
     return fig
 
 
-def build_column_entropy_over_time(timeline: Timeline, n_columns: int, window: int = 50) -> go.Figure:
+def build_column_entropy_over_time(
+    timeline: Timeline, n_columns: int, window: int = 50
+) -> go.Figure:
     """Rolling column entropy over time — shows when monopoly develops."""
     from collections import Counter
 
@@ -258,21 +305,58 @@ def build_column_entropy_over_time(timeline: Timeline, n_columns: int, window: i
         entropies.append(entropy / max_entropy)
         unique_counts.append(len(counts))
 
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
-                        subplot_titles=[
-                            f"Rolling Column Entropy (window={window})",
-                            f"Unique Active Columns (window={window})",
-                        ])
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=[
+            f"Rolling Column Entropy (window={window})",
+            f"Unique Active Columns (window={window})",
+        ],
+    )
 
-    fig.add_trace(go.Scatter(x=list(range(n_steps)), y=entropies,
-                             name="entropy ratio", line=dict(color="#e94560")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=list(range(n_steps)), y=[1.0] * n_steps,
-                             name="perfect", line=dict(color="gray", dash="dash")), row=1, col=1)
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=entropies,
+            name="entropy ratio",
+            line=dict(color="#e94560"),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=[1.0] * n_steps,
+            name="perfect",
+            line=dict(color="gray", dash="dash"),
+        ),
+        row=1,
+        col=1,
+    )
 
-    fig.add_trace(go.Scatter(x=list(range(n_steps)), y=unique_counts,
-                             name="unique cols", line=dict(color="#06d6a0")), row=2, col=1)
-    fig.add_trace(go.Scatter(x=list(range(n_steps)), y=[n_columns] * n_steps,
-                             name="max possible", line=dict(color="gray", dash="dash")), row=2, col=1)
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=unique_counts,
+            name="unique cols",
+            line=dict(color="#06d6a0"),
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=[n_columns] * n_steps,
+            name="max possible",
+            line=dict(color="gray", dash="dash"),
+        ),
+        row=2,
+        col=1,
+    )
 
     fig.update_layout(height=500, template="plotly_dark", xaxis2_title="Timestep")
     return fig
@@ -281,26 +365,27 @@ def build_column_entropy_over_time(timeline: Timeline, n_columns: int, window: i
 def build_dashboard_html(figures: list[tuple[str, go.Figure]]) -> str:
     """Combine all figures into a single HTML page."""
     charts_html = []
-    for i, (title, fig) in enumerate(figures):
+    for i, (_title, fig) in enumerate(figures):
         div_id = f"chart-{i}"
         chart_json = fig.to_json()
         charts_html.append(f"""
         <div class="chart-container">
             <div id="{div_id}"></div>
             <script>
-                Plotly.newPlot('{div_id}', ...JSON.parse('{chart_json}').data ?
-                    [JSON.parse('{chart_json}')].map(c => ({{data: c.data, layout: c.layout}})) :
-                    [{{data: [], layout: {{}}}}]
-                );
                 var chartData = JSON.parse(`{chart_json}`);
-                Plotly.newPlot('{div_id}', chartData.data, chartData.layout, {{responsive: true}});
+                Plotly.newPlot(
+                    '{div_id}',
+                    chartData.data,
+                    chartData.layout,
+                    {{responsive: true}}
+                );
             </script>
         </div>
         """)
 
     # Simpler approach: use plotly's to_html
     chart_divs = []
-    for i, (title, fig) in enumerate(figures):
+    for _title, fig in figures:
         chart_divs.append(fig.to_html(full_html=False, include_plotlyjs=False))
 
     return f"""<!DOCTYPE html>
@@ -355,7 +440,7 @@ def build_dashboard_html(figures: list[tuple[str, go.Figure]]) -> str:
 <body>
     <h1>Cortex Column Monopoly Dashboard</h1>
     <div id="summary"></div>
-    {''.join(f'<div class="chart-container">{div}</div>' for div in chart_divs)}
+    {"".join(f'<div class="chart-container">{div}</div>' for div in chart_divs)}
 </body>
 </html>"""
 
@@ -365,7 +450,9 @@ def main():
     parser.add_argument("--tokens", type=int, default=1000)
     parser.add_argument("--port", type=int, default=80)
     parser.add_argument("--log-interval", type=int, default=100)
-    parser.add_argument("--save-only", action="store_true", help="Save HTML without serving")
+    parser.add_argument(
+        "--save-only", action="store_true", help="Save HTML without serving"
+    )
     args = parser.parse_args()
 
     # Run the PoC with timeline capture
@@ -394,17 +481,31 @@ def main():
     )
 
     print(f"\nRunning cortex on {len(tokens):,} tokens...")
-    metrics, timeline, diag = run_with_timeline(tokens, region, charbit, args.log_interval)
+    _metrics, timeline, _diag = run_with_timeline(
+        tokens, region, charbit, args.log_interval
+    )
 
     print(f"\nCaptured {len(timeline.frames)} timeline frames")
     print("Building dashboard...")
 
     # Build all charts
     figures = [
-        ("Column Entropy", build_column_entropy_over_time(timeline, cortex_cfg.n_columns)),
-        ("Column Activation", build_column_activation_heatmap(timeline, cortex_cfg.n_columns)),
-        ("FF Weight Divergence", build_ff_weight_divergence(timeline, cortex_cfg.n_columns)),
-        ("Voltage vs Excitability", build_voltage_excitability(timeline, cortex_cfg.n_columns)),
+        (
+            "Column Entropy",
+            build_column_entropy_over_time(timeline, cortex_cfg.n_columns),
+        ),
+        (
+            "Column Activation",
+            build_column_activation_heatmap(timeline, cortex_cfg.n_columns),
+        ),
+        (
+            "FF Weight Divergence",
+            build_ff_weight_divergence(timeline, cortex_cfg.n_columns),
+        ),
+        (
+            "Voltage vs Excitability",
+            build_voltage_excitability(timeline, cortex_cfg.n_columns),
+        ),
         ("Column Drive Distribution", build_column_drive_histogram(timeline)),
     ]
 
