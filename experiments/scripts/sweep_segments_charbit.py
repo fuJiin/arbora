@@ -15,7 +15,6 @@ Usage:
 import argparse
 import string
 import time
-from collections import defaultdict
 
 import numpy as np
 from datasets import load_dataset
@@ -118,7 +117,6 @@ def run_config(
             continue
 
         predicted_neurons = region.get_prediction(k)
-        predicted_set = frozenset(int(i) for i in predicted_neurons)
         syn_id, _ = syn_decoder.decode_synaptic(predicted_neurons, region)
 
         encoding = encoder.encode(token_str)
@@ -252,7 +250,7 @@ def main():
     best_burst = min(results, key=lambda r: r["burst_rate"])
     best_ctx = max(results, key=lambda r: r["ctx_disc"])
     best_sel = min(results, key=lambda r: r["selectivity"])
-    print(f"\nBest burst rate:    {best_burst['name']} ({best_burst['burst_rate']:.1%})")
+    print(f"\nBest burst:  {best_burst['name']} ({best_burst['burst_rate']:.1%})")
     print(f"Best ctx disc:      {best_ctx['name']} ({best_ctx['ctx_disc']:.3f})")
     print(f"Best selectivity:   {best_sel['name']} ({best_sel['selectivity']:.3f})")
 

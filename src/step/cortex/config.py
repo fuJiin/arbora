@@ -26,6 +26,7 @@ class CortexConfig:
     perm_decrement: float = 0.05
     seg_activation_threshold: int = 2
     prediction_gain: float = 1.0
+    l23_prediction_boost: float = 0.0
     seed: int = 0
 
 
