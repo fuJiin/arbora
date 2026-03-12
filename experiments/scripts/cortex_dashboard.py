@@ -50,7 +50,6 @@ def run_with_timeline(tokens, region, encoder, log_interval):
     timeline = Timeline()
     diag = CortexDiagnostics(snapshot_interval=log_interval)
 
-    # Patch: capture timeline after each process call
     original_process = region.process
 
     def instrumented_process(encoding):
@@ -65,8 +64,6 @@ def run_with_timeline(tokens, region, encoder, log_interval):
     )
 
     diag.print_report()
-
-    # Restore
     region.process = original_process
     return metrics, timeline, diag
 
@@ -185,7 +182,6 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
     timeline1 = Timeline()
     timeline2 = Timeline()
 
-    # Instrument both regions for timeline capture
     orig_r1_process = region1.process
     orig_r2_process = region2.process
 
@@ -315,7 +311,6 @@ def _serve_or_save(html: str, args):
         print(f"Saved to {out_path}")
         return
 
-    # Serve on requested port
     with TemporaryDirectory() as tmpdir:
         index = Path(tmpdir) / "index.html"
         index.write_text(html)
