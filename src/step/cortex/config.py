@@ -14,4 +14,5 @@ class CortexConfig:
     max_excitability: float = 0.2
     fb_boost_threshold: float = 0.3
     fb_boost: float = 0.4
+    ltd_rate: float = 0.2
     seed: int = 0

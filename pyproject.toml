@@ -10,7 +10,7 @@ dependencies = [
 
 [project.optional-dependencies]
 comparison = ["torch"]
-viz = ["matplotlib"]
+viz = ["matplotlib", "plotly"]
 
 [dependency-groups]
 dev = [
