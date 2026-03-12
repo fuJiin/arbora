@@ -68,6 +68,8 @@ class CortexDiagnostics:
     _l4_l23_matches: int = 0
     _l4_l23_total: int = 0
     _unique_col_sets: list[frozenset] = field(default_factory=list)
+    _burst_count: int = 0
+    _precise_count: int = 0
 
     def step(self, t: int, region: SensoryRegion) -> None:
         """Call after each region.process(). Cheap per-step bookkeeping."""
@@ -94,6 +96,12 @@ class CortexDiagnostics:
 
         # Track distinct column sets
         self._unique_col_sets.append(frozenset(int(c) for c in active_cols))
+
+        # Track burst vs precise activations
+        n_bursting = int(region.bursting_columns.sum())
+        n_active = len(active_cols)
+        self._burst_count += n_bursting
+        self._precise_count += (n_active - n_bursting)
 
         # Periodic snapshot
         if t % self.snapshot_interval == 0:
@@ -168,6 +176,10 @@ class CortexDiagnostics:
             self._l4_l23_matches / self._l4_l23_total if self._l4_l23_total > 0 else 0.0
         )
 
+        # Burst rate
+        total_cols = self._burst_count + self._precise_count
+        burst_rate = self._burst_count / total_cols if total_cols > 0 else 0.0
+
         return {
             "column_entropy": entropy,
             "column_entropy_ratio": entropy / max_entropy if max_entropy > 0 else 0,
@@ -175,6 +187,7 @@ class CortexDiagnostics:
             "unique_l23_neurons": unique_l23,
             "unique_column_sets": unique_col_sets,
             "l4_l23_match_rate": match_rate,
+            "burst_rate": burst_rate,
         }
 
     def print_report(self) -> None:
@@ -226,3 +239,4 @@ class CortexDiagnostics:
         print(f"  unique L2/3 neurons: {summ['unique_l23_neurons']}")
         print(f"  unique column sets: {summ['unique_column_sets']}")
         print(f"  L4-L2/3 match rate: {summ['l4_l23_match_rate']:.1%}")
+        print(f"  burst rate: {summ['burst_rate']:.1%}")

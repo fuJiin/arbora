@@ -49,23 +49,50 @@ class TestActivation:
         assert region.active_columns[7]
         assert region.active_columns[11]
 
-    def test_one_neuron_per_active_column(self, region):
+    def test_burst_on_first_step(self, region):
+        """First step has no predictions — all active columns should burst."""
         drive = np.zeros(16)
         drive[0] = 1.0
         drive[1] = 0.8
         drive[2] = 0.6
         region.step(drive)
-        for col in range(16):
-            col_neurons = region.active_l4[col * 4 : (col + 1) * 4]
-            if region.active_columns[col]:
-                assert col_neurons.sum() == 1
-            else:
-                assert col_neurons.sum() == 0
+        for col in np.nonzero(region.active_columns)[0]:
+            assert region.bursting_columns[col]
+            # All neurons in burst column should be active
+            col_neurons = region.active_l4[col * 4: (col + 1) * 4]
+            assert col_neurons.all()
+
+    def test_precise_when_predicted(self, region):
+        """If a neuron was predicted, its column should activate precisely."""
+        # Set up feedback so L2/3 neuron 0 predicts L4 neuron 3
+        region.fb_weights[0, 3] = 2.0
+        region.active_l23[0] = True  # pretend active last step
+        region.fb_boost_threshold = 0.0  # ensure prediction triggers
+
+        drive = np.zeros(16)
+        drive[0] = 1.0  # drive col 0
+        drive[4] = 0.5  # drive col 1 (to fill k)
+        drive[8] = 0.3  # drive col 2
+        region.step(drive)
+
+        # Col 0 should be precise (not bursting)
+        assert region.active_columns[0]
+        assert not region.bursting_columns[0]
+        # Only the predicted neuron should be active
+        col0_neurons = region.active_l4[0:4]
+        assert col0_neurons.sum() == 1
+        assert region.active_l4[3]  # the predicted neuron
 
     def test_excitability_breaks_ties(self, region):
         # All neurons in col 0 get same feedforward voltage,
         # but neuron 2 (global idx 2) has high excitability → wins.
+        # Also need prediction on neuron 2 to avoid burst
         region.excitability_l4[2] = 10.0
+        # Set up prediction for neuron 2 so col 0 is precise
+        region.fb_weights[0, 2] = 2.0
+        region.active_l23[0] = True
+        region.fb_boost_threshold = 0.0
+
         drive = np.zeros(16)
         drive[0] = 1.0
         drive[1] = 0.5
@@ -73,26 +100,98 @@ class TestActivation:
         region.step(drive)
         assert region.active_l4[2]
 
-    def test_l23_mirrors_l4_with_equal_layer_sizes(self, region):
-        drive = np.zeros(16)
-        drive[0] = 1.0
-        drive[5] = 0.8
-        drive[10] = 0.6
-        region.step(drive)
-        for col in range(16):
-            for i in range(4):
-                l4 = region.active_l4[col * 4 + i]
-                l23 = region.active_l23[col * 4 + i]
-                assert l4 == l23
-
     def test_inactive_columns_have_no_active_neurons(self, region):
         drive = np.zeros(16)
         drive[0] = 1.0
         region.step(drive)
         for col in range(16):
             if not region.active_columns[col]:
-                assert not region.active_l4[col * 4 : (col + 1) * 4].any()
-                assert not region.active_l23[col * 4 : (col + 1) * 4].any()
+                assert not region.active_l4[col * 4: (col + 1) * 4].any()
+                assert not region.active_l23[col * 4: (col + 1) * 4].any()
+
+
+# ---------------------------------------------------------------------------
+# CorticalRegion: burst mechanics
+# ---------------------------------------------------------------------------
+
+
+class TestBurst:
+    def test_all_neurons_fire_on_burst(self):
+        """Burst column has all L4 and L2/3 neurons active."""
+        r = CorticalRegion(n_columns=4, n_l4=4, n_l23=4, k_columns=1)
+        r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+        assert r.bursting_columns[0]
+        assert r.active_l4[0:4].all()
+        assert r.active_l23[0:4].all()
+
+    def test_burst_rate_decreases_with_learning(self):
+        """As feedback weights develop, burst rate should decrease."""
+        r = CorticalRegion(
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
+            learning_rate=0.5,
+            synapse_decay=1.0,
+            fb_boost_threshold=0.0,
+        )
+        # Alternate two columns so feedback can learn
+        early_bursts = 0
+        for i in range(20):
+            col = i % 2
+            drive = np.zeros(4)
+            drive[col] = 1.0
+            r.step(drive)
+            early_bursts += int(r.bursting_columns[col])
+
+        late_bursts = 0
+        for i in range(20):
+            col = i % 2
+            drive = np.zeros(4)
+            drive[col] = 1.0
+            r.step(drive)
+            late_bursts += int(r.bursting_columns[col])
+
+        # Late burst count should be less than or equal to early
+        assert late_bursts <= early_bursts
+
+    def test_burst_trace_goes_to_best_match(self):
+        """During burst, only the highest-voltage neuron gets the trace."""
+        r = CorticalRegion(n_columns=4, n_l4=4, n_l23=4, k_columns=1)
+        # Give neuron 2 in col 0 extra voltage so it's the "best match"
+        r.voltage_l4[2] = 0.5
+        r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+        assert r.bursting_columns[0]
+        # All neurons active, but only best-match should have trace
+        assert r.active_l4[0:4].all()
+        # Neuron 2 had highest pre-existing voltage + drive
+        assert r.trace_l4[2] == 1.0
+
+    def test_burst_learning_scale(self):
+        """Burst columns should produce larger weight updates."""
+        r = CorticalRegion(
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
+            learning_rate=0.1,
+            synapse_decay=1.0,
+            burst_learning_scale=5.0,
+        )
+        # Step 1: establish trace
+        r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+        trace_neuron = np.where(r.trace_l4 > 0)[0][0]
+
+        # Step 2: drive different column — will burst (no predictions)
+        r.step(np.array([0.0, 1.0, 0.0, 0.0]))
+        active_neurons = np.where(r.active_l4)[0]
+
+        # Lateral weight from trace_neuron to active neurons should be
+        # scaled by burst_learning_scale
+        for n in active_neurons:
+            weight = r.lateral_weights[trace_neuron, n]
+            # With lr=0.1, scale=5, trace≈0.9(decayed): ~0.45
+            assert weight > 0.3
 
 
 # ---------------------------------------------------------------------------
@@ -116,18 +215,16 @@ class TestVoltage:
             k_columns=1,
             voltage_decay=0.9,
         )
-        # Drive column 3 weakly twice — voltage should accumulate
-        drive = np.array([0.0, 0.0, 0.0, 0.3])
+        # Step 1: drive col 0 strongly, col 3 weakly — col 0 wins,
+        # col 3 gets voltage but isn't selected.
+        drive = np.array([5.0, 0.0, 0.0, 0.3])
         r.step(drive)
-        # Column 3 neurons got 0.3 voltage, but col 3 may or may not
-        # have been selected. Let's check a non-selected neuron's voltage.
-        # Drive column 0 strongly so column 3 is NOT selected.
+        # Step 2: again col 0 wins, col 3 accumulates
         drive2 = np.array([5.0, 0.0, 0.0, 0.3])
         r.step(drive2)
-        # Col 3 neurons: decayed (0.3*0.9) + new drive (0.3) = 0.57
+        # Col 3 neurons: decayed + new drive should accumulate
         col3_start = 3 * 2
-        # At least one neuron in col 3 should have accumulated voltage
-        assert r.voltage_l4[col3_start : col3_start + 2].max() > 0.5
+        assert r.voltage_l4[col3_start: col3_start + 2].max() > 0.5
 
     def test_voltage_decays_each_step(self):
         r = CorticalRegion(
@@ -137,9 +234,7 @@ class TestVoltage:
             k_columns=1,
             voltage_decay=0.5,
         )
-        # Manually set voltage, then step with zero drive
         r.voltage_l4[6] = 1.0  # col 3, neuron 0
-        # Drive col 0 so col 3 is not selected (no reset)
         drive = np.array([10.0, 0.0, 0.0, 0.0])
         r.step(drive)
         # Col 3 neuron 0: 1.0 * 0.5 (decay) + 0.0 (no drive) = 0.5
@@ -171,8 +266,6 @@ class TestExcitability:
     def test_excitability_ensures_rotation(self):
         """Over many steps, all neurons should eventually activate."""
         r = CorticalRegion(n_columns=4, n_l4=4, n_l23=4, k_columns=1)
-        # Same drive every step — excitability should cause
-        # different neurons to win within the active column.
         drive = np.array([1.0, 0.0, 0.0, 0.0])
         activated = set()
         for _ in range(20):
@@ -193,10 +286,9 @@ class TestEligibility:
         r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         drive = np.array([1.0, 0.0, 0.0, 0.0])
         r.step(drive)
-        for idx in np.where(r.active_l4)[0]:
-            assert r.trace_l4[idx] == 1.0
-        for idx in np.where(r.active_l23)[0]:
-            assert r.trace_l23[idx] == 1.0
+        # During burst, only best-match neuron gets trace
+        assert r.trace_l4.sum() > 0
+        assert r.trace_l23.sum() > 0
 
     def test_decays_over_time(self):
         r = CorticalRegion(
@@ -208,19 +300,21 @@ class TestEligibility:
         )
         drive = np.array([1.0, 0.0, 0.0, 0.0])
         r.step(drive)
-        first_active = np.where(r.active_l4)[0].copy()
+        traced_neurons = np.where(r.trace_l4 > 0)[0].copy()
         # Step with different column so first neurons are not re-activated
         drive2 = np.array([0.0, 1.0, 0.0, 0.0])
         r.step(drive2)
-        for idx in first_active:
+        for idx in traced_neurons:
             if not r.active_l4[idx]:
                 assert r.trace_l4[idx] == pytest.approx(0.5)
 
     def test_inactive_neurons_have_zero_trace(self):
         r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
-        inactive = ~r.active_l4
-        assert (r.trace_l4[inactive] == 0.0).all()
+        # Neurons that aren't trace winners should have 0 trace
+        # (burst: all active but only best-match gets trace)
+        trace_count = (r.trace_l4 > 0).sum()
+        assert trace_count == 1  # only one trace winner per burst column
 
 
 # ---------------------------------------------------------------------------
@@ -238,19 +332,18 @@ class TestLearning:
             n_l23=2,
             k_columns=1,
             learning_rate=0.1,
-            synapse_decay=1.0,  # no decay for clarity
+            synapse_decay=1.0,
             eligibility_decay=0.9,
         )
-        # Step 1: drive col 0
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
-        neuron_a = np.where(r.active_l4)[0][0]
+        traced = np.where(r.trace_l4 > 0)[0][0]
 
-        # Step 2: drive col 1
         r.step(np.array([0.0, 1.0, 0.0, 0.0]))
-        neuron_b = np.where(r.active_l4)[0][0]
+        active = np.where(r.active_l4)[0]
 
-        # lateral_weights[neuron_a, neuron_b] should be > 0
-        assert r.lateral_weights[neuron_a, neuron_b] > 0
+        # lateral_weights[traced, active] should be > 0
+        for n in active:
+            assert r.lateral_weights[traced, n] > 0
 
     def test_fb_weights_strengthen(self):
         """If L2/3 neuron fires at t, then L4 neuron fires at t+1,
@@ -265,10 +358,11 @@ class TestLearning:
             eligibility_decay=0.9,
         )
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
-        l23_neuron = np.where(r.active_l23)[0][0]
+        l23_traced = np.where(r.trace_l23 > 0)[0][0]
         r.step(np.array([0.0, 1.0, 0.0, 0.0]))
-        l4_neuron = np.where(r.active_l4)[0][0]
-        assert r.fb_weights[l23_neuron, l4_neuron] > 0
+        l4_active = np.where(r.active_l4)[0]
+        for n in l4_active:
+            assert r.fb_weights[l23_traced, n] > 0
 
     def test_no_learning_without_trace(self):
         """Synapses don't strengthen if source has no eligibility."""
@@ -280,7 +374,6 @@ class TestLearning:
             learning_rate=0.1,
             synapse_decay=1.0,
         )
-        # First step ever — no prior trace exists
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
         assert r.lateral_weights.sum() == 0.0
 
@@ -291,7 +384,7 @@ class TestLearning:
             n_l4=2,
             n_l23=2,
             k_columns=1,
-            learning_rate=1.0,  # aggressive
+            learning_rate=1.0,
             synapse_decay=1.0,
         )
         for _ in range(100):
@@ -309,24 +402,23 @@ class TestLearning:
 
 class TestFeedback:
     def test_feedback_biases_neuron_selection(self):
-        """Strong feedback to a specific L4 neuron should make it win."""
+        """Strong feedback to a specific L4 neuron should make it win
+        and produce a precise (non-burst) activation."""
         r = CorticalRegion(
             n_columns=4,
             n_l4=4,
             n_l23=4,
             k_columns=1,
-            fb_boost_threshold=0.0,  # low threshold so feedback always applies
+            fb_boost_threshold=0.0,
         )
-        # Manually set fb_weights so L2/3 neuron 0 → L4 neuron 3
-        # (col 0, idx 3) gets a strong boost
         target = 3  # col 0, neuron 3
         r.fb_weights[0, target] = 2.0
-        # Pretend L2/3 neuron 0 was active last step
         r.active_l23[0] = True
 
         drive = np.array([1.0, 0.0, 0.0, 0.0])
         r.step(drive)
         assert r.active_l4[target]
+        assert not r.bursting_columns[0]  # should be precise
 
 
 # ---------------------------------------------------------------------------
@@ -335,28 +427,34 @@ class TestFeedback:
 
 
 class TestL23Lateral:
-    def test_l23_defaults_to_l4_match_without_context(self):
-        """Without lateral context, L2/3 winner matches L4 winner."""
+    def test_l23_burst_on_first_step(self):
+        """First step: L2/3 also bursts since L4 bursts."""
         r = CorticalRegion(n_columns=4, n_l4=4, n_l23=4, k_columns=1)
-        r.excitability_l4[2] = 10.0  # force L4 neuron 2 to win
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
-        assert r.active_l4[2]
-        assert r.active_l23[2]  # L2/3 mirrors L4
+        assert r.bursting_columns[0]
+        # All L2/3 neurons in burst column should be active
+        assert r.active_l23[0:4].all()
 
     def test_lateral_overrides_l4_match(self):
         """Strong L2/3 lateral input can make a different L2/3
         neuron win than the L4-matching one."""
-        r = CorticalRegion(n_columns=4, n_l4=4, n_l23=4, k_columns=1)
-        # L4 neuron 0 (col 0, idx 0) will win via feedforward
-        # But set up L2/3 lateral so neuron 3 in col 0 gets
+        r = CorticalRegion(
+            n_columns=4, n_l4=4, n_l23=4, k_columns=1,
+            fb_boost_threshold=0.0,
+        )
+        # Set up prediction so col 0 is precise
+        r.fb_weights[0, 0] = 2.0
+        r.active_l23[0] = True
+
+        # Set up L2/3 lateral so neuron 3 in col 0 gets
         # strong input from a previously active L2/3 neuron
         source_l23 = 7  # col 1, neuron 3
         target_l23 = 3  # col 0, neuron 3
         r.l23_lateral_weights[source_l23, target_l23] = 5.0
-        r.active_l23[source_l23] = True  # pretend active last step
+        r.active_l23[source_l23] = True
 
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
-        assert r.active_l4[0]  # L4 still picks neuron 0
+        assert r.active_l4[0]  # L4 picks predicted neuron 0
         assert r.active_l23[target_l23]  # L2/3 picks neuron 3
 
     def test_l23_lateral_weights_learn(self):
@@ -371,21 +469,11 @@ class TestL23Lateral:
             eligibility_decay=0.9,
         )
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
-        l23_a = np.where(r.active_l23)[0][0]
+        l23_traced = np.where(r.trace_l23 > 0)[0][0]
         r.step(np.array([0.0, 1.0, 0.0, 0.0]))
-        l23_b = np.where(r.active_l23)[0][0]
-        assert r.l23_lateral_weights[l23_a, l23_b] > 0
-
-    def test_l23_one_winner_per_column(self):
-        """Exactly one L2/3 neuron per active column."""
-        r = CorticalRegion(n_columns=8, n_l4=4, n_l23=4, k_columns=3)
-        r.step(np.ones(8) * 0.5)
-        for col in range(8):
-            col_l23 = r.active_l23[col * 4 : (col + 1) * 4]
-            if r.active_columns[col]:
-                assert col_l23.sum() == 1
-            else:
-                assert col_l23.sum() == 0
+        l23_active = np.where(r.active_l23)[0]
+        for n in l23_active:
+            assert r.l23_lateral_weights[l23_traced, n] > 0
 
     def test_l23_voltage_resets_on_activation(self):
         """Active L2/3 neurons have voltage reset after step."""
@@ -393,24 +481,6 @@ class TestL23Lateral:
         r.step(np.array([1.0, 0.0, 0.0, 0.0]))
         for idx in np.where(r.active_l23)[0]:
             assert r.voltage_l23[idx] == 0.0
-
-    def test_l23_excitability_rotation(self):
-        """L2/3 neurons rotate via excitability when L4 matching
-        bias is absent (n_l4 > n_l23, so no match bonus)."""
-        r = CorticalRegion(n_columns=4, n_l4=8, n_l23=4, k_columns=1)
-        # L4 winner will be idx >= 4 (beyond n_l23), so no L2/3
-        # neuron gets the matching bonus. All L2/3 neurons in the
-        # active column get equal base drive (0.5).
-        # Excitability should rotate them.
-        # Bias L4 neuron 7 (idx > n_l23) to always win in col 0
-        r.excitability_l4[7] = 100.0
-        drive = np.array([1.0, 0.0, 0.0, 0.0])
-        activated_l23 = set()
-        for _ in range(20):
-            r.step(drive)
-            activated_l23.update(np.where(r.active_l23)[0].tolist())
-        # All 4 L2/3 neurons in col 0 should have activated
-        assert {0, 1, 2, 3}.issubset(activated_l23)
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +499,7 @@ class TestSensoryRegion:
         )
         assert s.ff_weights.shape == (100, 32)
 
-    def test_process_activates_correct_count(self):
+    def test_process_activates_correct_column_count(self):
         s = SensoryRegion(
             input_dim=10,
             n_columns=8,
@@ -442,8 +512,7 @@ class TestSensoryRegion:
         encoding[0] = 1.0
         encoding[5] = 1.0
         s.process(encoding)
-        assert s.active_l4.sum() == 2
-        assert s.active_l23.sum() == 2
+        assert s.active_columns.sum() == 2
 
     def test_different_inputs_different_columns(self):
         s1 = SensoryRegion(
@@ -487,7 +556,7 @@ class TestSensoryRegion:
         encoding_2d = np.zeros((4, 5))
         encoding_2d[0, 0] = 1.0
         s.process(encoding_2d)
-        assert s.active_l4.sum() == 2
+        assert s.active_columns.sum() == 2
 
     def test_charbit_integration(self):
         """End-to-end: CharbitEncoder → SensoryRegion."""
@@ -505,5 +574,4 @@ class TestSensoryRegion:
             seed=42,
         )
         s.process(encoding)
-        assert s.active_l4.sum() == 3
-        assert s.active_l23.sum() == 3
+        assert s.active_columns.sum() == 3

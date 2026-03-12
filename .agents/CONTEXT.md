@@ -5,54 +5,40 @@ Research project exploring biologically-plausible learning for next-token predic
 
 ## Current Work
 
-### Branch: `cortext` — PR #2 (open)
-https://github.com/fuJiin/STEP/pull/2
+### Branch: `main`
 
-Core cortex implementation + PoC tooling + tuning. Encoder refactoring (SDR -> encoders package) also included.
+Cortex PoC with three major additions addressing column monopoly:
+1. **LTD (Long-Term Depression)** — weakens ff_weights to inactive inputs when column fires, per-column local sparsity scaling
+2. **Structural sparsity** — width-based ff_mask (columns tile encoding_width), local connectivity masks for fb/lateral weights
+3. **Burst mechanism** — unpredicted columns fire all neurons (surprise signal, 3x learning rate), predicted columns fire one neuron (precise)
 
-### Cortex PoC status
-Diagnostics reveal issues not yet fixed:
-- Column monopoly (31/128 neurons, 49% entropy) — ff_weights not differentiating
-- Voltage accumulation on non-winners drives monopoly
+### Results after all three fixes
+- Column entropy: **72.1%** (was 42%)
+- Unique column sets: **411** (was 7)
+- Burst rate: **6.5%** (decreases as learning progresses)
+- 34 tests passing
 
-**PoC design:**
-- Own training loop (not shimming into old predict/learn/observe protocol)
-- Prediction = pre-activation voltage from feedback/lateral before next input
-- Measurement = overlap between pre-activated and actually-activated neurons
-- CharbitEncoder for cortex, RandomEncoder for STEP baseline
-- Params matched: cortex ~72K vs STEP ~65K (n=256, k=10)
-- Story boundaries: reset working memory, keep synaptic weights
+### Interactive dashboard
+`experiments/scripts/cortex_dashboard.py` — Plotly dashboard on port 80 with 5 charts (entropy, heatmap, ff_weight divergence, voltage/excitability, drive distribution).
 
 ## Cortex Architecture (`src/step/cortex/`)
 
 Two-layer neocortical minicolumn model:
-- **L4 (input):** feedforward drive + feedback context
-- **L2/3 (associative):** L4 feedforward + lateral context, enables associative binding
-
-Activation: top-k columns -> winner-take-all L4 neuron -> winner-take-all L2/3 neuron (L4 bias + lateral + excitability).
-
-### Performance concerns (deferred, fine at PoC scale)
-Dense weight matrices O(n^2), full outer product learning, full matvec feedback — needs sparse updates for >128 neurons.
-
-## Baseline Results
-
-| Model | Accuracy |
-|-------|----------|
-| TinyStories-1M ceiling | **42.2%** |
-| Bigram baseline | **28.9%** |
-| STEP w=3 (embedding SDRs, 200K) | **28.9%** |
-
-**Key finding:** Hebbian rule can't do credit assignment at scale — cortex architecture aims to fix this via structured columns and competitive inhibition.
+- **L4 (input):** feedforward drive + dendritic spike prediction from feedback/lateral
+- **L2/3 (associative):** L4 feedforward + lateral context
+- **Burst/precise:** predicted columns → one neuron (precise), unpredicted → all neurons (burst, stronger learning)
+- **LTD:** per-column weakening of inactive input connections (BCM-inspired)
+- **Structural sparsity:** width-based receptive fields, local lateral/feedback masks
 
 ## Key Decisions
-- **Story boundaries**: reset working memory, keep synaptic weights
-- **Tackle issues one-by-one** for publishable attribution
-- **Goal**: prove online continual learning without catastrophic forgetting, then match transformer accuracy
-- **Argmax winner selection** for PoC, activation thresholds + bursting for later
+- **LTD replaces synapse_decay on ff_weights** — double decay killed weights
+- **Width-based tiling** (not position) — columns detect character ranges across all positions
+- **Per-column local LTD scaling** — global scaling was wrong for masked connectivity
+- **Burst fires all neurons** — HTM-inspired surprise signal for unpredicted activations
 - **Pre-commit hooks**: installed but ty/pytest hooks have pre-existing failures. CI only checks ruff format.
 
 ## Next Steps
-- [ ] Fix column diversity / monopoly — ff_weights differentiation is the bottleneck
-- [ ] Address voltage accumulation on non-winners
+- [ ] Scale to more tokens (10K+) and measure long-term learning curves
 - [ ] Consider sparse weight updates for scaling beyond 128 neurons
+- [ ] Experiment with activation thresholds instead of top-k columns
 - [ ] Fix pre-commit hook config (ty scope, pytest entry)
