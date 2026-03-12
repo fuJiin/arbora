@@ -23,6 +23,9 @@ class TimelineFrame:
     excitability_l4_by_col: np.ndarray  # (n_columns,) max excitability per column
     n_bursting: int = 0  # number of bursting columns this step
     n_active: int = 0  # number of active columns this step
+    # Apical feedback state
+    n_apical_predicted: int = 0  # columns with apical prediction
+    apical_predicted_columns: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -46,6 +49,15 @@ class Timeline:
             region.n_columns, region.n_l4
         ).max(axis=1)
 
+        # Apical prediction state
+        apical_pred_cols = []
+        n_apical_pred = 0
+        if region.has_apical:
+            apical_pred_cols = np.nonzero(
+                region.apical_predicted_cols
+            )[0].tolist()
+            n_apical_pred = len(apical_pred_cols)
+
         self.frames.append(
             TimelineFrame(
                 t=t,
@@ -58,5 +70,7 @@ class Timeline:
                 excitability_l4_by_col=excitability_by_col.copy(),
                 n_bursting=int(region.bursting_columns.sum()),
                 n_active=len(active_cols),
+                n_apical_predicted=n_apical_pred,
+                apical_predicted_columns=apical_pred_cols,
             )
         )

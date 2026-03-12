@@ -341,6 +341,7 @@ def build_burst_rate_over_time(timeline: Timeline, window: int = 50) -> go.Figur
 
 def build_column_selectivity_bar(
     rep_summary: dict,
+    region_label: str = "",
 ) -> go.Figure:
     """Per-column selectivity bar chart from representation metrics."""
     sel = rep_summary.get("column_selectivity_per_col", [])
@@ -359,9 +360,10 @@ def build_column_selectivity_bar(
             marker_color=colors,
         )
     )
+    prefix = f"{region_label}: " if region_label else ""
     fig.update_layout(
         title=(
-            "How Picky Is Each Column?"
+            f"{prefix}How Picky Is Each Column?"
             " (lower = responds to fewer tokens = better feature detector)"
         ),
         xaxis_title="Column",
@@ -471,5 +473,100 @@ def build_dual_burst_rate(
         yaxis_range=[0, 1.05],
         height=400,
         template="plotly_dark",
+    )
+    return fig
+
+
+def build_segment_health_over_time(
+    diag: "CortexDiagnostics",
+) -> go.Figure:
+    """Connected fraction for all segment types over training."""
+    steps = [s.step for s in diag.snapshots]
+    fb_conn = [s.fb_seg_connected_frac for s in diag.snapshots]
+    lat_conn = [s.lat_seg_connected_frac for s in diag.snapshots]
+    l23_conn = [s.l23_seg_connected_frac for s in diag.snapshots]
+    apical_conn = [s.apical_seg_connected_frac for s in diag.snapshots]
+
+    fig = go.Figure()
+    for name, data, color in [
+        ("Feedback (L2/3->L4)", fb_conn, "#e94560"),
+        ("Lateral (L4->L4)", lat_conn, "#ffd166"),
+        ("L2/3 Lateral", l23_conn, "#06d6a0"),
+        ("Apical (R2->R1)", apical_conn, "#118ab2"),
+    ]:
+        fig.add_trace(
+            go.Scatter(
+                x=steps, y=data, name=name, line=dict(color=color, width=2)
+            )
+        )
+
+    fig.update_layout(
+        title="Segment Connectivity Over Time (fraction with connected synapses)",
+        xaxis_title="Step",
+        yaxis_title="Connected Fraction",
+        yaxis_range=[0, 1.05],
+        height=400,
+        template="plotly_dark",
+    )
+    return fig
+
+
+def build_apical_prediction_over_time(
+    timeline: Timeline, window: int = 50
+) -> go.Figure:
+    """Rolling apical predicted column count and hit rate over time."""
+    n_steps = len(timeline.frames)
+    pred_counts: list[float] = []
+    hit_rates: list[float] = []
+
+    for i in range(n_steps):
+        start = max(0, i - window + 1)
+        total_pred = 0
+        total_hits = 0
+        for j in range(start, i + 1):
+            f = timeline.frames[j]
+            pred_set = set(f.apical_predicted_columns)
+            active_set = set(f.active_columns)
+            total_pred += len(pred_set)
+            total_hits += len(pred_set & active_set)
+        pred_counts.append(total_pred / (i - start + 1))
+        hit_rates.append(total_hits / total_pred if total_pred > 0 else 0.0)
+
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=[
+            f"Avg Apically-Predicted Columns (window={window})",
+            f"Apical Prediction Hit Rate (window={window})",
+        ],
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=pred_counts,
+            name="predicted cols",
+            line=dict(color="#118ab2", width=2),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=hit_rates,
+            name="hit rate",
+            line=dict(color="#06d6a0", width=2),
+        ),
+        row=2,
+        col=1,
+    )
+
+    fig.update_layout(
+        height=500,
+        template="plotly_dark",
+        xaxis2_title="Timestep",
     )
     return fig
