@@ -25,7 +25,7 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Surprise modulation**: R1 burst rate → SurpriseTracker → scales all R2 learning (ff LTP/LTD, lateral Hebbian, segment permanences). Models NE from locus coeruleus.
 - **R2 tuned defaults**: lr=0.01, ltd=0.4, voltage_decay=0.8, eligibility_decay=0.98, synapse_decay=0.9999
 
-## Results at 5k tokens (BabyLM, final config)
+## Results at 5k tokens (BabyLM, pre-segment-resweep config)
 | Metric | R1 | R2 |
 |--------|----|----|
 | Burst rate | 63.7% | 60.8% |
@@ -54,7 +54,6 @@ Research project exploring biologically-plausible learning for next-token predic
 - **24 synapses/segment** — CharbitEncoder re-sweep (20k tokens, 16 configs) showed wider segments capture richer context. Best ctx_disc (0.593) and prediction diversity (12929 sets) with no runtime cost vs 16 synapses.
 - **L2/3 segments coexist with dense Hebbian** — dense weights provide broad lateral context, segments add selective pattern-specific predictions. Both active simultaneously.
 - **L2/3 segment sweep** — independent `l23_prediction_boost` param added. At 10k tokens, L2/3 segments grow (2% connected, ~10 predicted neurons) but don't yet differentiate significantly from baseline. Refinement mechanism that needs longer training.
-- **Segment ops refactored** — shared `_grow_segment()` and `_adapt_segment_array()` eliminate L4/L2/3 duplication, ready for thalamic relay segments.
 
 ## Next Steps
 - [ ] Add thalamic relay + feedback R2→R1 (activates prediction_gain, apical dendrites)
