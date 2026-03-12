@@ -105,11 +105,9 @@ def run_config(
         synapse_decay=0.999,
         learning_rate=0.05,
         max_excitability=0.2,
-        fb_boost_threshold=0.3,
         fb_boost=0.4,
         ltd_rate=0.2,
         burst_learning_scale=3.0,
-        prediction_ltd_rate=0.1,
         # Segment params
         n_fb_segments=n_fb_segments,
         n_lat_segments=n_lat_segments,

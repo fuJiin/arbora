@@ -79,11 +79,9 @@ def run_config(name, n_l4, n_l23, tokens, log_interval):
         synapse_decay=cortex_cfg.synapse_decay,
         learning_rate=cortex_cfg.learning_rate,
         max_excitability=cortex_cfg.max_excitability,
-        fb_boost_threshold=cortex_cfg.fb_boost_threshold,
         fb_boost=cortex_cfg.fb_boost,
         ltd_rate=cortex_cfg.ltd_rate,
         burst_learning_scale=cortex_cfg.burst_learning_scale,
-        prediction_ltd_rate=cortex_cfg.prediction_ltd_rate,
         seed=cortex_cfg.seed,
     )
 

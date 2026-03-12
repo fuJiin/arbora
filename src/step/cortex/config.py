@@ -12,11 +12,9 @@ class CortexConfig:
     synapse_decay: float = 0.999
     learning_rate: float = 0.05
     max_excitability: float = 0.2
-    fb_boost_threshold: float = 0.3
     fb_boost: float = 0.4
     ltd_rate: float = 0.2
     burst_learning_scale: float = 3.0
-    prediction_ltd_rate: float = 0.1
     # Dendritic segment parameters
     n_fb_segments: int = 4
     n_lat_segments: int = 4

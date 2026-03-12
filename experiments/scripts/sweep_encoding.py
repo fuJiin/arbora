@@ -115,11 +115,9 @@ def run_experiment(
         synapse_decay=cfg.synapse_decay,
         learning_rate=cfg.learning_rate,
         max_excitability=cfg.max_excitability,
-        fb_boost_threshold=cfg.fb_boost_threshold,
         fb_boost=cfg.fb_boost,
         ltd_rate=cfg.ltd_rate,
         burst_learning_scale=cfg.burst_learning_scale,
-        prediction_ltd_rate=cfg.prediction_ltd_rate,
         seed=cfg.seed,
     )
 

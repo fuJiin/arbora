@@ -37,10 +37,8 @@ class CorticalRegion:
         synapse_decay: float = 0.999,
         learning_rate: float = 0.05,
         max_excitability: float = 0.2,
-        fb_boost_threshold: float = 0.3,
         fb_boost: float = 0.4,
         burst_learning_scale: float = 3.0,
-        prediction_ltd_rate: float = 0.1,
         # Dendritic segment parameters
         n_fb_segments: int = 4,
         n_lat_segments: int = 4,
@@ -62,10 +60,8 @@ class CorticalRegion:
         self.synapse_decay = synapse_decay
         self.learning_rate = learning_rate
         self.max_excitability = max_excitability
-        self.fb_boost_threshold = fb_boost_threshold
         self.fb_boost = fb_boost
         self.burst_learning_scale = burst_learning_scale
-        self.prediction_ltd_rate = prediction_ltd_rate
         self.n_fb_segments = n_fb_segments
         self.n_lat_segments = n_lat_segments
         self.n_synapses_per_segment = n_synapses_per_segment

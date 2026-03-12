@@ -118,7 +118,6 @@ class TestBurst:
             k_columns=1,
             learning_rate=0.5,
             synapse_decay=1.0,
-            fb_boost_threshold=0.0,
         )
         early_bursts = 0
         for i in range(20):
