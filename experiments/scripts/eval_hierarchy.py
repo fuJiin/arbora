@@ -128,7 +128,7 @@ def main():
     )
     region2 = SensoryRegion(
         input_dim=region1.n_l23_total,
-        encoding_width=region1.n_l23,
+        encoding_width=0,  # sliding window — no positional structure in L2/3 output
         n_columns=16,
         n_l4=4,
         n_l23=4,

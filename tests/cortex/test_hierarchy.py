@@ -105,7 +105,7 @@ class TestHierarchyRuns:
     def region2(self, region1):
         return SensoryRegion(
             input_dim=region1.n_l23_total,
-            encoding_width=region1.n_l23,
+            encoding_width=0,  # sliding window for inter-region input
             n_columns=4,
             n_l4=2,
             n_l23=2,

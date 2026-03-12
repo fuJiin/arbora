@@ -884,7 +884,7 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
     region1 = _make_region(cortex_cfg, input_dim)
     region2 = SensoryRegion(
         input_dim=region1.n_l23_total,
-        encoding_width=region1.n_l23,
+        encoding_width=0,  # sliding window — no positional structure in L2/3
         n_columns=16,
         n_l4=4,
         n_l23=4,
