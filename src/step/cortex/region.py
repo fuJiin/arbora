@@ -56,7 +56,7 @@ class CorticalRegion:
         perm_increment: float = 0.2,
         perm_decrement: float = 0.05,
         seg_activation_threshold: int = 2,
-        prediction_gain: float = 1.0,
+        prediction_gain: float = 2.5,
         n_apical_segments: int = 4,
         l23_prediction_boost: float = 0.0,
         seed: int = 0,
