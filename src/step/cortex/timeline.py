@@ -37,9 +37,9 @@ class Timeline:
 
         ff_norms = np.linalg.norm(region.ff_weights, axis=0)
 
-        voltage_by_col = region.voltage_l4.reshape(
-            region.n_columns, region.n_l4
-        ).max(axis=1)
+        voltage_by_col = region.voltage_l4.reshape(region.n_columns, region.n_l4).max(
+            axis=1
+        )
         excitability_by_col = region.excitability_l4.reshape(
             region.n_columns, region.n_l4
         ).max(axis=1)

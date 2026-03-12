@@ -101,7 +101,7 @@ class CortexDiagnostics:
         n_bursting = int(region.bursting_columns.sum())
         n_active = len(active_cols)
         self._burst_count += n_bursting
-        self._precise_count += (n_active - n_bursting)
+        self._precise_count += n_active - n_bursting
 
         # Periodic snapshot
         if t % self.snapshot_interval == 0:

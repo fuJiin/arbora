@@ -21,26 +21,42 @@ STEP learns online, one token at a time, with no backpropagation. It maintains s
 
 ```
 src/step/
-├── model.py       # Functional in-memory model (NumPy)
-├── db.py          # SQLite-backed model with lazy decay and SQL aggregation
-├── protocol.py    # Model protocol for uniform evaluation
-├── sdr.py         # Token -> SDR encoding
-├── config.py      # EncoderConfig, ModelConfig, TrainingConfig
-├── data.py        # TinyStories streaming tokenizer
-├── training.py    # Training loop
-├── experiment.py  # Seed-controlled experiment runner
-├── metrics.py     # IoU, rolling mean
-└── figures.py     # Matplotlib plotting utilities
+├── model.py           # Functional in-memory model (NumPy)
+├── db.py              # SQLite-backed model with lazy decay and SQL aggregation
+├── protocol.py        # Model protocol for uniform evaluation
+├── config.py          # EncoderConfig, ModelConfig, TrainingConfig
+├── data.py            # TinyStories streaming tokenizer
+├── training.py        # Training loop
+├── experiment.py      # Seed-controlled experiment runner
+├── metrics.py         # IoU, rolling mean
+├── figures.py         # Matplotlib plotting utilities
+├── decode.py          # SDR-to-token decoding
+├── diagnostics.py     # Training diagnostics
+├── env.py             # Environment configuration
+├── wrappers.py        # Model wrappers
+├── encoders/
+│   ├── random.py      # Random SDR encoder
+│   ├── adaptive.py    # Adaptive SDR encoder
+│   └── charbit.py     # Character-level bit encoder
+└── cortex/
+    ├── config.py      # Cortex configuration
+    ├── region.py      # Cortical region implementation
+    ├── sensory.py     # Sensory layer with Hebbian learning
+    ├── runner.py      # Cortex experiment runner
+    ├── timeline.py    # Temporal sequence tracking
+    └── diagnostics.py # Cortex-specific diagnostics
 
 src/baselines/
-├── mini_gpt.py    # From-scratch causal transformer (~100 lines)
-└── compare.py     # STEP vs GPT comparison harness
+├── mini_gpt.py        # From-scratch causal transformer
+├── compare.py         # STEP vs GPT comparison harness
+├── pretrain.py        # Baseline pretraining
+└── wrappers.py        # Baseline model wrappers
 
 experiments/
-├── configs/       # Experiment configs (JSON)
-├── scripts/       # Run scripts and visualization
-├── runs/          # Output data (gitignored)
-└── figures/       # Generated plots
+├── configs/           # Experiment configs (JSON)
+├── scripts/           # Run scripts and visualization
+├── runs/              # Output data (gitignored)
+└── figures/           # Generated plots
 ```
 
 ### Two model backends
@@ -88,7 +104,7 @@ uv run python experiments/scripts/run_sweep.py
 ## Development
 
 ```bash
-uv run python -m pytest tests/ -v   # 60 tests
+uv run python -m pytest tests/ -v   # 129 tests
 uv run ruff check src/ tests/       # lint
 uv run ruff format --check src/     # format check
 uv run ty check src/step/           # type check

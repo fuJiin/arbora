@@ -163,8 +163,8 @@ class SensoryRegion(CorticalRegion):
     def _learn_ff(self, flat_input: np.ndarray):
         """Hebbian update with LTD, respecting structural connectivity.
 
-        LTP: active input bits × active columns → strengthen
-        LTD: inactive input bits × active columns → weaken
+        LTP: active input bits x active columns -> strengthen
+        LTD: inactive input bits x active columns -> weaken
         Subthreshold: weak LTP on inactive columns
 
         All updates masked to the structural connectivity — columns
@@ -199,7 +199,8 @@ class SensoryRegion(CorticalRegion):
 
         # --- Losers: subthreshold plasticity ---
         self.ff_weights += (
-            self.learning_rate * 0.1
+            self.learning_rate
+            * 0.1
             * flat_input[:, np.newaxis]
             * inactive_cols_f[np.newaxis, :]
         )
