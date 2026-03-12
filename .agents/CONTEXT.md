@@ -7,44 +7,33 @@ Research project exploring biologically-plausible learning for next-token predic
 
 ### Branch: `main`
 
-Cortex PoC with structural sparsity, LTD, burst mechanism, prediction LTD, synaptic decoder, per-neuron ff option.
+### Critical finding: prediction mechanism is broken
 
-### Critical finding: space character monopoly
+Encoding sweep (charbit, charbit-nosp, random) on 10K tokens proves the prediction pathway itself fails, not the encoding:
+- **Random encoder**: 82.4% uniquely identifiable tokens, 98.9% entropy, max ambiguity 14 — **but 0.5% accuracy** (worse than charbit's 1.8%)
+- Even with perfectly discriminative representations, the cortex cannot learn temporal patterns
+- The Hebbian learning rule (trace × active → strengthen) is too diffuse to learn specific temporal associations
 
-Columns 29-31 fire for almost every token because `string.printable` puts space at index 94, which falls in col 31's receptive field. With k=4 and 3 columns fixed, the model has effectively k=1 discriminative column (~30 patterns for 1,105 tokens). Only 14.4% of tokens are uniquely identifiable by column set.
-
-**This is the root cause of low accuracy**, not neuron count or prediction quality.
-
-### Capacity sweep results (2026-03-12)
-Swept 6 configs (shared/per-neuron ff × 4/8/16 neurons) on 10K tokens. All land at ~1-2% accuracy. Neither per-neuron ff_weights nor more neurons per column helps — because the column representation itself is undiscriminative.
-
-### Prediction LTD (implemented, working)
-- Predicted neurons dropped from 56 → 3-9 (much sparser)
-- Unique prediction sets: 7,000+ (diverse)
-- Weight differentiation improved (cosine 0.42 → 0.22)
-- But accuracy unchanged because column sets are ambiguous
-
-### Per-neuron ff_weights (implemented, no accuracy improvement)
-- `per_neuron_ff=True` flag on SensoryRegion
-- Each neuron gets own ff_weights within column's mask
-- Better entropy (79% vs 74%) and more prediction diversity
-- But still ~1% accuracy (same column ambiguity problem)
+### Previous findings (still relevant)
+- Space character monopoly in charbit encoding (cols 29-31 fire for everything)
+- Prediction LTD works (sparser predictions, more diverse) but doesn't enable actual learning
+- Per-neuron ff_weights and more neurons per column don't help (capacity sweep confirmed)
 
 ## Architecture Summary (`src/step/cortex/`)
 
 - **L4/L2/3 minicolumn model** with burst/precise mechanism
 - **Structural sparsity**: width-based ff_mask, local lateral/fb masks
-- **LTD on ff_weights** (BCM-inspired) + **prediction LTD on fb/lateral weights**
-- **Synaptic decoder** (`decoder.py`): nearest-neighbor via ff_weight reconstruction + column-level inverted index
-- **Per-neuron ff option**: `per_neuron_ff=True` gives each neuron its own ff_weights
+- **LTD on ff_weights** + **prediction LTD on fb/lateral weights**
+- **Per-neuron ff option**: `per_neuron_ff=True` (no accuracy improvement)
+- **Synaptic decoder**: nearest-neighbor via ff_weight reconstruction
 
 ## Key Decisions
-- **Prediction LTD**: weaken fb/lateral synapses when predicted neuron doesn't fire (heterosynaptic depression)
-- **Per-neuron ff_weights**: biologically more accurate (neurons sample different synapses), but doesn't help until column representation is fixed
-- **Shared ff is HTM-faithful** but puts all disambiguation on context pathway
+- **Prediction LTD** reduces predicted neurons 56→3-9 (good) but accuracy still ~1%
+- **Shared ff_weights** puts all disambiguation on context pathway — which can't learn
+- **Random encoder control** definitively proves encoding is not the bottleneck
 
 ## Next Steps
-- [ ] **Fix space character monopoly** — reorder alphabet, input normalization, or inhibitory mechanism so universal chars don't dominate
-- [ ] Consider k-WTA per receptive field region instead of global top-k
-- [ ] Performance audit for multiple dendritic segments
-- [ ] Fix pre-commit hook config (ty scope, pytest entry)
+- [ ] **Fix the prediction learning rule** — current Hebbian is too diffuse for temporal associations
+- [ ] Consider multiple dendritic segments (specific synapse matching vs whole-neuron Hebbian)
+- [ ] Consider segment-level learning (HTM's dendritic segment permanence model)
+- [ ] Performance audit before dendritic segment implementation
