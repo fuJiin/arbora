@@ -22,47 +22,15 @@ import step.env  # noqa: F401
 from step.config import CortexConfig
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
+from step.data import prepare_tokens
 from step.encoders.charbit import CharbitEncoder
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.timeline import Timeline
-from step.runner import STORY_BOUNDARY, run_cortex, run_hierarchy
+from step.runner import run_cortex, run_hierarchy
 
 CHARS = string.printable
 CHAR_LENGTH = 8
 CHAR_WIDTH = len(CHARS) + 1
-
-
-def prepare_cortex_tokens(max_tokens: int):
-    """Load TinyStories tokens for cortex model."""
-    from datasets import load_dataset
-    from transformers import AutoTokenizer
-
-    print("Loading dataset and tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    dataset = load_dataset("roneneldan/TinyStories", split="train")
-
-    tokens: list[tuple[int, str]] = []
-    t = 0
-    first_story = True
-    for example in dataset:
-        if not first_story:
-            tokens.append((STORY_BOUNDARY, ""))
-            t += 1
-            if t >= max_tokens:
-                break
-        first_story = False
-        for tid in tokenizer.encode(example["text"]):
-            tokens.append((tid, tokenizer.decode([tid])))
-            t += 1
-            if t >= max_tokens:
-                break
-        if t >= max_tokens:
-            break
-
-    unique = len({tid for tid, _ in tokens if tid != STORY_BOUNDARY})
-    boundaries = sum(1 for tid, _ in tokens if tid == STORY_BOUNDARY)
-    print(f"  {len(tokens):,} tokens, {unique} unique, {boundaries + 1} stories")
-    return tokens
 
 
 def run_with_timeline(tokens, region, encoder, log_interval):
@@ -790,7 +758,7 @@ def main():
     args = parser.parse_args()
 
     # Run the PoC with timeline capture
-    tokens = prepare_cortex_tokens(args.tokens)
+    tokens = prepare_tokens(args.tokens)
 
     cortex_cfg = CortexConfig()
     charbit = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)

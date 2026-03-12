@@ -15,57 +15,18 @@ import string
 import time
 
 import numpy as np
-from datasets import load_dataset
-from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
+from step.data import prepare_tokens
 from step.encoders.charbit import CharbitEncoder
 from step.probes.diagnostics import CortexDiagnostics
-from step.runner import STORY_BOUNDARY, run_cortex, run_hierarchy
+from step.runner import run_cortex, run_hierarchy
 
 CHARS = string.printable
 CHAR_LENGTH = 8
 CHAR_WIDTH = len(CHARS) + 1
-
-
-def prepare_tokens(dataset_name: str, max_tokens: int):
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-
-    if dataset_name == "babylm":
-        print("Loading BabyLM (10M)...")
-        dataset = load_dataset("nilq/babylm-10M", split="train")
-    else:
-        print("Loading TinyStories...")
-        dataset = load_dataset("roneneldan/TinyStories", split="train")
-
-    tokens: list[tuple[int, str]] = []
-    t = 0
-    in_doc = False
-    for ex in dataset:
-        text = ex.get("text", "").strip()
-        if not text:
-            if in_doc:
-                tokens.append((STORY_BOUNDARY, ""))
-                t += 1
-                in_doc = False
-            if t >= max_tokens:
-                break
-            continue
-        in_doc = True
-        for tid in tokenizer.encode(text):
-            tokens.append((tid, tokenizer.decode([tid])))
-            t += 1
-            if t >= max_tokens:
-                break
-        if t >= max_tokens:
-            break
-
-    unique = len({tid for tid, _ in tokens if tid != STORY_BOUNDARY})
-    boundaries = sum(1 for tid, _ in tokens if tid == STORY_BOUNDARY)
-    print(f"  {len(tokens):,} tokens, {unique} unique, {boundaries + 1} documents\n")
-    return tokens
 
 
 def main():
@@ -82,7 +43,7 @@ def main():
     )
     args = parser.parse_args()
 
-    tokens = prepare_tokens(args.dataset, args.tokens)
+    tokens = prepare_tokens(args.tokens, dataset=args.dataset)
 
     encoder = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
     input_dim = CHAR_LENGTH * CHAR_WIDTH

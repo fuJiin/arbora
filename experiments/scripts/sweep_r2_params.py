@@ -16,51 +16,18 @@ import string
 import time
 
 import numpy as np
-from datasets import load_dataset
-from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
+from step.data import prepare_tokens
 from step.encoders.charbit import CharbitEncoder
 from step.probes.diagnostics import CortexDiagnostics
-from step.runner import STORY_BOUNDARY, run_hierarchy
+from step.runner import run_hierarchy
 
 CHARS = string.printable
 CHAR_LENGTH = 8
 CHAR_WIDTH = len(CHARS) + 1
-
-
-def prepare_tokens(max_tokens: int):
-    print("Loading BabyLM (10M)...")
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    dataset = load_dataset("nilq/babylm-10M", split="train")
-
-    tokens: list[tuple[int, str]] = []
-    t = 0
-    in_doc = False
-    for ex in dataset:
-        text = ex.get("text", "").strip()
-        if not text:
-            if in_doc:
-                tokens.append((STORY_BOUNDARY, ""))
-                t += 1
-                in_doc = False
-            if t >= max_tokens:
-                break
-            continue
-        in_doc = True
-        for tid in tokenizer.encode(text):
-            tokens.append((tid, tokenizer.decode([tid])))
-            t += 1
-            if t >= max_tokens:
-                break
-        if t >= max_tokens:
-            break
-
-    unique = len({tid for tid, _ in tokens if tid != STORY_BOUNDARY})
-    print(f"  {len(tokens):,} tokens, {unique} unique\n")
-    return tokens
 
 
 def run_one(tokens, encoder, input_dim, r2_lr, r2_ltd, log_interval):

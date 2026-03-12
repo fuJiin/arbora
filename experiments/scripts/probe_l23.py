@@ -21,43 +21,12 @@ import numpy as np
 import step.env  # noqa: F401
 from step.config import CortexConfig
 from step.cortex.sensory import SensoryRegion
+from step.data import STORY_BOUNDARY, prepare_tokens
 from step.encoders.charbit import CharbitEncoder
-from step.runner import STORY_BOUNDARY
 
 CHARS = string.printable
 CHAR_LENGTH = 8
 CHAR_WIDTH = len(CHARS) + 1
-
-
-def prepare_tokens(max_tokens: int) -> list[tuple[int, str]]:
-    from datasets import load_dataset
-    from transformers import AutoTokenizer
-
-    print("Loading dataset...")
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    dataset = load_dataset("roneneldan/TinyStories", split="train")
-
-    tokens: list[tuple[int, str]] = []
-    t = 0
-    first_story = True
-    for example in dataset:
-        if not first_story:
-            tokens.append((STORY_BOUNDARY, ""))
-            t += 1
-            if t >= max_tokens:
-                break
-        first_story = False
-        for tid in tokenizer.encode(example["text"]):
-            tokens.append((tid, tokenizer.decode([tid])))
-            t += 1
-            if t >= max_tokens:
-                break
-        if t >= max_tokens:
-            break
-
-    unique = len({tid for tid, _ in tokens if tid != STORY_BOUNDARY})
-    print(f"  {len(tokens):,} tokens, {unique} unique")
-    return tokens
 
 
 def collect_activations(
