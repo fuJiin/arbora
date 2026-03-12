@@ -188,7 +188,7 @@ class CorticalRegion:
 
         if self.k_columns >= self.n_columns:
             return np.arange(self.n_columns)
-        return np.argpartition(col_scores, -self.k_columns)[-self.k_columns:]
+        return np.argpartition(col_scores, -self.k_columns)[-self.k_columns :]
 
     def _activate_l4_burst(self, top_cols: np.ndarray, scores: np.ndarray):
         """Activate L4 neurons with burst/precise distinction.
@@ -233,15 +233,13 @@ class CorticalRegion:
         # L4 -> L2/3 feedforward: base drive to all neurons in column
         for col in top_cols:
             start = col * self.n_l23
-            self.voltage_l23[start: start + self.n_l23] += 0.5
+            self.voltage_l23[start : start + self.n_l23] += 0.5
 
         # Bonus for L2/3 neuron matching the L4 winner (precise only)
         for col in top_cols:
             if not self.bursting_columns[col]:
                 l4_start = col * self.n_l4
-                l4_winner = np.argmax(
-                    self.active_l4[l4_start: l4_start + self.n_l4]
-                )
+                l4_winner = np.argmax(self.active_l4[l4_start : l4_start + self.n_l4])
                 if l4_winner < self.n_l23:
                     self.voltage_l23[col * self.n_l23 + l4_winner] += 0.5
 
@@ -279,8 +277,8 @@ class CorticalRegion:
         for col in np.nonzero(self.bursting_columns)[0]:
             l4_start = col * self.n_l4
             l23_start = col * self.n_l23
-            lr_l4[l4_start: l4_start + self.n_l4] *= self.burst_learning_scale
-            lr_l23[l23_start: l23_start + self.n_l23] *= self.burst_learning_scale
+            lr_l4[l4_start : l4_start + self.n_l4] *= self.burst_learning_scale
+            lr_l23[l23_start : l23_start + self.n_l23] *= self.burst_learning_scale
 
         active_l4_f = self.active_l4.astype(np.float64)
         active_l23_f = self.active_l23.astype(np.float64)
@@ -288,20 +286,17 @@ class CorticalRegion:
         # L2/3 -> L4 feedback synapses
         # Scale by destination (L4) learning rate
         self.fb_weights += (
-            self.trace_l23[:, np.newaxis]
-            * (lr_l4 * active_l4_f)[np.newaxis, :]
+            self.trace_l23[:, np.newaxis] * (lr_l4 * active_l4_f)[np.newaxis, :]
         )
 
         # L4 -> L4 lateral synapses
         self.lateral_weights += (
-            self.trace_l4[:, np.newaxis]
-            * (lr_l4 * active_l4_f)[np.newaxis, :]
+            self.trace_l4[:, np.newaxis] * (lr_l4 * active_l4_f)[np.newaxis, :]
         )
 
         # L2/3 -> L2/3 lateral synapses
         self.l23_lateral_weights += (
-            self.trace_l23[:, np.newaxis]
-            * (lr_l23 * active_l23_f)[np.newaxis, :]
+            self.trace_l23[:, np.newaxis] * (lr_l23 * active_l23_f)[np.newaxis, :]
         )
 
         # Decay all synapses
@@ -339,9 +334,7 @@ class CorticalRegion:
 
                 l23_start = col * self.n_l23
                 l23_end = l23_start + self.n_l23
-                best_l23 = l23_start + np.argmax(
-                    self.voltage_l23[l23_start:l23_end]
-                )
+                best_l23 = l23_start + np.argmax(self.voltage_l23[l23_start:l23_end])
                 self.trace_l23[best_l23] = 1.0
             else:
                 # Precise: the single active neuron gets the trace

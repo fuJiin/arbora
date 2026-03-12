@@ -59,7 +59,7 @@ class TestActivation:
         for col in np.nonzero(region.active_columns)[0]:
             assert region.bursting_columns[col]
             # All neurons in burst column should be active
-            col_neurons = region.active_l4[col * 4: (col + 1) * 4]
+            col_neurons = region.active_l4[col * 4 : (col + 1) * 4]
             assert col_neurons.all()
 
     def test_precise_when_predicted(self, region):
@@ -106,8 +106,8 @@ class TestActivation:
         region.step(drive)
         for col in range(16):
             if not region.active_columns[col]:
-                assert not region.active_l4[col * 4: (col + 1) * 4].any()
-                assert not region.active_l23[col * 4: (col + 1) * 4].any()
+                assert not region.active_l4[col * 4 : (col + 1) * 4].any()
+                assert not region.active_l23[col * 4 : (col + 1) * 4].any()
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ class TestVoltage:
         r.step(drive2)
         # Col 3 neurons: decayed + new drive should accumulate
         col3_start = 3 * 2
-        assert r.voltage_l4[col3_start: col3_start + 2].max() > 0.5
+        assert r.voltage_l4[col3_start : col3_start + 2].max() > 0.5
 
     def test_voltage_decays_each_step(self):
         r = CorticalRegion(
@@ -439,7 +439,10 @@ class TestL23Lateral:
         """Strong L2/3 lateral input can make a different L2/3
         neuron win than the L4-matching one."""
         r = CorticalRegion(
-            n_columns=4, n_l4=4, n_l23=4, k_columns=1,
+            n_columns=4,
+            n_l4=4,
+            n_l23=4,
+            k_columns=1,
             fb_boost_threshold=0.0,
         )
         # Set up prediction so col 0 is precise
