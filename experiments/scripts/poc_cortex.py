@@ -99,6 +99,7 @@ def main():
         fb_boost_threshold=cortex_cfg.fb_boost_threshold,
         fb_boost=cortex_cfg.fb_boost,
         ltd_rate=cortex_cfg.ltd_rate,
+        burst_learning_scale=cortex_cfg.burst_learning_scale,
         seed=cortex_cfg.seed,
     )
 

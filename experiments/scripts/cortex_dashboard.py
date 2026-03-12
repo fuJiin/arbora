@@ -389,6 +389,7 @@ def main():
         fb_boost=cortex_cfg.fb_boost,
         ltd_rate=cortex_cfg.ltd_rate,
         encoding_width=CHAR_WIDTH,
+        burst_learning_scale=cortex_cfg.burst_learning_scale,
         seed=cortex_cfg.seed,
     )
 
