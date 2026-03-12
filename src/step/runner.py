@@ -5,12 +5,11 @@ from dataclasses import dataclass, field
 
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
+from step.data import STORY_BOUNDARY
 from step.decoders import InvertedIndexDecoder, SynapticDecoder
 from step.encoders.charbit import CharbitEncoder
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
-
-STORY_BOUNDARY = -1
 
 
 @dataclass
