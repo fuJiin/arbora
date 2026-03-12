@@ -65,7 +65,7 @@ def prepare_cortex_tokens(max_tokens: int):
 
 
 def run_with_timeline(tokens, region, encoder, log_interval):
-    """Run cortex and capture per-step timeline."""
+    """Run cortex and capture per-step timeline + representation tracking."""
     timeline = Timeline()
     diag = CortexDiagnostics(snapshot_interval=log_interval)
 
@@ -74,7 +74,9 @@ def run_with_timeline(tokens, region, encoder, log_interval):
 
     def instrumented_process(encoding):
         result = original_process(encoding)
-        timeline.capture(len(timeline.frames), region, region.last_column_drive)
+        timeline.capture(
+            len(timeline.frames), region, region.last_column_drive
+        )
         return result
 
     region.process = instrumented_process
@@ -82,11 +84,16 @@ def run_with_timeline(tokens, region, encoder, log_interval):
     metrics = run_cortex(
         region, encoder, tokens, log_interval=log_interval, diagnostics=diag
     )
+
+    # Backfill representation tracker from metrics
+    # (run_cortex already tracks this, but we need it for dashboard)
+    # Re-run observe from token data — cheaper than double-patching
+    rep_region = region  # use final state for ff_convergence
     diag.print_report()
 
     # Restore
     region.process = original_process
-    return metrics, timeline, diag
+    return metrics, timeline, diag, rep_region
 
 
 def build_column_activation_heatmap(timeline: Timeline, n_columns: int) -> go.Figure:
@@ -112,7 +119,7 @@ def build_column_activation_heatmap(timeline: Timeline, n_columns: int) -> go.Fi
         )
     )
     fig.update_layout(
-        title="Column Activation Over Time (sorted by frequency)",
+        title="Which Columns Fire? (sorted by how often each column activates)",
         xaxis_title="Timestep",
         yaxis_title="Column",
         height=500,
@@ -141,23 +148,26 @@ def build_ff_weight_divergence(timeline: Timeline, n_columns: int) -> go.Figure:
             )
         )
 
-    # Add std band
+    # Add spread line (how different the columns are from each other)
     norm_std = norms.std(axis=0)
-    norms.mean(axis=0)
     fig.add_trace(
         go.Scatter(
             x=list(range(n_steps)),
             y=norm_std,
             mode="lines",
-            name="cross-column std",
+            name="spread between columns",
             line=dict(color="white", width=3),
         )
     )
 
     fig.update_layout(
-        title="FF Weight Norms Per Column (spread = differentiation)",
+        title=(
+            "Are Columns Learning Different Features?"
+            " (each line = one column's learned weight strength;"
+            " white = spread between columns)"
+        ),
         xaxis_title="Timestep",
-        yaxis_title="L2 Norm",
+        yaxis_title="Weight Strength",
         height=450,
         template="plotly_dark",
         showlegend=False,
@@ -186,14 +196,19 @@ def build_voltage_excitability(timeline: Timeline, n_columns: int) -> go.Figure:
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.08,
-        subplot_titles=["Voltage vs Excitability (max)", "Column Drive Spread (std)"],
+        subplot_titles=[
+            "Input Signal vs Homeostatic Boost"
+            " (green should stay above yellow)",
+            "How Much Does Input Vary Across Columns?"
+            " (higher = more discriminating)",
+        ],
     )
 
     fig.add_trace(
         go.Scatter(
             x=list(range(n_steps)),
             y=voltage_max,
-            name="voltage max",
+            name="input signal (max)",
             line=dict(color="#06d6a0"),
         ),
         row=1,
@@ -203,7 +218,7 @@ def build_voltage_excitability(timeline: Timeline, n_columns: int) -> go.Figure:
         go.Scatter(
             x=list(range(n_steps)),
             y=voltage_mean,
-            name="voltage mean",
+            name="input signal (mean)",
             line=dict(color="#06d6a0", dash="dot"),
         ),
         row=1,
@@ -213,7 +228,7 @@ def build_voltage_excitability(timeline: Timeline, n_columns: int) -> go.Figure:
         go.Scatter(
             x=list(range(n_steps)),
             y=excitability_max,
-            name="excitability max",
+            name="homeostatic boost (max)",
             line=dict(color="#ffd166"),
         ),
         row=1,
@@ -223,7 +238,7 @@ def build_voltage_excitability(timeline: Timeline, n_columns: int) -> go.Figure:
         go.Scatter(
             x=list(range(n_steps)),
             y=excitability_mean,
-            name="excitability mean",
+            name="homeostatic boost (mean)",
             line=dict(color="#ffd166", dash="dot"),
         ),
         row=1,
@@ -234,7 +249,7 @@ def build_voltage_excitability(timeline: Timeline, n_columns: int) -> go.Figure:
         go.Scatter(
             x=list(range(n_steps)),
             y=drive_spread,
-            name="drive std",
+            name="input spread",
             line=dict(color="#118ab2"),
         ),
         row=2,
@@ -270,9 +285,12 @@ def build_column_drive_histogram(timeline: Timeline) -> go.Figure:
         )
 
     fig.update_layout(
-        title="Column Drive Distribution Over Training",
-        xaxis_title="Column Drive (input @ ff_weights)",
-        yaxis_title="Count",
+        title=(
+            "How Strongly Does Input Activate Each Column?"
+            " (snapshots over training)"
+        ),
+        xaxis_title="Activation Strength",
+        yaxis_title="Number of Columns",
         barmode="overlay",
         height=400,
         template="plotly_dark",
@@ -311,8 +329,9 @@ def build_column_entropy_over_time(
         shared_xaxes=True,
         vertical_spacing=0.08,
         subplot_titles=[
-            f"Rolling Column Entropy (window={window})",
-            f"Unique Active Columns (window={window})",
+            f"Column Usage Fairness (window={window})"
+            " — 1.0 = all columns used equally",
+            f"How Many Different Columns Are Active (window={window})",
         ],
     )
 
@@ -320,7 +339,7 @@ def build_column_entropy_over_time(
         go.Scatter(
             x=list(range(n_steps)),
             y=entropies,
-            name="entropy ratio",
+            name="fairness",
             line=dict(color="#e94560"),
         ),
         row=1,
@@ -362,31 +381,154 @@ def build_column_entropy_over_time(
     return fig
 
 
-def build_dashboard_html(figures: list[tuple[str, go.Figure]]) -> str:
-    """Combine all figures into a single HTML page."""
-    charts_html = []
-    for i, (_title, fig) in enumerate(figures):
-        div_id = f"chart-{i}"
-        chart_json = fig.to_json()
-        charts_html.append(f"""
-        <div class="chart-container">
-            <div id="{div_id}"></div>
-            <script>
-                var chartData = JSON.parse(`{chart_json}`);
-                Plotly.newPlot(
-                    '{div_id}',
-                    chartData.data,
-                    chartData.layout,
-                    {{responsive: true}}
-                );
-            </script>
-        </div>
-        """)
+def build_burst_rate_over_time(
+    timeline: Timeline, window: int = 50
+) -> go.Figure:
+    """Rolling burst rate over time — primary temporal prediction metric."""
+    n_steps = len(timeline.frames)
+    burst_rates = []
 
-    # Simpler approach: use plotly's to_html
+    for i in range(n_steps):
+        start = max(0, i - window + 1)
+        total_burst = 0
+        total_active = 0
+        for j in range(start, i + 1):
+            f = timeline.frames[j]
+            total_burst += f.n_bursting
+            total_active += f.n_active
+        rate = total_burst / total_active if total_active > 0 else 0.0
+        burst_rates.append(rate)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=burst_rates,
+            name="surprise rate",
+            line=dict(color="#e94560", width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n_steps)),
+            y=[1.0] * n_steps,
+            name="100% (completely surprised)",
+            line=dict(color="gray", dash="dash"),
+        )
+    )
+    fig.update_layout(
+        title=(
+            f"Surprise Rate (window={window})"
+            " — how often the cortex is caught off guard"
+            " (lower = learning to anticipate)"
+        ),
+        xaxis_title="Timestep",
+        yaxis_title="Surprise Rate",
+        yaxis_range=[0, 1.05],
+        height=400,
+        template="plotly_dark",
+    )
+    return fig
+
+
+def build_column_selectivity_bar(
+    rep_summary: dict,
+) -> go.Figure:
+    """Per-column selectivity bar chart from representation metrics."""
+    sel = rep_summary.get("column_selectivity_per_col", [])
+    if not sel:
+        return go.Figure()
+
+    n = len(sel)
+    colors = [
+        "#06d6a0" if s < 0.3
+        else "#ffd166" if s < 0.6
+        else "#e94560"
+        for s in sel
+    ]
+
+    fig = go.Figure(
+        go.Bar(
+            x=list(range(n)),
+            y=sel,
+            marker_color=colors,
+        )
+    )
+    fig.update_layout(
+        title=(
+            "How Picky Is Each Column?"
+            " (lower = responds to fewer tokens = better feature detector)"
+        ),
+        xaxis_title="Column",
+        yaxis_title="Response Breadth (0=specialist, 1=responds to everything)",
+        yaxis_range=[0, 1.05],
+        height=350,
+        template="plotly_dark",
+    )
+    return fig
+
+
+def build_representation_summary_cards(
+    rep_summary: dict, burst_rate: float
+) -> str:
+    """Build HTML stat cards for representation metrics."""
+    cards = [
+        (
+            f"{burst_rate:.0%}",
+            "Surprise Rate",
+            "how often the cortex can't anticipate what's next",
+        ),
+        (
+            f"{rep_summary.get('column_selectivity_mean', 0):.2f}",
+            "Feature Selectivity",
+            "how picky columns are (lower = more specialized)",
+        ),
+        (
+            f"{rep_summary.get('similarity_mean', 0):.2f}",
+            "Token Similarity",
+            "do similar tokens share columns? (want > 0, < 1)",
+        ),
+        (
+            f"{rep_summary.get('context_discrimination', 0):.2f}",
+            "Context Sensitivity",
+            "same token, different context = different neurons?",
+        ),
+        (
+            f"{rep_summary.get('ff_sparsity', 0):.2f}",
+            "Receptive Field Focus",
+            "how sharp each column's input filter is",
+        ),
+        (
+            f"{rep_summary.get('ff_cross_col_cosine', 0):.2f}",
+            "Column Diversity",
+            "are columns learning different things? (lower = yes)",
+        ),
+    ]
+
+    html = '<div class="summary">'
+    for value, label, hint in cards:
+        html += f"""
+        <div class="stat-card">
+            <div class="stat-value">{value}</div>
+            <div class="stat-label">{label}</div>
+            <div class="stat-label" style="font-size:0.75em">
+                {hint}
+            </div>
+        </div>"""
+    html += "</div>"
+    return html
+
+
+def build_dashboard_html(
+    figures: list[tuple[str, go.Figure]],
+    summary_cards_html: str = "",
+) -> str:
+    """Combine all figures into a single HTML page."""
     chart_divs = []
     for _title, fig in figures:
-        chart_divs.append(fig.to_html(full_html=False, include_plotlyjs=False))
+        chart_divs.append(
+            fig.to_html(full_html=False, include_plotlyjs=False)
+        )
 
     return f"""<!DOCTYPE html>
 <html>
@@ -438,8 +580,8 @@ def build_dashboard_html(figures: list[tuple[str, go.Figure]]) -> str:
     </style>
 </head>
 <body>
-    <h1>Cortex Column Monopoly Dashboard</h1>
-    <div id="summary"></div>
+    <h1>Cortex Representation Dashboard</h1>
+    {summary_cards_html}
     {"".join(f'<div class="chart-container">{div}</div>' for div in chart_divs)}
 </body>
 </html>"""
@@ -478,39 +620,72 @@ def main():
         encoding_width=CHAR_WIDTH,
         burst_learning_scale=cortex_cfg.burst_learning_scale,
         prediction_ltd_rate=cortex_cfg.prediction_ltd_rate,
+        n_fb_segments=cortex_cfg.n_fb_segments,
+        n_lat_segments=cortex_cfg.n_lat_segments,
+        n_synapses_per_segment=cortex_cfg.n_synapses_per_segment,
+        perm_threshold=cortex_cfg.perm_threshold,
+        perm_init=cortex_cfg.perm_init,
+        perm_increment=cortex_cfg.perm_increment,
+        perm_decrement=cortex_cfg.perm_decrement,
+        seg_activation_threshold=cortex_cfg.seg_activation_threshold,
+        prediction_gain=cortex_cfg.prediction_gain,
         seed=cortex_cfg.seed,
     )
 
     print(f"\nRunning cortex on {len(tokens):,} tokens...")
-    _metrics, timeline, _diag = run_with_timeline(
+    metrics, timeline, diag, _rep_region = run_with_timeline(
         tokens, region, charbit, args.log_interval
     )
 
     print(f"\nCaptured {len(timeline.frames)} timeline frames")
     print("Building dashboard...")
 
+    # Compute representation summary from run_cortex metrics
+    rep_summary = metrics.representation
+    # Add per-column selectivity for bar chart
+    # (run_cortex's RepresentationTracker computed this)
+    # We need to get the per-column data — extract from summary
+    # The runner's tracker is internal, so we add per_column to
+    # the summary dict by convention
+    summ = diag.summary()
+    burst_rate = summ["burst_rate"]
+
+    # Build summary stat cards
+    cards_html = build_representation_summary_cards(
+        rep_summary, burst_rate
+    )
+
     # Build all charts
+    n_cols = cortex_cfg.n_columns
     figures = [
+        ("Surprise Rate", build_burst_rate_over_time(timeline)),
         (
-            "Column Entropy",
-            build_column_entropy_over_time(timeline, cortex_cfg.n_columns),
+            "Column Selectivity",
+            build_column_selectivity_bar(rep_summary),
+        ),
+        (
+            "Column Usage",
+            build_column_entropy_over_time(timeline, n_cols),
         ),
         (
             "Column Activation",
-            build_column_activation_heatmap(timeline, cortex_cfg.n_columns),
+            build_column_activation_heatmap(timeline, n_cols),
         ),
         (
-            "FF Weight Divergence",
-            build_ff_weight_divergence(timeline, cortex_cfg.n_columns),
+            "Feature Differentiation",
+            build_ff_weight_divergence(timeline, n_cols),
         ),
         (
-            "Voltage vs Excitability",
-            build_voltage_excitability(timeline, cortex_cfg.n_columns),
+            "Signal Balance",
+            build_voltage_excitability(timeline, n_cols),
         ),
-        ("Column Drive Distribution", build_column_drive_histogram(timeline)),
+        (
+            "Input Distribution",
+            build_column_drive_histogram(timeline),
+        ),
     ]
 
-    html = build_dashboard_html(figures)
+    html = build_dashboard_html(figures, cards_html)
 
     if args.save_only:
         out_path = Path("experiments/figures/cortex_dashboard.html")
