@@ -186,14 +186,16 @@ class SensoryRegion(CorticalRegion):
                 if active_in_col.any():
                     active_neurons_f[l4_start + active_in_col.argmax()] = 1.0
 
-        # LTP: active input x winning neurons
+        # LTP: active input x winning neurons (modulated by surprise)
+        ltp_rate = self.learning_rate * self.surprise_modulator
         self.ff_weights += (
-            self.learning_rate
+            ltp_rate
             * flat_input[:, np.newaxis]
             * active_neurons_f[np.newaxis, :]
         )
 
         # LTD: inactive input x winning neurons, local sparsity scaling
+        ltd_rate = self.ltd_rate * self.surprise_modulator
         inactive_input = 1.0 - flat_input
         for neuron_idx in np.nonzero(active_neurons_f)[0]:
             col = neuron_idx // self.n_l4
@@ -204,7 +206,7 @@ class SensoryRegion(CorticalRegion):
             local_off = max(inactive_input[col_mask_vec].sum(), 1.0)
             local_scale = local_on / local_off
             self.ff_weights[:, neuron_idx] -= (
-                self.ltd_rate * local_scale * inactive_input * neuron_mask
+                ltd_rate * local_scale * inactive_input * neuron_mask
             )
 
         # Subthreshold: weak LTP on neurons in inactive columns
@@ -214,7 +216,7 @@ class SensoryRegion(CorticalRegion):
             inactive_neurons_f[l4_start: l4_start + self.n_l4] = 1.0
 
         self.ff_weights += (
-            self.learning_rate * 0.1
+            ltp_rate * 0.1
             * flat_input[:, np.newaxis]
             * inactive_neurons_f[np.newaxis, :]
         )

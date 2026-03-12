@@ -73,6 +73,10 @@ class CorticalRegion:
         self.prediction_gain = prediction_gain
         self._rng = np.random.default_rng(seed)
 
+        # Third-factor neuromodulatory signal (set externally each step).
+        # Scales learning rates: 1.0 = normal, >1 = surprise boosts learning.
+        self.surprise_modulator: float = 1.0
+
         self.n_l4_total = n_columns * n_l4
         self.n_l23_total = n_columns * n_l23
 
@@ -367,7 +371,7 @@ class CorticalRegion:
         L4 prediction is handled entirely by dendritic segments.
         """
         active_l23_f = self.active_l23.astype(np.float64)
-        lr_l23 = np.full(self.n_l23_total, self.learning_rate)
+        lr_l23 = np.full(self.n_l23_total, self.learning_rate * self.surprise_modulator)
         for col in np.nonzero(self.bursting_columns)[0]:
             l23_start = col * self.n_l23
             lr_l23[l23_start : l23_start + self.n_l23] *= self.burst_learning_scale
@@ -458,9 +462,11 @@ class CorticalRegion:
         perm = seg_perm[neuron, best_seg_idx].copy()
         syn_active = ctx[idx]
 
-        # Strengthen active synapses, weaken inactive
-        perm[syn_active] = np.minimum(perm[syn_active] + self.perm_increment, 1.0)
-        perm[~syn_active] = np.maximum(perm[~syn_active] - self.perm_decrement, 0.0)
+        # Strengthen active synapses, weaken inactive (modulated by surprise)
+        inc = self.perm_increment * self.surprise_modulator
+        dec = self.perm_decrement * self.surprise_modulator
+        perm[syn_active] = np.minimum(perm[syn_active] + inc, 1.0)
+        perm[~syn_active] = np.maximum(perm[~syn_active] - dec, 0.0)
 
         # Grow: replace weakest inactive synapses with active sources
         pool = self._get_source_pool(neuron, best_type)
@@ -501,19 +507,21 @@ class CorticalRegion:
                 count = (syn_active & connected).sum()
 
                 if count >= self.seg_activation_threshold:
+                    inc = self.perm_increment * self.surprise_modulator
+                    dec = self.perm_decrement * self.surprise_modulator
                     if reinforce:
                         # Strengthen active, weaken inactive
                         perm[syn_active] = np.minimum(
-                            perm[syn_active] + self.perm_increment, 1.0
+                            perm[syn_active] + inc, 1.0
                         )
                         perm[~syn_active] = np.maximum(
-                            perm[~syn_active] - self.perm_decrement, 0.0
+                            perm[~syn_active] - dec, 0.0
                         )
                     else:
                         # Punish: weaken active connected synapses
                         mask = syn_active & connected
                         perm[mask] = np.maximum(
-                            perm[mask] - self.perm_decrement, 0.0
+                            perm[mask] - dec, 0.0
                         )
 
                     seg_perm[neuron, s] = perm

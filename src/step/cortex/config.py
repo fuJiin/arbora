@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -26,3 +26,24 @@ class CortexConfig:
     seg_activation_threshold: int = 4
     prediction_gain: float = 1.0
     seed: int = 0
+
+
+def _default_region2_config() -> "CortexConfig":
+    """Region 2 defaults: slower temporal dynamics for higher-level features."""
+    return CortexConfig(
+        n_columns=16,
+        k_columns=2,
+        voltage_decay=0.8,
+        eligibility_decay=0.98,
+        synapse_decay=0.9999,
+    )
+
+
+@dataclass
+class HierarchyConfig:
+    """Configuration for a two-region sensory hierarchy."""
+
+    region1: CortexConfig = field(default_factory=CortexConfig)
+    region2: CortexConfig = field(default_factory=_default_region2_config)
+    surprise_baseline_decay: float = 0.99
+    surprise_min_baseline: float = 0.01
