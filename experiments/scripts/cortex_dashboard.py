@@ -892,6 +892,8 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
         voltage_decay=0.8,
         eligibility_decay=0.98,
         synapse_decay=0.9999,
+        learning_rate=0.01,
+        ltd_rate=0.4,
         seed=123,
     )
 

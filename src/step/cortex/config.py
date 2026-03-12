@@ -29,13 +29,19 @@ class CortexConfig:
 
 
 def _default_region2_config() -> "CortexConfig":
-    """Region 2 defaults: slower temporal dynamics for higher-level features."""
+    """Region 2 defaults: slower temporal dynamics, lower learning rate.
+
+    Use encoding_width=0 (sliding window) when constructing the SensoryRegion,
+    since R1's L2/3 output has no character-position structure.
+    """
     return CortexConfig(
         n_columns=16,
         k_columns=2,
         voltage_decay=0.8,
         eligibility_decay=0.98,
         synapse_decay=0.9999,
+        learning_rate=0.01,
+        ltd_rate=0.4,
     )
 
 
