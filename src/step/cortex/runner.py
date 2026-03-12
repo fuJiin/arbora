@@ -3,8 +3,6 @@
 import time
 from dataclasses import dataclass, field
 
-import numpy as np
-
 from step.config import ModelConfig
 from step.cortex.decoder import SynapticDecoder
 from step.cortex.diagnostics import CortexDiagnostics
@@ -117,26 +115,30 @@ def run_cortex(
             elapsed = time.monotonic() - start
             print(
                 f"  [cortex] t={t:,} "
-                f"overlap={roll_overlap:.4f} "
-                f"idx={roll_acc:.4f} "
-                f"col={roll_col:.4f} "
                 f"syn={roll_syn:.4f} "
+                f"col={roll_col:.4f} "
+                f"idx={roll_acc:.4f} "
+                f"overlap={roll_overlap:.4f} "
                 f"({elapsed:.1f}s)"
             )
 
             # Show prediction samples
             if show_predictions > 0 and prediction_log:
                 samples = prediction_log[-show_predictions:]
-                print(f"    {'actual':>12s} | {'idx':>12s} | {'col':>12s} | {'syn':>12s}")
+                hdr = f"{'actual':>12s} | {'idx':>12s} | {'col':>12s} | {'syn':>12s}"
+                print(f"    {hdr}")
                 print(f"    {'-'*12}-+-{'-'*12}-+-{'-'*12}-+-{'-'*12}")
                 for actual, idx_p, col_p, syn_p in samples:
-                    def fmt(s):
-                        return repr(s)[:12].ljust(12)
-                    hit_idx = "*" if idx_p == actual else " "
-                    hit_col = "*" if col_p == actual else " "
-                    hit_syn = "*" if syn_p == actual else " "
+                    fmt = lambda s: repr(s)[:12].ljust(12)  # noqa: E731
+                    marks = [
+                        "*" if p == actual else " "
+                        for p in (idx_p, col_p, syn_p)
+                    ]
                     print(
-                        f"    {fmt(actual)} |{hit_idx}{fmt(idx_p)} |{hit_col}{fmt(col_p)} |{hit_syn}{fmt(syn_p)}"
+                        f"    {fmt(actual)} "
+                        f"|{marks[0]}{fmt(idx_p)} "
+                        f"|{marks[1]}{fmt(col_p)} "
+                        f"|{marks[2]}{fmt(syn_p)}"
                     )
                 prediction_log.clear()
 

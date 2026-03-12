@@ -5,35 +5,48 @@ Research project exploring biologically-plausible learning for next-token predic
 
 ## Current Work
 
-### Branch: `main`
+### Branch: `main` (uncommitted changes)
 
-### Critical finding: prediction mechanism is broken
+### Dendritic segments implemented (not yet committed)
 
-Encoding sweep (charbit, charbit-nosp, random) on 10K tokens proves the prediction pathway itself fails, not the encoding:
-- **Random encoder**: 82.4% uniquely identifiable tokens, 98.9% entropy, max ambiguity 14 — **but 0.5% accuracy** (worse than charbit's 1.8%)
-- Even with perfectly discriminative representations, the cortex cannot learn temporal patterns
-- The Hebbian learning rule (trace × active → strengthen) is too diffuse to learn specific temporal associations
+Replaced the dense fb_weights/lateral_weights prediction mechanism with HTM-style dendritic segments:
+- Each L4 neuron has multiple dendritic segments (fb: L2/3→L4, lateral: L4→L4)
+- Each segment has sparse synapses with permanence values
+- A segment fires when enough connected synapses have active sources (threshold-based pattern matching)
+- Provides the specificity needed for temporal association learning
 
-### Previous findings (still relevant)
-- Space character monopoly in charbit encoding (cols 29-31 fire for everything)
-- Prediction LTD works (sparser predictions, more diverse) but doesn't enable actual learning
-- Per-neuron ff_weights and more neurons per column don't help (capacity sweep confirmed)
+**Modified files**: `region.py`, `sensory.py`, `config.py`, `diagnostics.py`, `test_region.py`
+
+### Early results (500 tokens)
+- Segments growing: 2.7% fb connected, 1.8% lat connected
+- Burst rate 63.4% (down from 100% initial — segments are predicting)
+- Dense weights kept alongside for backward compat/diagnostics
+- All 137 tests pass + 8 new segment-specific tests
+
+### Critical finding (still relevant): prediction mechanism was broken
+- Random encoder control proved encoding is NOT the bottleneck
+- Dense Hebbian (trace × active → strengthen) too diffuse for temporal patterns
+- Dendritic segments are the fix: specific synapse matching vs whole-neuron Hebbian
 
 ## Architecture Summary (`src/step/cortex/`)
 
 - **L4/L2/3 minicolumn model** with burst/precise mechanism
+- **Dendritic segments** for prediction: `fb_seg_indices/perm` (L2/3→L4), `lat_seg_indices/perm` (L4→L4)
+- **Segment learning**: grow on burst, reinforce on precise, punish false predictions
+- **SensoryRegion** overrides segments with local connectivity (radius = n_columns//4)
+- **Dense weights** kept for diagnostics/decoder backward compat
 - **Structural sparsity**: width-based ff_mask, local lateral/fb masks
-- **LTD on ff_weights** + **prediction LTD on fb/lateral weights**
-- **Per-neuron ff option**: `per_neuron_ff=True` (no accuracy improvement)
 - **Synaptic decoder**: nearest-neighbor via ff_weight reconstruction
 
 ## Key Decisions
-- **Prediction LTD** reduces predicted neurons 56→3-9 (good) but accuracy still ~1%
-- **Shared ff_weights** puts all disambiguation on context pathway — which can't learn
-- **Random encoder control** definitively proves encoding is not the bottleneck
+- **Dendritic segments over dense Hebbian** for prediction — encoding sweep proved dense approach cannot learn temporal patterns
+- **Hybrid approach**: dense weights kept for diagnostics alongside segment-based prediction
+- **Segment params**: 4 fb + 4 lat segments, 16 synapses each, threshold 4, perm_init 0.6
+- **predict_neuron() helper** for test setup (fills segment with single source index)
 
 ## Next Steps
-- [ ] **Fix the prediction learning rule** — current Hebbian is too diffuse for temporal associations
-- [ ] Consider multiple dendritic segments (specific synapse matching vs whole-neuron Hebbian)
-- [ ] Consider segment-level learning (HTM's dendritic segment permanence model)
-- [ ] Performance audit before dendritic segment implementation
+- [ ] **Run longer experiment** (10K+ tokens) to evaluate segment learning convergence
+- [ ] **Tune segment parameters** — activation threshold, perm_increment/decrement, n_segments
+- [ ] **Commit dendritic segments** once validated on longer run
+- [ ] Consider removing dense fb/lateral weights if segments prove sufficient
+- [ ] Encoding improvements (strip spaces, custom tokenizer, prebuilt embeddings)

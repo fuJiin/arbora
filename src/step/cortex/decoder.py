@@ -58,9 +58,8 @@ class SynapticDecoder:
         """Decode via ff_weight reconstruction + nearest-neighbor.
 
         Reconstructs the expected encoding from predicted columns'
-        ff_weights, weighted by prediction voltage (confidence).
-        Then finds the observed token whose encoding has highest
-        dot product similarity with the reconstruction.
+        ff_weights (uniform weighting), then finds the observed token
+        whose encoding has highest dot product similarity.
         """
         if not self._token_ids:
             return -1, ""
@@ -72,28 +71,8 @@ class SynapticDecoder:
         if len(cols) == 0:
             return -1, ""
 
-        # Prediction voltage per column (confidence)
-        v = region.voltage_l4 * region.voltage_decay
-        if region.active_l23.any():
-            fb = region.active_l23.astype(np.float64) @ region.fb_weights
-            v += region.fb_boost * (fb > region.fb_boost_threshold)
-        if region.active_l4.any():
-            lat = region.active_l4.astype(np.float64) @ region.lateral_weights
-            v += region.fb_boost * (lat > region.fb_boost_threshold)
-
-        v_by_col = v.reshape(region.n_columns, region.n_l4)
-        col_confidence = v_by_col[cols].max(axis=1)
-
-        total = col_confidence.sum()
-        if total > 0:
-            weights = col_confidence / total
-        else:
-            weights = np.ones(len(cols)) / len(cols)
-
-        # Weighted reconstruction from ff_weights
-        reconstruction = (region.ff_weights[:, cols] * weights[np.newaxis, :]).sum(
-            axis=1
-        )
+        # Uniform reconstruction from ff_weights of predicted columns
+        reconstruction = region.ff_weights[:, cols].sum(axis=1)
 
         # Dot product against all observed encodings
         scores = self._encoding_matrix @ reconstruction

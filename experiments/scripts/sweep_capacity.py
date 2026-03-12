@@ -8,7 +8,6 @@ Usage: uv run experiments/scripts/sweep_capacity.py [--tokens N]
 
 import argparse
 import string
-import time
 
 from datasets import load_dataset
 from transformers import AutoTokenizer
@@ -16,7 +15,7 @@ from transformers import AutoTokenizer
 import step.env  # noqa: F401
 from step.cortex.config import CortexConfig
 from step.cortex.diagnostics import CortexDiagnostics
-from step.cortex.runner import STORY_BOUNDARY, RunMetrics, run_cortex
+from step.cortex.runner import STORY_BOUNDARY, run_cortex
 from step.cortex.sensory import SensoryRegion
 from step.encoders.charbit import CharbitEncoder
 

@@ -64,10 +64,9 @@ class TestActivation:
 
     def test_precise_when_predicted(self, region):
         """If a neuron was predicted, its column should activate precisely."""
-        # Set up feedback so L2/3 neuron 0 predicts L4 neuron 3
-        region.fb_weights[0, 3] = 2.0
+        # Set up dendritic segment so L2/3 neuron 0 predicts L4 neuron 3
+        region.predict_neuron(3, 0, segment_type="fb")
         region.active_l23[0] = True  # pretend active last step
-        region.fb_boost_threshold = 0.0  # ensure prediction triggers
 
         drive = np.zeros(16)
         drive[0] = 1.0  # drive col 0
@@ -88,10 +87,9 @@ class TestActivation:
         # but neuron 2 (global idx 2) has high excitability → wins.
         # Also need prediction on neuron 2 to avoid burst
         region.excitability_l4[2] = 10.0
-        # Set up prediction for neuron 2 so col 0 is precise
-        region.fb_weights[0, 2] = 2.0
+        # Set up dendritic segment so L2/3 neuron 0 predicts L4 neuron 2
+        region.predict_neuron(2, 0, segment_type="fb")
         region.active_l23[0] = True
-        region.fb_boost_threshold = 0.0
 
         drive = np.zeros(16)
         drive[0] = 1.0
@@ -409,10 +407,9 @@ class TestFeedback:
             n_l4=4,
             n_l23=4,
             k_columns=1,
-            fb_boost_threshold=0.0,
         )
         target = 3  # col 0, neuron 3
-        r.fb_weights[0, target] = 2.0
+        r.predict_neuron(target, 0, segment_type="fb")
         r.active_l23[0] = True
 
         drive = np.array([1.0, 0.0, 0.0, 0.0])
@@ -443,10 +440,9 @@ class TestL23Lateral:
             n_l4=4,
             n_l23=4,
             k_columns=1,
-            fb_boost_threshold=0.0,
         )
-        # Set up prediction so col 0 is precise
-        r.fb_weights[0, 0] = 2.0
+        # Set up dendritic segment so col 0 is precise
+        r.predict_neuron(0, 0, segment_type="fb")
         r.active_l23[0] = True
 
         # Set up L2/3 lateral so neuron 3 in col 0 gets
@@ -489,6 +485,137 @@ class TestL23Lateral:
 # ---------------------------------------------------------------------------
 # SensoryRegion
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# CorticalRegion: dendritic segments
+# ---------------------------------------------------------------------------
+
+
+class TestDendriticSegments:
+    def test_segment_arrays_initialized(self):
+        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        assert r.fb_seg_indices.shape == (8, 4, 16)  # n_l4_total, n_fb_seg, n_syn
+        assert r.fb_seg_perm.shape == (8, 4, 16)
+        assert r.lat_seg_indices.shape == (8, 4, 16)
+        assert r.lat_seg_perm.shape == (8, 4, 16)
+
+    def test_segments_start_disconnected(self):
+        """All permanences start at 0 — no predictions initially."""
+        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        assert r.fb_seg_perm.max() == 0.0
+        assert r.lat_seg_perm.max() == 0.0
+
+    def test_no_predictions_initially(self):
+        """With all permanences at 0, no neurons should be predicted."""
+        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r.active_l23[0] = True  # pretend some L2/3 active
+        pred = r.get_prediction(k=4)
+        assert len(pred) == 0
+
+    def test_predict_neuron_helper(self):
+        """predict_neuron sets up a segment that fires."""
+        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r.predict_neuron(3, 0, segment_type="fb")
+        r.active_l23[0] = True
+        pred = r.get_prediction(k=4)
+        assert 3 in pred
+
+    def test_segment_growth_on_burst(self):
+        """Bursting should grow segment permanences above zero."""
+        r = CorticalRegion(
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
+            synapse_decay=1.0,
+        )
+        # Step 1: drive col 0 (burst, establishes context)
+        r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+        # Step 2: drive col 1 (burst, should grow segments)
+        r.step(np.array([0.0, 1.0, 0.0, 0.0]))
+
+        # Check that some segment permanences increased
+        col1_neurons = [2, 3]  # col 1, neurons 0 and 1
+        any_grown = False
+        for n in col1_neurons:
+            if r.fb_seg_perm[n].max() > 0 or r.lat_seg_perm[n].max() > 0:
+                any_grown = True
+        assert any_grown
+
+    def test_segments_reduce_burst_rate(self):
+        """After learning, segments should predict and reduce bursting."""
+        r = CorticalRegion(
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
+            synapse_decay=1.0,
+            perm_init=0.7,
+            perm_increment=0.15,
+            seg_activation_threshold=2,
+        )
+        # Train: alternate two columns many times
+        for _ in range(50):
+            r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+            r.step(np.array([0.0, 1.0, 0.0, 0.0]))
+
+        # Measure burst rate over next 20 steps
+        bursts = 0
+        total = 0
+        for _ in range(10):
+            r.step(np.array([1.0, 0.0, 0.0, 0.0]))
+            total += 1
+            bursts += int(r.bursting_columns[0])
+            r.step(np.array([0.0, 1.0, 0.0, 0.0]))
+            total += 1
+            bursts += int(r.bursting_columns[1])
+
+        # After 100 training steps, at least some predictions should work
+        burst_rate = bursts / total
+        assert burst_rate < 1.0, f"burst_rate={burst_rate}, segments not learning"
+
+    def test_false_prediction_punished(self):
+        """Segments that predict incorrectly should have permanences reduced."""
+        r = CorticalRegion(
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
+            perm_decrement=0.2,
+        )
+        # Set up prediction: L4 neuron 0 predicted by L2/3 neuron 0
+        r.predict_neuron(0, 0, segment_type="fb")
+        r.active_l23[0] = True
+
+        initial_perm = r.fb_seg_perm[0, 0, 0]
+
+        # Drive col 1 instead of col 0 — neuron 0 is predicted but won't fire
+        r.step(np.array([0.0, 1.0, 0.0, 0.0]))
+
+        # Permanences on the false-predicting segment should decrease
+        assert r.fb_seg_perm[0, 0, 0] < initial_perm
+
+    def test_sensory_local_connectivity(self):
+        """SensoryRegion segments should only connect to local neurons."""
+        s = SensoryRegion(
+            input_dim=10,
+            n_columns=8,
+            n_l4=2,
+            n_l23=2,
+            k_columns=2,
+        )
+        radius = max(1, 8 // 4)  # 2
+        # Check neuron 0 (col 0): fb segments should only reference
+        # L2/3 neurons in cols 0-2 (within radius 2)
+        for s_idx in range(s.n_fb_segments):
+            for syn_idx in range(s.n_synapses_per_segment):
+                source = s.fb_seg_indices[0, s_idx, syn_idx]
+                source_col = source // s.n_l23
+                assert source_col <= radius, (
+                    f"neuron 0 has fb synapse to col {source_col}, "
+                    f"expected <= {radius}"
+                )
 
 
 class TestSensoryRegion:
