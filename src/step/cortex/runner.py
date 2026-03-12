@@ -3,7 +3,6 @@
 import time
 from dataclasses import dataclass, field
 
-from step.config import ModelConfig
 from step.cortex.diagnostics import CortexDiagnostics
 from step.cortex.representation import RepresentationTracker
 from step.cortex.sensory import SensoryRegion
@@ -138,13 +137,10 @@ def run_cortex(
                 samples = prediction_log[-show_predictions:]
                 hdr = f"{'actual':>12s} | {'idx':>12s} | {'col':>12s} | {'syn':>12s}"
                 print(f"    {hdr}")
-                print(f"    {'-'*12}-+-{'-'*12}-+-{'-'*12}-+-{'-'*12}")
+                print(f"    {'-' * 12}-+-{'-' * 12}-+-{'-' * 12}-+-{'-' * 12}")
                 for actual, idx_p, col_p, syn_p in samples:
                     fmt = lambda s: repr(s)[:12].ljust(12)  # noqa: E731
-                    marks = [
-                        "*" if p == actual else " "
-                        for p in (idx_p, col_p, syn_p)
-                    ]
+                    marks = ["*" if p == actual else " " for p in (idx_p, col_p, syn_p)]
                     print(
                         f"    {fmt(actual)} "
                         f"|{marks[0]}{fmt(idx_p)} "
@@ -163,61 +159,6 @@ def run_cortex(
     # Print representation report
     rep_tracker.print_report(region.ff_weights)
 
-    return metrics
-
-
-def run_step_baseline(
-    tokens: list[tuple[int, frozenset[int]]],
-    model_config: ModelConfig,
-    log_interval: int = 100,
-    rolling_window: int = 100,
-) -> RunMetrics:
-    """Run original STEP model on a token sequence for comparison.
-
-    tokens: list of (token_id, sdr) pairs.
-            token_id == STORY_BOUNDARY signals a story boundary.
-    """
-    from step.model import initial_state, learn, observe, predict
-
-    state = initial_state(model_config)
-    decode_index = InvertedIndexDecoder()
-    metrics = RunMetrics()
-    start = time.monotonic()
-
-    after_boundary = False
-    for t, (token_id, sdr) in enumerate(tokens):
-        if token_id == STORY_BOUNDARY:
-            state.history.clear()
-            after_boundary = True
-            continue
-
-        if t > 0 and not after_boundary:
-            predicted_sdr = predict(state, t, model_config)
-            iou = learn(state, t, sdr, predicted_sdr, model_config)
-            metrics.overlaps.append(iou)
-
-            predicted_token = decode_index.decode(predicted_sdr)
-            accuracy = 1.0 if predicted_token == token_id else 0.0
-            metrics.accuracies.append(accuracy)
-
-        after_boundary = False
-        state = observe(state, t, sdr, model_config)
-        decode_index.observe(token_id, sdr)
-
-        if t > 0 and t % log_interval == 0 and metrics.overlaps:
-            tail = metrics.overlaps[-rolling_window:]
-            roll_iou = sum(tail) / len(tail)
-            tail_acc = metrics.accuracies[-rolling_window:]
-            roll_acc = sum(tail_acc) / len(tail_acc)
-            elapsed = time.monotonic() - start
-            print(
-                f"  [step]   t={t:,} "
-                f"iou={roll_iou:.4f} "
-                f"acc={roll_acc:.4f} "
-                f"({elapsed:.1f}s)"
-            )
-
-    metrics.elapsed_seconds = time.monotonic() - start
     return metrics
 
 

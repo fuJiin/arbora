@@ -30,19 +30,15 @@ class RepresentationTracker:
         self.n_l4 = n_l4
 
         # token_id -> list of column activation sets (one per occurrence)
-        self._token_columns: dict[int, list[frozenset[int]]] = (
-            defaultdict(list)
-        )
+        self._token_columns: dict[int, list[frozenset[int]]] = defaultdict(list)
         # token_id -> list of L4 neuron activation sets
-        self._token_neurons: dict[int, list[frozenset[int]]] = (
-            defaultdict(list)
-        )
+        self._token_neurons: dict[int, list[frozenset[int]]] = defaultdict(list)
         # column -> Counter of token_ids that activated it
         self._column_tokens: dict[int, Counter] = defaultdict(Counter)
 
         # Context discrimination: (prev_token, token) -> neuron sets
-        self._bigram_neurons: dict[tuple[int, int], list[frozenset[int]]] = (
-            defaultdict(list)
+        self._bigram_neurons: dict[tuple[int, int], list[frozenset[int]]] = defaultdict(
+            list
         )
 
         self._prev_token_id: int | None = None
@@ -134,9 +130,7 @@ class RepresentationTracker:
         Returns similarity stats and whether structure is non-trivial.
         """
         # Find most frequent tokens
-        token_freq = {
-            tid: len(cols) for tid, cols in self._token_columns.items()
-        }
+        token_freq = {tid: len(cols) for tid, cols in self._token_columns.items()}
         if len(token_freq) < 2:
             return {
                 "mean": 0.0,
@@ -147,9 +141,9 @@ class RepresentationTracker:
                 "nontrivial": False,
             }
 
-        top_tokens = sorted(
-            token_freq, key=token_freq.get, reverse=True
-        )[:top_n]
+        top_tokens = sorted(token_freq, key=lambda t: token_freq[t], reverse=True)[
+            :top_n
+        ]
 
         # For each token, compute its "typical" column set (most frequent)
         token_col_profile: dict[int, set[int]] = {}
@@ -168,7 +162,7 @@ class RepresentationTracker:
         # Pairwise Jaccard similarity
         sims = []
         for i, t1 in enumerate(top_tokens):
-            for t2 in top_tokens[i + 1:]:
+            for t2 in top_tokens[i + 1 :]:
                 s1 = token_col_profile[t1]
                 s2 = token_col_profile[t2]
                 union = len(s1 | s2)
@@ -205,9 +199,7 @@ class RepresentationTracker:
         """
         # Group by target token: which different contexts produced which
         # neuron patterns?
-        token_context_patterns: dict[int, list[frozenset[int]]] = (
-            defaultdict(list)
-        )
+        token_context_patterns: dict[int, list[frozenset[int]]] = defaultdict(list)
         # Track which preceding tokens we've seen for each target
         token_contexts: dict[int, set[int]] = defaultdict(set)
 
@@ -250,12 +242,14 @@ class RepresentationTracker:
                     dists.append(0.0)
 
             mean_dist = float(np.mean(dists)) if dists else 0.0
-            per_token.append({
-                "token_id": tid,
-                "n_contexts": len(token_contexts[tid]),
-                "n_observations": len(patterns),
-                "discrimination": mean_dist,
-            })
+            per_token.append(
+                {
+                    "token_id": tid,
+                    "n_contexts": len(token_contexts[tid]),
+                    "n_observations": len(patterns),
+                    "discrimination": mean_dist,
+                }
+            )
             all_discriminations.append(mean_dist)
 
         return {
@@ -330,11 +324,13 @@ class RepresentationTracker:
 
         if ff_weights is not None:
             conv = self.ff_convergence(ff_weights)
-            result.update({
-                "ff_sparsity": conv["weight_sparsity"],
-                "rf_entropy": conv["rf_entropy_mean"],
-                "ff_cross_col_cosine": conv["cross_col_cosine_mean"],
-            })
+            result.update(
+                {
+                    "ff_sparsity": conv["weight_sparsity"],
+                    "rf_entropy": conv["rf_entropy_mean"],
+                    "ff_cross_col_cosine": conv["cross_col_cosine_mean"],
+                }
+            )
 
         return result
 
@@ -344,16 +340,11 @@ class RepresentationTracker:
 
         sel = self.column_selectivity()
         print("\nColumn selectivity (0=perfect detector, 1=uniform):")
-        print(
-            f"  mean={sel['mean']:.3f} std={sel['std']:.3f}"
-        )
+        print(f"  mean={sel['mean']:.3f} std={sel['std']:.3f}")
         if sel["best_5"]:
             print("  most selective columns:")
             for col, entropy, n_tokens in sel["best_5"]:
-                print(
-                    f"    col {col}: entropy={entropy:.3f}"
-                    f" ({n_tokens} tokens)"
-                )
+                print(f"    col {col}: entropy={entropy:.3f} ({n_tokens} tokens)")
 
         sim = self.representation_similarity()
         print(f"\nRepresentational similarity ({sim['n_tokens']} tokens):")

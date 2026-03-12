@@ -1,7 +1,7 @@
 # Context: STEP (Sparse Temporal Eligibility Propagation)
 
 ## Overview
-Research project exploring biologically-plausible learning for next-token prediction. Cortical region model: neocortical minicolumn with L4/L2/3 layers, dendritic segments for prediction, per-neuron feedforward weights. Built with NumPy, Python 3.12+, managed with uv.
+Research project exploring biologically-plausible learning via cortical representation building. Neocortical minicolumn model with L4/L2/3 layers, dendritic segments for prediction, per-neuron feedforward weights. Built with NumPy, Python 3.12+, managed with uv.
 
 ## Architecture (`src/step/cortex/`)
 
@@ -44,17 +44,27 @@ Research project exploring biologically-plausible learning for next-token predic
 - **L2/3 segment params**: 4 segments, shared permanence params, `l23_prediction_boost=0` (uses fb_boost)
 
 ## Key Decisions
-- **Representation quality over decoder accuracy** — sensory cortex builds representations for downstream regions
-- **Motor cortex will generate responses** (not predict next token)
+- **Representation quality over decoder accuracy** — sensory cortex builds representations for downstream use
+- **Generation is planning, not next-token prediction** — brain does hierarchical planning (intention → plan → structure → words), not autoregressive completion. Future generation architecture should be planning-based (prefrontal/basal ganglia territory), not "motor cortex as decoder"
+- **Prediction is the learning signal, not the generation mechanism** — predictive coding: cortex learns by predicting and updating on errors. Burst = surprise = learn. This is correct for building representations, separate from how output is generated.
+- **Linear probe sanity check (2026-03-12)**: L2/3 representations at 20k tokens show weak next-token signal (1.5x majority baseline). Representations encode context structure (sentence boundaries, punctuation) but not lexical prediction. This is expected — sensory cortex builds contextual features, not prediction lookups. Not a validity test for the architecture.
 - **Firing rate > boolean for inter-region** — rate-coded EMA is biologically grounded and gives R2 smooth gradients to learn from
-- **Sliding window > tiled for R2 receptive fields** — R1's L2/3 output has no character-position structure; tiled mode created near-total overlap. Sliding window creates topographic map with neighbor-only overlap.
+- **Sliding window > tiled for R2 receptive fields** — R1's L2/3 output has no character-position structure; tiled mode created near-total overlap
 - **Low lr + high LTD for R2** — secondary region should learn slowly and prune aggressively for stable higher-level features
 - **Feedback R2→R1 deferred** — requires thalamic relay (pulvinar) + apical dendrite compartments
 - **Surprise-modulated learning (third-factor)** — R1 burst rate modulates R2 plasticity via NE-like signal
-- **24 synapses/segment** — CharbitEncoder re-sweep (20k tokens, 16 configs) showed wider segments capture richer context. Best ctx_disc (0.593) and prediction diversity (12929 sets) with no runtime cost vs 16 synapses.
-- **L2/3 segments coexist with dense Hebbian** — dense weights provide broad lateral context, segments add selective pattern-specific predictions. Both active simultaneously.
-- **L2/3 segment sweep** — independent `l23_prediction_boost` param added. At 10k tokens, L2/3 segments grow (2% connected, ~10 predicted neurons) but don't yet differentiate significantly from baseline. Refinement mechanism that needs longer training.
+- **24 synapses/segment** — CharbitEncoder re-sweep showed wider segments capture richer context
+- **L2/3 segments coexist with dense Hebbian** — dense weights provide broad lateral context, segments add selective pattern-specific predictions
+- **Old STEP model removed (2026-03-12)** — flat weight matrix model, SQLite backend, baselines, old experiment harness all removed. Cortex architecture is the sole path forward.
+
+## Codebase (post-cleanup 2026-03-12)
+- `src/step/cortex/` — region, sensory, config, runner, diagnostics, representation, surprise, timeline
+- `src/step/encoders/` — CharbitEncoder only (RandomEncoder/AdaptiveEncoder removed)
+- `src/step/decoders/` — InvertedIndexDecoder, SynapticDecoder
+- `src/step/env.py` — environment config
+- `experiments/scripts/` — cortex dashboard, hierarchy eval, representation eval, sweep scripts, probe_l23
+- Old STEP model (`model.py`, `db.py`, `wrappers.py`, `experiment.py`, etc.) and baselines removed
 
 ## Next Steps
-- [ ] Add thalamic relay + feedback R2→R1 (activates prediction_gain, apical dendrites)
-- [ ] Explore motor cortex design for response generation
+- [ ] Add thalamic relay + feedback R2→R1 (activates prediction_gain, apical dendrites) — in progress in separate session
+- [ ] Explore goal-directed planning architecture for response generation (not autoregressive)
