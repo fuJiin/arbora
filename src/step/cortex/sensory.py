@@ -77,6 +77,7 @@ class SensoryRegion(CorticalRegion):
         # Build per-column source pools (local neighborhood)
         self._fb_col_pools = {}
         self._lat_col_pools = {}
+        self._l23_col_pools = {}
         for col in range(self.n_columns):
             neighbors = [
                 c for c in range(self.n_columns) if abs(c - col) <= radius
@@ -87,7 +88,9 @@ class SensoryRegion(CorticalRegion):
             self._lat_col_pools[col] = np.concatenate(
                 [np.arange(c * self.n_l4, (c + 1) * self.n_l4) for c in neighbors]
             )
+            self._l23_col_pools[col] = self._fb_col_pools[col]  # same L2/3 neighborhood
 
+        # L4 segments (feedback + lateral)
         self.fb_seg_indices = np.zeros(
             (n, self.n_fb_segments, n_syn), dtype=np.int32
         )
@@ -110,12 +113,32 @@ class SensoryRegion(CorticalRegion):
                     lat_pool, n_syn, replace=len(lat_pool) < n_syn
                 )
 
+        # L2/3 lateral segments
+        n23 = self.n_l23_total
+        self.l23_seg_indices = np.zeros(
+            (n23, self.n_l23_segments, n_syn), dtype=np.int32
+        )
+        self.l23_seg_perm = np.zeros((n23, self.n_l23_segments, n_syn))
+
+        for i in range(n23):
+            col = i // self.n_l23
+            l23_pool = self._l23_col_pools[col]
+            for s in range(self.n_l23_segments):
+                self.l23_seg_indices[i, s] = self._rng.choice(
+                    l23_pool, n_syn, replace=len(l23_pool) < n_syn
+                )
+
     def _get_source_pool(self, neuron: int, seg_type: str) -> np.ndarray:
         """Override: return local connectivity pool for this neuron's column."""
         col = neuron // self.n_l4
         if seg_type == "fb":
             return self._fb_col_pools[col]
         return self._lat_col_pools[col]
+
+    def _get_l23_source_pool(self, neuron: int) -> np.ndarray:
+        """Override: return local L2/3 pool for this neuron's column."""
+        col = neuron // self.n_l23
+        return self._l23_col_pools[col]
 
     def _init_l23_lateral_mask(self, radius: int):
         """Build local connectivity mask for L2/3 lateral weights."""

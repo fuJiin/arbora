@@ -51,6 +51,12 @@ class Snapshot:
     n_active_fb_segments: int = 0
     n_active_lat_segments: int = 0
 
+    # L2/3 segment health
+    l23_seg_perm_mean: float = 0.0
+    l23_seg_connected_frac: float = 0.0
+    n_active_l23_segments: int = 0
+    n_predicted_l23: int = 0
+
 
 @dataclass
 class CortexDiagnostics:
@@ -185,6 +191,23 @@ class CortexDiagnostics:
                 lat_counts = (lat_active & lat_conn).sum(axis=2)
                 snap.n_active_lat_segments = int(
                     (lat_counts >= region.seg_activation_threshold).sum()
+                )
+
+        # L2/3 lateral segment health
+        if hasattr(region, "l23_seg_perm"):
+            l23_perm = region.l23_seg_perm
+            snap.l23_seg_perm_mean = float(np.mean(l23_perm))
+            snap.l23_seg_connected_frac = float(
+                np.mean(l23_perm > region.perm_threshold)
+            )
+            snap.n_predicted_l23 = int(region.predicted_l23.sum())
+
+            if region.active_l23.any():
+                l23_active = region.active_l23[region.l23_seg_indices]
+                l23_conn = l23_perm > region.perm_threshold
+                l23_counts = (l23_active & l23_conn).sum(axis=2)
+                snap.n_active_l23_segments = int(
+                    (l23_counts >= region.seg_activation_threshold).sum()
                 )
 
         return snap

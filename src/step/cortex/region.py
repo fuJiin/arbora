@@ -5,12 +5,19 @@ Two-layer architecture modeled on neocortical minicolumns:
 - L2/3 (associative): receives L4 feedforward + lateral context from
   other L2/3 neurons, enabling associative binding and pattern completion
 
-Prediction uses dendritic segments — each L4 neuron has multiple
-short dendritic branches that each recognize a specific pattern of
-source neuron activity. A segment fires when enough of its connected
-synapses have active sources, predicting the neuron. Two segment types:
+Prediction uses dendritic segments — each neuron has multiple short
+dendritic branches that recognize specific patterns of source activity.
+A segment fires when enough connected synapses have active sources.
+
+L4 segment types:
 - Feedback segments (L2/3 → L4): context from associative layer
 - Lateral segments (L4 → L4): context from same-layer temporal patterns
+
+L2/3 segment types:
+- L2/3 lateral segments (L2/3 → L2/3): selective pattern-specific
+  lateral predictions, replacing dense Hebbian with sparse connectivity.
+  Each L2/3 neuron has dendritic branches recognizing specific L2/3
+  patterns, biasing competitive selection via voltage boost.
 
 Activation uses burst/precise distinction:
 1. Before feedforward input, check dendritic segments for predicted neurons
@@ -42,6 +49,7 @@ class CorticalRegion:
         # Dendritic segment parameters
         n_fb_segments: int = 4,
         n_lat_segments: int = 4,
+        n_l23_segments: int = 4,
         n_synapses_per_segment: int = 24,
         perm_threshold: float = 0.5,
         perm_init: float = 0.6,
@@ -64,6 +72,7 @@ class CorticalRegion:
         self.burst_learning_scale = burst_learning_scale
         self.n_fb_segments = n_fb_segments
         self.n_lat_segments = n_lat_segments
+        self.n_l23_segments = n_l23_segments
         self.n_synapses_per_segment = n_synapses_per_segment
         self.perm_threshold = perm_threshold
         self.perm_init = perm_init
@@ -94,6 +103,7 @@ class CorticalRegion:
         # Burst state (updated each step)
         self.bursting_columns = np.zeros(n_columns, dtype=np.bool_)
         self.predicted_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
+        self.predicted_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
 
         # L2/3 firing rate estimate (EMA of boolean activations).
         # Models postsynaptic temporal integration of spike trains.
@@ -143,6 +153,20 @@ class CorticalRegion:
                     lat_pool, n_syn, replace=len(lat_pool) < n_syn
                 )
 
+        # L2/3 lateral segments: L2/3 → L2/3
+        n23 = self.n_l23_total
+        self.l23_seg_indices = np.zeros(
+            (n23, self.n_l23_segments, n_syn), dtype=np.int32
+        )
+        self.l23_seg_perm = np.zeros((n23, self.n_l23_segments, n_syn))
+
+        l23_pool = np.arange(n23)
+        for i in range(n23):
+            for s in range(self.n_l23_segments):
+                self.l23_seg_indices[i, s] = self._rng.choice(
+                    l23_pool, n_syn, replace=len(l23_pool) < n_syn
+                )
+
     def predict_neuron(
         self, l4_idx: int, source_idx: int, segment_type: str = "fb"
     ):
@@ -179,6 +203,7 @@ class CorticalRegion:
         self.active_columns[:] = False
         self.bursting_columns[:] = False
         self.predicted_l4[:] = False
+        self.predicted_l23[:] = False
         self._pred_context_l23[:] = False
         self._pred_context_l4[:] = False
 
@@ -283,9 +308,26 @@ class CorticalRegion:
 
         return np.nonzero(self.active_l4)[0]
 
+    def _predict_l23_from_segments(self) -> np.ndarray:
+        """Check which L2/3 neurons have active lateral dendritic segments.
+
+        Uses previous active_l23 as context (saved in _pred_context_l23).
+        Returns boolean mask of shape (n_l23_total,).
+        """
+        predicted = np.zeros(self.n_l23_total, dtype=np.bool_)
+
+        if self.active_l23.any():
+            active_at_syn = self.active_l23[self.l23_seg_indices]
+            connected = self.l23_seg_perm > self.perm_threshold
+            counts = (active_at_syn & connected).sum(axis=2)
+            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
+
+        return predicted
+
     def _compute_predictions(self):
-        """Determine which L4 neurons are in predictive state via segments."""
+        """Determine which neurons are in predictive state via segments."""
         self.predicted_l4 = self._predict_from_segments()
+        self.predicted_l23 = self._predict_l23_from_segments()
 
     def _select_columns(self, scores: np.ndarray) -> np.ndarray:
         """Select top-k columns by max neuron score."""
@@ -331,10 +373,11 @@ class CorticalRegion:
     def _activate_l23(self, top_cols: np.ndarray):
         """Activate L2/3 associative neurons in active columns.
 
-        L2/3 receives three sources of drive:
+        L2/3 receives four sources of drive:
         1. L4 feedforward: base drive to all neurons in the column
         2. L4 winner bonus: precise columns boost the matching L2/3 neuron
-        3. L2/3 lateral: previous L2/3 activity biases current selection
+        3. L2/3 lateral weights: previous L2/3 activity biases current selection
+        4. L2/3 segment prediction: predicted neurons get voltage boost
 
         Then competitive selection: burst columns → all fire,
         precise columns → single winner.
@@ -352,10 +395,13 @@ class CorticalRegion:
                 if l4_winner < self.n_l23:
                     self.voltage_l23[col * self.n_l23 + l4_winner] += 0.5
 
-        # L2/3 lateral: previous L2/3 activity biases current selection
+        # L2/3 lateral weights: previous L2/3 activity biases current selection
         if self.active_l23.any():
             lat = self.active_l23.astype(np.float64) @ self.l23_lateral_weights
             self.voltage_l23 += lat
+
+        # L2/3 segment prediction boost: predicted neurons are primed
+        self.voltage_l23[self.predicted_l23] += self.fb_boost
 
         # Competitive selection per column
         self.active_l23[:] = False
@@ -376,8 +422,9 @@ class CorticalRegion:
     def _learn(self):
         """L2/3 lateral Hebbian learning + dendritic segment updates.
 
-        L2/3 lateral weights use dense Hebbian learning (no segments yet).
-        L4 prediction is handled entirely by dendritic segments.
+        L2/3 lateral weights use dense Hebbian learning (broad context).
+        L2/3 dendritic segments add selective pattern-specific predictions.
+        L4 prediction is handled entirely by L4 dendritic segments.
         """
         active_l23_f = self.active_l23.astype(np.float64)
         lr_l23 = np.full(self.n_l23_total, self.learning_rate * self.surprise_modulator)
@@ -392,8 +439,9 @@ class CorticalRegion:
         self.l23_lateral_weights *= self.synapse_decay
         np.clip(self.l23_lateral_weights, 0, 1, out=self.l23_lateral_weights)
 
-        # Dendritic segment learning (prediction)
+        # Dendritic segment learning (L4 prediction + L2/3 lateral)
         self._learn_segments()
+        self._learn_l23_segments()
 
     def _learn_segments(self):
         """Update dendritic segment permanences based on prediction outcomes.
@@ -534,6 +582,109 @@ class CorticalRegion:
                         )
 
                     seg_perm[neuron, s] = perm
+
+    def _learn_l23_segments(self):
+        """Update L2/3 lateral segment permanences based on prediction outcomes.
+
+        Mirrors L4 segment learning but for L2/3 lateral predictions:
+        - Burst column: grow best-matching L2/3 segment on trace winner
+        - Precise + predicted L2/3: reinforce active segments
+        - Predicted L2/3 but didn't fire: punish active segments
+        """
+        for col in np.nonzero(self.active_columns)[0]:
+            l23_start = col * self.n_l23
+            l23_end = l23_start + self.n_l23
+
+            if self.bursting_columns[col]:
+                # Grow segment on L2/3 trace winner (highest voltage)
+                best = l23_start + np.argmax(
+                    self.voltage_l23[l23_start:l23_end]
+                )
+                self._grow_l23_segment(best)
+            else:
+                # Reinforce segments on precisely-predicted L2/3 neurons
+                for neuron in range(l23_start, l23_end):
+                    if self.active_l23[neuron] and self.predicted_l23[neuron]:
+                        self._adapt_l23_segments(neuron, reinforce=True)
+
+        # Punish false L2/3 predictions
+        false_predicted = self.predicted_l23 & ~self.active_l23
+        for neuron in np.nonzero(false_predicted)[0]:
+            self._adapt_l23_segments(neuron, reinforce=False)
+
+    def _grow_l23_segment(self, neuron: int):
+        """Grow the best-matching L2/3 lateral segment for a bursting neuron."""
+        ctx = self._pred_context_l23
+        if not ctx.any():
+            return
+
+        # Find best-matching segment
+        best_seg_idx = 0
+        best_overlap = -1
+        for s in range(self.n_l23_segments):
+            overlap = int(ctx[self.l23_seg_indices[neuron, s]].sum())
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_seg_idx = s
+
+        if best_overlap <= 0:
+            return
+
+        idx = self.l23_seg_indices[neuron, best_seg_idx].copy()
+        perm = self.l23_seg_perm[neuron, best_seg_idx].copy()
+        syn_active = ctx[idx]
+
+        # Strengthen active, weaken inactive
+        inc = self.perm_increment * self.surprise_modulator
+        dec = self.perm_decrement * self.surprise_modulator
+        perm[syn_active] = np.minimum(perm[syn_active] + inc, 1.0)
+        perm[~syn_active] = np.maximum(perm[~syn_active] - dec, 0.0)
+
+        # Grow: replace weakest inactive synapses with active sources
+        pool = self._get_l23_source_pool(neuron)
+        active_in_pool = np.intersect1d(np.nonzero(ctx)[0], pool)
+        existing_set = set(idx.tolist())
+        new_sources = [s for s in active_in_pool if s not in existing_set]
+
+        if new_sources:
+            inactive_slots = np.where(~syn_active)[0]
+            if len(inactive_slots) > 0:
+                order = np.argsort(perm[inactive_slots])
+                n_grow = min(len(new_sources), len(inactive_slots))
+                for i in range(n_grow):
+                    slot = inactive_slots[order[i]]
+                    idx[slot] = new_sources[i]
+                    perm[slot] = self.perm_init
+
+        self.l23_seg_indices[neuron, best_seg_idx] = idx
+        self.l23_seg_perm[neuron, best_seg_idx] = perm
+
+    def _adapt_l23_segments(self, neuron: int, reinforce: bool):
+        """Reinforce or punish active L2/3 lateral segments."""
+        ctx = self._pred_context_l23
+        if not ctx.any():
+            return
+        for s in range(self.n_l23_segments):
+            idx = self.l23_seg_indices[neuron, s]
+            perm = self.l23_seg_perm[neuron, s]
+            syn_active = ctx[idx]
+            connected = perm > self.perm_threshold
+            count = (syn_active & connected).sum()
+
+            if count >= self.seg_activation_threshold:
+                inc = self.perm_increment * self.surprise_modulator
+                dec = self.perm_decrement * self.surprise_modulator
+                if reinforce:
+                    perm[syn_active] = np.minimum(perm[syn_active] + inc, 1.0)
+                    perm[~syn_active] = np.maximum(perm[~syn_active] - dec, 0.0)
+                else:
+                    mask = syn_active & connected
+                    perm[mask] = np.maximum(perm[mask] - dec, 0.0)
+                self.l23_seg_perm[neuron, s] = perm
+
+    def _get_l23_source_pool(self, neuron: int) -> np.ndarray:
+        """Get valid L2/3 source neuron indices for growing synapses."""
+        return np.arange(self.n_l23_total)
 
     def _update_traces(self):
         """Set active neuron traces to 1, decay the rest."""
