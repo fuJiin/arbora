@@ -57,6 +57,11 @@ class Snapshot:
     n_active_l23_segments: int = 0
     n_predicted_l23: int = 0
 
+    # Apical segment health (R2 → R1 feedback)
+    apical_seg_perm_mean: float = 0.0
+    apical_seg_connected_frac: float = 0.0
+    n_apical_predicted_cols: int = 0
+
 
 @dataclass
 class CortexDiagnostics:
@@ -207,6 +212,17 @@ class CortexDiagnostics:
                 snap.n_active_l23_segments = int(
                     (l23_counts >= region.seg_activation_threshold).sum()
                 )
+
+        # Apical segment health
+        if region.has_apical and region.apical_seg_perm is not None:
+            ap_perm = region.apical_seg_perm
+            snap.apical_seg_perm_mean = float(np.mean(ap_perm))
+            snap.apical_seg_connected_frac = float(
+                np.mean(ap_perm > region.perm_threshold)
+            )
+            snap.n_apical_predicted_cols = int(
+                region.apical_predicted_cols.sum()
+            )
 
         return snap
 

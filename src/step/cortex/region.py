@@ -57,6 +57,7 @@ class CorticalRegion:
         perm_decrement: float = 0.05,
         seg_activation_threshold: int = 2,
         prediction_gain: float = 1.0,
+        n_apical_segments: int = 4,
         l23_prediction_boost: float = 0.0,
         seed: int = 0,
     ):
@@ -81,6 +82,7 @@ class CorticalRegion:
         self.perm_decrement = perm_decrement
         self.seg_activation_threshold = seg_activation_threshold
         self.prediction_gain = prediction_gain
+        self.n_apical_segments = n_apical_segments
         # L2/3 segment prediction boost (0 = use fb_boost for both layers)
         self.l23_prediction_boost = l23_prediction_boost
         self._rng = np.random.default_rng(seed)
@@ -122,6 +124,15 @@ class CorticalRegion:
         # Prediction-time context (saved for segment learning)
         self._pred_context_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
         self._pred_context_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
+
+        # Apical feedback (R2 L2/3 → R1 L4): initialized lazily via
+        # init_apical_segments() once the higher region exists.
+        self._apical_source_dim: int = 0
+        self.apical_seg_indices: np.ndarray | None = None
+        self.apical_seg_perm: np.ndarray | None = None
+        self._apical_context = np.zeros(0, dtype=np.float64)
+        self._pred_apical_context = np.zeros(0, dtype=np.float64)
+        self.apical_predicted_cols = np.zeros(self.n_columns, dtype=np.bool_)
 
         # Initialize dendritic segments
         self._init_segments()
@@ -170,6 +181,38 @@ class CorticalRegion:
                     l23_pool, n_syn, replace=len(l23_pool) < n_syn
                 )
 
+    def init_apical_segments(self, source_dim: int):
+        """Initialize apical segments sourcing from a higher region's L2/3.
+
+        Called after the higher region is created, since its size isn't
+        known at construction time. Each L4 neuron gets n_apical_segments
+        segments with synapses sampling from the source population.
+        """
+        self._apical_source_dim = source_dim
+        n = self.n_l4_total
+        n_syn = self.n_synapses_per_segment
+
+        self.apical_seg_indices = np.zeros(
+            (n, self.n_apical_segments, n_syn), dtype=np.int32
+        )
+        self.apical_seg_perm = np.zeros((n, self.n_apical_segments, n_syn))
+
+        pool = np.arange(source_dim)
+        for i in range(n):
+            for s in range(self.n_apical_segments):
+                self.apical_seg_indices[i, s] = self._rng.choice(
+                    pool, n_syn, replace=source_dim < n_syn
+                )
+
+        self._apical_context = np.zeros(source_dim, dtype=np.float64)
+        self._pred_apical_context = np.zeros(source_dim, dtype=np.float64)
+        self.apical_predicted_cols[:] = False
+
+    @property
+    def has_apical(self) -> bool:
+        """Whether apical segments have been initialized."""
+        return self.apical_seg_indices is not None
+
     def predict_neuron(
         self, l4_idx: int, source_idx: int, segment_type: str = "fb"
     ):
@@ -209,6 +252,10 @@ class CorticalRegion:
         self.predicted_l23[:] = False
         self._pred_context_l23[:] = False
         self._pred_context_l4[:] = False
+        self.apical_predicted_cols[:] = False
+        if self.has_apical:
+            self._apical_context[:] = 0.0
+            self._pred_apical_context[:] = 0.0
 
     def _predict_from_segments(self) -> np.ndarray:
         """Check which L4 neurons have active dendritic segments.
@@ -263,18 +310,17 @@ class CorticalRegion:
         #    (current active state is from the previous step)
         self._pred_context_l23[:] = self.active_l23
         self._pred_context_l4[:] = self.active_l4
+        if self.has_apical:
+            self._pred_apical_context[:] = self._apical_context
 
         # 4. Feedforward drive to L4 neurons
         self.voltage_l4 += drive
 
-        # 5a. Thalamic gating: amplify drive for predicted columns.
-        #     Models thalamocortical feedback (L6→thalamus) that modulates
-        #     relay gain, biasing column competition toward predicted columns.
-        if self.prediction_gain > 1.0 and self.predicted_l4.any():
-            pred_by_col = self.predicted_l4.reshape(self.n_columns, self.n_l4)
-            pred_cols = pred_by_col.any(axis=1)
-            # Broadcast column mask to per-neuron gain
-            gain_mask = np.repeat(pred_cols, self.n_l4)
+        # 5a. Apical gating: amplify drive for columns with top-down predictions.
+        #     Models cortico-cortical feedback via apical dendrites — higher
+        #     region context biases column competition toward expected columns.
+        if self.prediction_gain > 1.0 and self.apical_predicted_cols.any():
+            gain_mask = np.repeat(self.apical_predicted_cols, self.n_l4)
             self.voltage_l4[gain_mask] *= self.prediction_gain
 
         # 5b. Predicted neurons get a voltage boost (they're primed)
@@ -327,10 +373,49 @@ class CorticalRegion:
 
         return predicted
 
+    def set_apical_context(self, context: np.ndarray):
+        """Set the apical feedback signal from a higher region.
+
+        Called each step by the runner before this region's step().
+        context: continuous firing rate signal from the higher region's L2/3.
+        """
+        self._apical_context[:] = context
+
+    def _predict_apical_columns(self):
+        """Check which columns have apical dendritic segment activity.
+
+        Apical segments source from a higher region's L2/3. A segment is
+        active when enough connected synapses have active sources (thresholded
+        from continuous firing rate). Apical prediction is column-level:
+        if any neuron in a column has an active apical segment, the column
+        is apically predicted.
+
+        Sets self.apical_predicted_cols (boolean, per-column).
+        """
+        self.apical_predicted_cols[:] = False
+        if not self.has_apical:
+            return
+
+        # Threshold continuous firing rate to boolean for segment matching
+        ctx_bool = self._apical_context > 0
+
+        if not ctx_bool.any():
+            return
+
+        active_at_syn = ctx_bool[self.apical_seg_indices]
+        connected = self.apical_seg_perm > self.perm_threshold
+        counts = (active_at_syn & connected).sum(axis=2)
+        neuron_predicted = (counts >= self.seg_activation_threshold).any(axis=1)
+
+        # Aggregate to column level
+        pred_by_col = neuron_predicted.reshape(self.n_columns, self.n_l4)
+        self.apical_predicted_cols = pred_by_col.any(axis=1)
+
     def _compute_predictions(self):
         """Determine which neurons are in predictive state via segments."""
         self.predicted_l4 = self._predict_from_segments()
         self.predicted_l23 = self._predict_l23_from_segments()
+        self._predict_apical_columns()
 
     def _select_columns(self, scores: np.ndarray) -> np.ndarray:
         """Select top-k columns by max neuron score."""
@@ -472,6 +557,9 @@ class CorticalRegion:
         false_predicted = self.predicted_l4 & ~self.active_l4
         for neuron in np.nonzero(false_predicted)[0]:
             self._adapt_segments(neuron, reinforce=False)
+
+        # Apical segment learning (same pattern: grow/reinforce/punish)
+        self._learn_apical_segments()
 
     # ------------------------------------------------------------------
     # Generic segment operations (shared by L4 and L2/3 segments)
@@ -617,6 +705,52 @@ class CorticalRegion:
             neuron, self.lat_seg_indices, self.lat_seg_perm,
             self._pred_context_l4, reinforce,
         )
+
+    # ------------------------------------------------------------------
+    # Apical segment learning (R2 L2/3 → R1 L4)
+    # ------------------------------------------------------------------
+
+    def _learn_apical_segments(self):
+        """Update apical segment permanences based on prediction outcomes.
+
+        Same grow/reinforce/punish pattern as fb/lat segments, but using
+        apical context (higher region's L2/3 firing rate) as the source.
+        """
+        if not self.has_apical:
+            return
+
+        ctx = self._pred_apical_context > 0  # threshold to boolean
+        if not ctx.any():
+            return
+
+        pool = np.arange(self._apical_source_dim)
+
+        for col in np.nonzero(self.active_columns)[0]:
+            l4_start = col * self.n_l4
+            l4_end = l4_start + self.n_l4
+
+            if self.bursting_columns[col]:
+                best = l4_start + np.argmax(self.voltage_l4[l4_start:l4_end])
+                self._grow_segment(
+                    best, self.apical_seg_indices, self.apical_seg_perm,
+                    ctx, pool,
+                )
+            else:
+                for neuron in range(l4_start, l4_end):
+                    if self.active_l4[neuron]:
+                        self._adapt_segment_array(
+                            neuron, self.apical_seg_indices,
+                            self.apical_seg_perm, ctx, reinforce=True,
+                        )
+
+        # Punish: columns with apical prediction that didn't activate
+        for col in np.nonzero(self.apical_predicted_cols & ~self.active_columns)[0]:
+            l4_start = col * self.n_l4
+            for neuron in range(l4_start, l4_start + self.n_l4):
+                self._adapt_segment_array(
+                    neuron, self.apical_seg_indices,
+                    self.apical_seg_perm, ctx, reinforce=False,
+                )
 
     # ------------------------------------------------------------------
     # L2/3 segment learning (lateral)

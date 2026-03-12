@@ -183,8 +183,10 @@ def run_hierarchy(
 ) -> HierarchyMetrics:
     """Run two-region hierarchy: Region 1 (sensory) → Region 2 (secondary).
 
-    Region 2 receives Region 1's L2/3 boolean output as its encoding.
+    Region 2 receives Region 1's L2/3 firing rate as its encoding.
     Surprise (Region 1 burst rate) modulates Region 2 learning rate.
+    If Region 1 has apical segments, Region 2's L2/3 firing rate is
+    fed back as apical context for top-down prediction.
     """
     if surprise_tracker is None:
         surprise_tracker = SurpriseTracker()
@@ -231,6 +233,12 @@ def run_hierarchy(
         # Rate-coded signal (EMA of spikes) rather than instantaneous boolean,
         # modeling postsynaptic temporal integration of spike trains.
         region2.process(region1.firing_rate_l23)
+
+        # --- Apical feedback: Region 2 L2/3 → Region 1 apical context ---
+        # Top-down context for next R1 step. R2's L2/3 firing rate provides
+        # a continuous signal that R1 apical segments can learn from.
+        if region1.has_apical:
+            region1.set_apical_context(region2.firing_rate_l23)
 
         rep_tracker2.observe(token_id, region2.active_columns, region2.active_l4)
         if diagnostics2 is not None:
