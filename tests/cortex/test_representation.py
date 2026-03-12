@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from step.cortex.representation import RepresentationTracker
+from step.probes.representation import RepresentationTracker
 
 
 @pytest.fixture
@@ -86,9 +86,7 @@ class TestColumnSelectivity:
     def test_uniform_column_not_selective(self, tracker):
         """Column responding to many tokens equally = low selectivity."""
         for tid in range(20):
-            tracker.observe(
-                tid, _make_columns([0]), _make_neurons([0])
-            )
+            tracker.observe(tid, _make_columns([0]), _make_neurons([0]))
 
         sel = tracker.column_selectivity()
         # Column 0 sees 20 tokens uniformly -> high entropy
@@ -96,9 +94,7 @@ class TestColumnSelectivity:
 
     def test_mean_in_range(self, tracker):
         for tid in range(5):
-            tracker.observe(
-                tid, _make_columns([tid % 8]), _make_neurons([0])
-            )
+            tracker.observe(tid, _make_columns([tid % 8]), _make_neurons([0]))
         sel = tracker.column_selectivity()
         assert 0.0 <= sel["mean"] <= 1.0
 
@@ -116,12 +112,8 @@ class TestRepresentationSimilarity:
     def test_disjoint_tokens_low_similarity(self, tracker):
         """Tokens that activate different columns = low similarity."""
         for _ in range(10):
-            tracker.observe(
-                1, _make_columns([0, 1]), _make_neurons([0, 4])
-            )
-            tracker.observe(
-                2, _make_columns([6, 7]), _make_neurons([24, 28])
-            )
+            tracker.observe(1, _make_columns([0, 1]), _make_neurons([0, 4]))
+            tracker.observe(2, _make_columns([6, 7]), _make_neurons([24, 28]))
 
         sim = tracker.representation_similarity()
         assert sim["mean"] < 0.2
@@ -130,16 +122,10 @@ class TestRepresentationSimilarity:
         """Mix of similar and dissimilar tokens = nontrivial."""
         for _ in range(10):
             # Tokens 1,2 share columns
-            tracker.observe(
-                1, _make_columns([0, 1]), _make_neurons([0])
-            )
-            tracker.observe(
-                2, _make_columns([0, 2]), _make_neurons([0])
-            )
+            tracker.observe(1, _make_columns([0, 1]), _make_neurons([0]))
+            tracker.observe(2, _make_columns([0, 2]), _make_neurons([0]))
             # Token 3 is different
-            tracker.observe(
-                3, _make_columns([6, 7]), _make_neurons([24])
-            )
+            tracker.observe(3, _make_columns([6, 7]), _make_neurons([24]))
 
         sim = tracker.representation_similarity()
         assert sim["std"] > 0.01
@@ -160,9 +146,7 @@ class TestContextDiscrimination:
         if ctx["n_eligible_tokens"] > 0:
             assert ctx["mean_discrimination"] < 0.1
 
-    def test_different_neurons_different_context_high_discrimination(
-        self, tracker
-    ):
+    def test_different_neurons_different_context_high_discrimination(self, tracker):
         """Different neuron pattern per context = high discrimination."""
         cols = _make_columns([0, 1])
         for prev in range(5):
@@ -191,7 +175,7 @@ class TestFFConvergence:
         ff = np.zeros((100, 8))
         for col in range(8):
             start = col * 12
-            ff[start: start + 5, col] = 1.0
+            ff[start : start + 5, col] = 1.0
 
         conv = tracker.ff_convergence(ff)
         assert conv["cross_col_cosine_mean"] < 0.1

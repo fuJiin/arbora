@@ -169,9 +169,7 @@ class CortexDiagnostics:
             fb_perm = region.fb_seg_perm
             lat_perm = region.lat_seg_perm
             snap.fb_seg_perm_mean = float(np.mean(fb_perm))
-            snap.fb_seg_connected_frac = float(
-                np.mean(fb_perm > region.perm_threshold)
-            )
+            snap.fb_seg_connected_frac = float(np.mean(fb_perm > region.perm_threshold))
             snap.lat_seg_perm_mean = float(np.mean(lat_perm))
             snap.lat_seg_connected_frac = float(
                 np.mean(lat_perm > region.perm_threshold)
@@ -329,5 +327,3 @@ class CortexDiagnostics:
         print(f"  unique column sets: {summ['unique_column_sets']}")
         print(f"  L4-L2/3 match rate: {summ['l4_l23_match_rate']:.1%}")
         print(f"  burst rate: {summ['burst_rate']:.1%}")
-
-
