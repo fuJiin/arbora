@@ -123,12 +123,7 @@ def run_experiment(
         seed=cfg.seed,
     )
 
-    n_params = (
-        region.ff_weights.size
-        + region.fb_weights.size
-        + region.lateral_weights.size
-        + region.l23_lateral_weights.size
-    )
+    n_params = region.ff_weights.size + region.l23_lateral_weights.size
 
     diag = CortexDiagnostics(snapshot_interval=log_interval)
     decode_index = InvertedIndexDecoder()

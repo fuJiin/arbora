@@ -95,9 +95,6 @@ class CorticalRegion:
         self.bursting_columns = np.zeros(n_columns, dtype=np.bool_)
         self.predicted_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
 
-        # Dense weights (kept for backward compat, diagnostics, decoder)
-        self.fb_weights = np.zeros((self.n_l23_total, self.n_l4_total))
-        self.lateral_weights = np.zeros((self.n_l4_total, self.n_l4_total))
         # L2/3 lateral weights (associative binding across columns)
         self.l23_lateral_weights = np.zeros((self.n_l23_total, self.n_l23_total))
 
@@ -214,12 +211,10 @@ class CorticalRegion:
         return np.nonzero(self._predict_from_segments())[0]
 
     def step(self, drive: np.ndarray) -> np.ndarray:
-        """Run one timestep given feedforward drive.
+        """Run one timestep given per-neuron feedforward drive.
 
         Args:
-            drive: either (n_columns,) column-level drive (broadcast to
-                   all neurons in each column) or (n_l4_total,) per-neuron
-                   drive for per-neuron ff_weights mode.
+            drive: (n_l4_total,) per-neuron feedforward drive.
 
         Returns:
             Array of global indices of active L4 neurons.
@@ -237,12 +232,7 @@ class CorticalRegion:
         self._pred_context_l4[:] = self.active_l4
 
         # 4. Feedforward drive to L4 neurons
-        if drive.shape[0] == self.n_columns:
-            # Column-level: broadcast to all neurons in each column
-            self.voltage_l4 += np.repeat(drive, self.n_l4)
-        else:
-            # Per-neuron: direct neuron-level drive
-            self.voltage_l4 += drive
+        self.voltage_l4 += drive
 
         # 5a. Thalamic gating: amplify drive for predicted columns.
         #     Models thalamocortical feedback (L6→thalamus) that modulates
@@ -265,7 +255,7 @@ class CorticalRegion:
         # 7. Activate L2/3: L4 feedforward + lateral context
         self._activate_l23(top_cols)
 
-        # 8. Learn (dense Hebbian + segment permanence updates)
+        # 8. Learn (L2/3 lateral Hebbian + segment permanence updates)
         self._learn()
 
         # 9. Update eligibility traces for newly active neurons
@@ -375,74 +365,25 @@ class CorticalRegion:
                 self.active_l23[start + winner] = True
 
     def _learn(self):
-        """Dense Hebbian learning + dendritic segment permanence updates.
+        """L2/3 lateral Hebbian learning + dendritic segment updates.
 
-        Dense learning on fb/lateral/l23_lateral weights is kept for
-        backward compatibility and diagnostics. Segment learning handles
-        the actual prediction improvement.
+        L2/3 lateral weights use dense Hebbian learning (no segments yet).
+        L4 prediction is handled entirely by dendritic segments.
         """
-        # Build per-neuron learning rate based on burst state
-        lr_l4 = np.full(self.n_l4_total, self.learning_rate)
+        active_l23_f = self.active_l23.astype(np.float64)
         lr_l23 = np.full(self.n_l23_total, self.learning_rate)
         for col in np.nonzero(self.bursting_columns)[0]:
-            l4_start = col * self.n_l4
             l23_start = col * self.n_l23
-            lr_l4[l4_start : l4_start + self.n_l4] *= self.burst_learning_scale
             lr_l23[l23_start : l23_start + self.n_l23] *= self.burst_learning_scale
 
-        active_l4_f = self.active_l4.astype(np.float64)
-        active_l23_f = self.active_l23.astype(np.float64)
-
-        # --- Dense LTP: strengthen synapses to active neurons ---
-
-        # L2/3 -> L4 feedback synapses
-        self.fb_weights += (
-            self.trace_l23[:, np.newaxis] * (lr_l4 * active_l4_f)[np.newaxis, :]
-        )
-
-        # L4 -> L4 lateral synapses
-        self.lateral_weights += (
-            self.trace_l4[:, np.newaxis] * (lr_l4 * active_l4_f)[np.newaxis, :]
-        )
-
-        # L2/3 -> L2/3 lateral synapses
+        # L2/3 -> L2/3 lateral: Hebbian with trace
         self.l23_lateral_weights += (
             self.trace_l23[:, np.newaxis] * (lr_l23 * active_l23_f)[np.newaxis, :]
         )
-
-        # --- Dense prediction LTD ---
-        if self.prediction_ltd_rate > 0:
-            false_predicted_l4 = self.predicted_l4 & ~self.active_l4
-            if false_predicted_l4.any():
-                fp_l4_f = false_predicted_l4.astype(np.float64)
-
-                self.fb_weights -= (
-                    self.prediction_ltd_rate
-                    * self.trace_l23[:, np.newaxis]
-                    * fp_l4_f[np.newaxis, :]
-                )
-
-                self.lateral_weights -= (
-                    self.prediction_ltd_rate
-                    * self.trace_l4[:, np.newaxis]
-                    * fp_l4_f[np.newaxis, :]
-                )
-
-        # Decay all dense synapses
-        self.fb_weights *= self.synapse_decay
-        self.lateral_weights *= self.synapse_decay
         self.l23_lateral_weights *= self.synapse_decay
+        np.clip(self.l23_lateral_weights, 0, 1, out=self.l23_lateral_weights)
 
-        np.clip(self.fb_weights, 0, 1, out=self.fb_weights)
-        np.clip(self.lateral_weights, 0, 1, out=self.lateral_weights)
-        np.clip(
-            self.l23_lateral_weights,
-            0,
-            1,
-            out=self.l23_lateral_weights,
-        )
-
-        # --- Dendritic segment learning ---
+        # Dendritic segment learning (prediction)
         self._learn_segments()
 
     def _learn_segments(self):
