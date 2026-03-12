@@ -6,7 +6,7 @@ Research project exploring biologically-plausible learning for next-token predic
 ## Architecture (`src/step/cortex/`)
 
 - **L4/L2/3 minicolumn model** with burst/precise activation
-- **Dendritic segments** for prediction: fb (L2/3→L4) + lat (L4→L4), HTM-style permanence learning
+- **Dendritic segments** for prediction: fb (L2/3→L4), lat (L4→L4), l23 (L2/3→L2/3), HTM-style permanence learning
 - **Per-neuron ff_weights**: each L4 neuron has own weights within column's structural mask
 - **SensoryRegion**: local connectivity (radius = n_columns//4), structural masks on ff and segments
 - **L2/3 lateral weights**: dense Hebbian (broad context) + dendritic segments (selective pattern predictions)
@@ -41,6 +41,7 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Per-neuron ff_weights** — always on, column-level path removed
 - **Dendritic segments** — sole prediction mechanism
 - **Segment params**: thresh=2, perm_inc=0.2, n_synapses=24 (re-swept with CharbitEncoder)
+- **L2/3 segment params**: 4 segments, shared permanence params, `l23_prediction_boost=0` (uses fb_boost)
 
 ## Key Decisions
 - **Representation quality over decoder accuracy** — sensory cortex builds representations for downstream regions
@@ -52,6 +53,8 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Surprise-modulated learning (third-factor)** — R1 burst rate modulates R2 plasticity via NE-like signal
 - **24 synapses/segment** — CharbitEncoder re-sweep (20k tokens, 16 configs) showed wider segments capture richer context. Best ctx_disc (0.593) and prediction diversity (12929 sets) with no runtime cost vs 16 synapses.
 - **L2/3 segments coexist with dense Hebbian** — dense weights provide broad lateral context, segments add selective pattern-specific predictions. Both active simultaneously.
+- **L2/3 segment sweep** — independent `l23_prediction_boost` param added. At 10k tokens, L2/3 segments grow (2% connected, ~10 predicted neurons) but don't yet differentiate significantly from baseline. Refinement mechanism that needs longer training.
+- **Segment ops refactored** — shared `_grow_segment()` and `_adapt_segment_array()` eliminate L4/L2/3 duplication, ready for thalamic relay segments.
 
 ## Next Steps
 - [ ] Add thalamic relay + feedback R2→R1 (activates prediction_gain, apical dendrites)
