@@ -3,10 +3,13 @@
 import time
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from step.config import ModelConfig
 from step.cortex.diagnostics import CortexDiagnostics
 from step.cortex.representation import RepresentationTracker
 from step.cortex.sensory import SensoryRegion
+from step.cortex.surprise import SurpriseTracker
 from step.decoders import InvertedIndexDecoder, SynapticDecoder
 from step.encoders.charbit import CharbitEncoder
 
@@ -217,4 +220,143 @@ def run_step_baseline(
             )
 
     metrics.elapsed_seconds = time.monotonic() - start
+    return metrics
+
+
+@dataclass
+class HierarchyMetrics:
+    region1: RunMetrics = field(default_factory=RunMetrics)
+    region2: RunMetrics = field(default_factory=RunMetrics)
+    surprise_modulators: list[float] = field(default_factory=list)
+    elapsed_seconds: float = 0.0
+
+
+def run_hierarchy(
+    region1: SensoryRegion,
+    region2: SensoryRegion,
+    encoder: CharbitEncoder,
+    tokens: list[tuple[int, str]],
+    *,
+    surprise_tracker: SurpriseTracker | None = None,
+    log_interval: int = 100,
+    rolling_window: int = 100,
+    diagnostics1: CortexDiagnostics | None = None,
+    diagnostics2: CortexDiagnostics | None = None,
+) -> HierarchyMetrics:
+    """Run two-region hierarchy: Region 1 (sensory) → Region 2 (secondary).
+
+    Region 2 receives Region 1's L2/3 boolean output as its encoding.
+    Surprise (Region 1 burst rate) modulates Region 2 learning rate.
+    """
+    if surprise_tracker is None:
+        surprise_tracker = SurpriseTracker()
+
+    decode_index1 = InvertedIndexDecoder()
+    syn_decoder1 = SynapticDecoder()
+    rep_tracker1 = RepresentationTracker(region1.n_columns, region1.n_l4)
+    rep_tracker2 = RepresentationTracker(region2.n_columns, region2.n_l4)
+    metrics = HierarchyMetrics()
+    k1 = region1.k_columns
+    start = time.monotonic()
+
+    for t, (token_id, token_str) in enumerate(tokens):
+        if token_id == STORY_BOUNDARY:
+            region1.reset_working_memory()
+            region2.reset_working_memory()
+            rep_tracker1.reset_context()
+            rep_tracker2.reset_context()
+            continue
+
+        # --- Region 1: prediction + activation ---
+        predicted_neurons = region1.get_prediction(k1)
+        predicted_set = frozenset(int(i) for i in predicted_neurons)
+        syn_id, _ = syn_decoder1.decode_synaptic(predicted_neurons, region1)
+        idx_predicted = decode_index1.decode(predicted_set)
+
+        encoding = encoder.encode(token_str)
+        active_neurons1 = region1.process(encoding)
+        active_set1 = frozenset(int(i) for i in active_neurons1)
+
+        rep_tracker1.observe(token_id, region1.active_columns, region1.active_l4)
+        if diagnostics1 is not None:
+            diagnostics1.step(t, region1)
+
+        # --- Surprise modulation from Region 1 burst rate ---
+        n_active_cols = int(region1.active_columns.sum())
+        n_bursting = int(region1.bursting_columns.sum())
+        burst_rate = n_bursting / max(n_active_cols, 1)
+        modulator = surprise_tracker.update(burst_rate)
+        region2.surprise_modulator = modulator
+        metrics.surprise_modulators.append(modulator)
+
+        # --- Region 2: receives Region 1 L2/3 output ---
+        r2_encoding = region1.active_l23.astype(np.float64)
+        region2.process(r2_encoding)
+
+        rep_tracker2.observe(token_id, region2.active_columns, region2.active_l4)
+        if diagnostics2 is not None:
+            diagnostics2.step(t, region2)
+
+        # --- Region 1 decoder metrics ---
+        if t > 0:
+            if active_set1:
+                overlap = len(predicted_set & active_set1) / len(active_set1)
+            else:
+                overlap = 0.0
+            metrics.region1.overlaps.append(overlap)
+
+            accuracy = 1.0 if idx_predicted == token_id else 0.0
+            metrics.region1.accuracies.append(accuracy)
+
+            syn_acc = 1.0 if syn_id == token_id else 0.0
+            metrics.region1.synaptic_accuracies.append(syn_acc)
+
+        decode_index1.observe(token_id, active_set1)
+        syn_decoder1.observe(token_id, token_str, encoding, region1.active_columns)
+
+        if t > 0 and t % log_interval == 0 and metrics.region1.overlaps:
+            tail_syn = metrics.region1.synaptic_accuracies[-rolling_window:]
+            roll_syn = sum(tail_syn) / len(tail_syn)
+            tail_o = metrics.region1.overlaps[-rolling_window:]
+            roll_o = sum(tail_o) / len(tail_o)
+            tail_mod = metrics.surprise_modulators[-rolling_window:]
+            avg_mod = sum(tail_mod) / len(tail_mod)
+            elapsed = time.monotonic() - start
+
+            burst_pct = 0.0
+            if diagnostics1 is not None:
+                bc = diagnostics1._burst_count
+                pc = diagnostics1._precise_count
+                total = bc + pc
+                burst_pct = bc / total if total > 0 else 0.0
+
+            print(
+                f"  [R1] t={t:,} "
+                f"syn={roll_syn:.4f} "
+                f"overlap={roll_o:.4f} "
+                f"burst={burst_pct:.1%} "
+                f"mod={avg_mod:.2f} "
+                f"({elapsed:.1f}s)"
+            )
+
+    elapsed = time.monotonic() - start
+    metrics.elapsed_seconds = elapsed
+
+    # Region 1 representation
+    rep_summ1 = rep_tracker1.summary(region1.ff_weights)
+    sel1 = rep_tracker1.column_selectivity()
+    rep_summ1["column_selectivity_per_col"] = sel1["per_column"]
+    metrics.region1.representation = rep_summ1
+
+    # Region 2 representation
+    rep_summ2 = rep_tracker2.summary(region2.ff_weights)
+    sel2 = rep_tracker2.column_selectivity()
+    rep_summ2["column_selectivity_per_col"] = sel2["per_column"]
+    metrics.region2.representation = rep_summ2
+
+    print("\n--- Region 1 ---")
+    rep_tracker1.print_report(region1.ff_weights)
+    print("\n--- Region 2 ---")
+    rep_tracker2.print_report(region2.ff_weights)
+
     return metrics
