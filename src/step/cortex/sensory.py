@@ -86,6 +86,55 @@ class SensoryRegion(CorticalRegion):
         radius = max(1, self.n_columns // 4)
         self._init_internal_masks(radius)
 
+    def _init_segments(self):
+        """Override: constrain segment indices to local connectivity."""
+        radius = max(1, self.n_columns // 4)
+        n = self.n_l4_total
+        n_syn = self.n_synapses_per_segment
+
+        # Build per-column source pools (local neighborhood)
+        self._fb_col_pools = {}
+        self._lat_col_pools = {}
+        for col in range(self.n_columns):
+            neighbors = [
+                c for c in range(self.n_columns) if abs(c - col) <= radius
+            ]
+            self._fb_col_pools[col] = np.concatenate(
+                [np.arange(c * self.n_l23, (c + 1) * self.n_l23) for c in neighbors]
+            )
+            self._lat_col_pools[col] = np.concatenate(
+                [np.arange(c * self.n_l4, (c + 1) * self.n_l4) for c in neighbors]
+            )
+
+        self.fb_seg_indices = np.zeros(
+            (n, self.n_fb_segments, n_syn), dtype=np.int32
+        )
+        self.fb_seg_perm = np.zeros((n, self.n_fb_segments, n_syn))
+        self.lat_seg_indices = np.zeros(
+            (n, self.n_lat_segments, n_syn), dtype=np.int32
+        )
+        self.lat_seg_perm = np.zeros((n, self.n_lat_segments, n_syn))
+
+        for i in range(n):
+            col = i // self.n_l4
+            fb_pool = self._fb_col_pools[col]
+            lat_pool = self._lat_col_pools[col]
+            for s in range(self.n_fb_segments):
+                self.fb_seg_indices[i, s] = self._rng.choice(
+                    fb_pool, n_syn, replace=len(fb_pool) < n_syn
+                )
+            for s in range(self.n_lat_segments):
+                self.lat_seg_indices[i, s] = self._rng.choice(
+                    lat_pool, n_syn, replace=len(lat_pool) < n_syn
+                )
+
+    def _get_source_pool(self, neuron: int, seg_type: str) -> np.ndarray:
+        """Override: return local connectivity pool for this neuron's column."""
+        col = neuron // self.n_l4
+        if seg_type == "fb":
+            return self._fb_col_pools[col]
+        return self._lat_col_pools[col]
+
     def _init_internal_masks(self, radius: int):
         """Build connectivity masks for lateral and feedback weights."""
         col_mask = np.zeros((self.n_columns, self.n_columns), dtype=np.bool_)
@@ -188,14 +237,14 @@ class SensoryRegion(CorticalRegion):
         active_cols_f = self.active_columns.astype(np.float64)
         inactive_cols_f = 1.0 - active_cols_f
 
-        # LTP: active input × active columns
+        # LTP: active input x active columns
         self.ff_weights += (
             self.learning_rate
             * flat_input[:, np.newaxis]
             * active_cols_f[np.newaxis, :]
         )
 
-        # LTD: inactive input × active columns, scaled by local sparsity
+        # LTD: inactive input x active columns, scaled by local sparsity
         inactive_input = 1.0 - flat_input
         for col in np.nonzero(self.active_columns)[0]:
             col_mask = self.ff_mask[:, col]
@@ -240,14 +289,14 @@ class SensoryRegion(CorticalRegion):
                 if active_in_col.any():
                     active_neurons_f[l4_start + active_in_col.argmax()] = 1.0
 
-        # LTP: active input × winning neurons
+        # LTP: active input x winning neurons
         self.ff_weights += (
             self.learning_rate
             * flat_input[:, np.newaxis]
             * active_neurons_f[np.newaxis, :]
         )
 
-        # LTD: inactive input × winning neurons, local sparsity scaling
+        # LTD: inactive input x winning neurons, local sparsity scaling
         inactive_input = 1.0 - flat_input
         for neuron_idx in np.nonzero(active_neurons_f)[0]:
             col = neuron_idx // self.n_l4

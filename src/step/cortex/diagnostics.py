@@ -60,6 +60,14 @@ class Snapshot:
     fb_row_cosine_mean: float = 0.0
     lat_row_cosine_mean: float = 0.0
 
+    # Dendritic segment health
+    fb_seg_perm_mean: float = 0.0
+    fb_seg_connected_frac: float = 0.0
+    lat_seg_perm_mean: float = 0.0
+    lat_seg_connected_frac: float = 0.0
+    n_active_fb_segments: int = 0
+    n_active_lat_segments: int = 0
+
 
 @dataclass
 class CortexDiagnostics:
@@ -194,6 +202,35 @@ class CortexDiagnostics:
         snap.fb_row_cosine_mean = _row_cosine_sample(region.fb_weights)
         snap.lat_row_cosine_mean = _row_cosine_sample(region.lateral_weights)
 
+        # Dendritic segment health
+        if hasattr(region, "fb_seg_perm"):
+            fb_perm = region.fb_seg_perm
+            lat_perm = region.lat_seg_perm
+            snap.fb_seg_perm_mean = float(np.mean(fb_perm))
+            snap.fb_seg_connected_frac = float(
+                np.mean(fb_perm > region.perm_threshold)
+            )
+            snap.lat_seg_perm_mean = float(np.mean(lat_perm))
+            snap.lat_seg_connected_frac = float(
+                np.mean(lat_perm > region.perm_threshold)
+            )
+
+            # Count active segments (would fire given current activity)
+            if region.active_l23.any():
+                fb_active = region.active_l23[region.fb_seg_indices]
+                fb_conn = fb_perm > region.perm_threshold
+                fb_counts = (fb_active & fb_conn).sum(axis=2)
+                snap.n_active_fb_segments = int(
+                    (fb_counts >= region.seg_activation_threshold).sum()
+                )
+            if region.active_l4.any():
+                lat_active = region.active_l4[region.lat_seg_indices]
+                lat_conn = lat_perm > region.perm_threshold
+                lat_counts = (lat_active & lat_conn).sum(axis=2)
+                snap.n_active_lat_segments = int(
+                    (lat_counts >= region.seg_activation_threshold).sum()
+                )
+
         return snap
 
     def summary(self) -> dict:
@@ -301,6 +338,18 @@ class CortexDiagnostics:
         print(f"  unique prediction sets:  {summ['unique_prediction_sets']}")
         print(f"  hit rate (neuron):       {summ['prediction_hit_neuron']:.1%}")
         print(f"  hit rate (column):       {summ['prediction_hit_column']:.1%}")
+
+        print("\nDendritic segments:")
+        print(
+            f"  fb: perm_mean={s.fb_seg_perm_mean:.4f}"
+            f" connected={s.fb_seg_connected_frac:.1%}"
+            f" active_segs={s.n_active_fb_segments}"
+        )
+        print(
+            f"  lat: perm_mean={s.lat_seg_perm_mean:.4f}"
+            f" connected={s.lat_seg_connected_frac:.1%}"
+            f" active_segs={s.n_active_lat_segments}"
+        )
 
         print("\nActivation diversity:")
         max_ent = np.log2(max(self._column_counts.keys(), default=1) + 1)
