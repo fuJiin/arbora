@@ -40,7 +40,7 @@ Research project exploring biologically-plausible learning for next-token predic
 - **BabyLM** dataset — more naturalistic, developmentally plausible
 - **Per-neuron ff_weights** — always on, column-level path removed
 - **Dendritic segments** — sole prediction mechanism
-- **Segment params**: thresh=2, perm_inc=0.2 (best from sweep)
+- **Segment params**: thresh=2, perm_inc=0.2, n_synapses=24 (re-swept with CharbitEncoder)
 
 ## Key Decisions
 - **Representation quality over decoder accuracy** — sensory cortex builds representations for downstream regions
@@ -50,9 +50,9 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Low lr + high LTD for R2** — secondary region should learn slowly and prune aggressively for stable higher-level features
 - **Feedback R2→R1 deferred** — requires thalamic relay (pulvinar) + apical dendrite compartments
 - **Surprise-modulated learning (third-factor)** — R1 burst rate modulates R2 plasticity via NE-like signal
+- **24 synapses/segment** — CharbitEncoder re-sweep (20k tokens, 16 configs) showed wider segments capture richer context. Best ctx_disc (0.593) and prediction diversity (12929 sets) with no runtime cost vs 16 synapses.
 
 ## Next Steps
-- [ ] Re-sweep segment params with CharbitEncoder (current sweep used random encoder)
-- [ ] Add thalamic relay + feedback R2→R1 (activates prediction_gain, apical dendrites)
 - [ ] Add L2/3 dendritic segments
+- [ ] Add thalamic relay + feedback R2→R1 (activates prediction_gain, apical dendrites)
 - [ ] Explore motor cortex design for response generation

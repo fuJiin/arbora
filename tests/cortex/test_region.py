@@ -407,10 +407,11 @@ class TestL23Lateral:
 class TestDendriticSegments:
     def test_segment_arrays_initialized(self):
         r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
-        assert r.fb_seg_indices.shape == (8, 4, 16)
-        assert r.fb_seg_perm.shape == (8, 4, 16)
-        assert r.lat_seg_indices.shape == (8, 4, 16)
-        assert r.lat_seg_perm.shape == (8, 4, 16)
+        n_syn = r.n_synapses_per_segment
+        assert r.fb_seg_indices.shape == (8, 4, n_syn)
+        assert r.fb_seg_perm.shape == (8, 4, n_syn)
+        assert r.lat_seg_indices.shape == (8, 4, n_syn)
+        assert r.lat_seg_perm.shape == (8, 4, n_syn)
 
     def test_segments_start_disconnected(self):
         """All permanences start at 0 — no predictions initially."""
