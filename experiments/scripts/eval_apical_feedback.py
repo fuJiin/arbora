@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """A/B evaluation: hierarchy with vs without apical feedback (R2→R1).
 
-Runs the same two-region hierarchy twice:
-  A) No apical feedback (baseline — same as before)
-  B) With apical feedback (R2 L2/3 → R1 apical segments, prediction_gain)
+Runs the two-region hierarchy with various prediction_gain values:
+  - No apical feedback (baseline)
+  - Apical feedback at each gain value
 
 Compares R1 burst rate, context discrimination, and apical segment growth.
 
 Usage:
   uv run experiments/scripts/eval_apical_feedback.py
   uv run experiments/scripts/eval_apical_feedback.py --tokens 10000
-  uv run experiments/scripts/eval_apical_feedback.py --tokens 20000 --gain 2.0
+  uv run experiments/scripts/eval_apical_feedback.py --gain 2.0
+  uv run experiments/scripts/eval_apical_feedback.py --sweep
 """
 
 import argparse
@@ -161,38 +162,16 @@ def run_one(
     }
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--tokens", type=int, default=5000)
-    parser.add_argument("--log-interval", type=int, default=1000)
-    parser.add_argument("--gain", type=float, default=1.5,
-                        help="prediction_gain for apical-boosted columns")
-    args = parser.parse_args()
-
-    tokens = prepare_tokens(args.tokens)
-    encoder = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
-
-    results = []
-
-    # A) Baseline: no apical feedback
-    r1a, r2a = make_regions(args.gain, with_apical=False)
-    results.append(run_one(
-        "No feedback", tokens, encoder, r1a, r2a, args.log_interval,
-    ))
-
-    # B) With apical feedback
-    r1b, r2b = make_regions(args.gain, with_apical=True)
-    results.append(run_one(
-        f"Apical (gain={args.gain})", tokens, encoder, r1b, r2b, args.log_interval,
-    ))
-
-    # --- Summary table ---
+def print_summary(results: list[dict]):
+    """Print comparison table and delta analysis."""
     print(f"\n\n{'=' * 120}")
     print(
         f"{'Config':<22} {'Time':>5} "
-        f"{'R1Brst':>7} {'R1Syn':>6} {'R1Sel':>6} {'R1Ctx':>6} {'R1XCos':>7} "
+        f"{'R1Brst':>7} {'R1Syn':>6} {'R1Sel':>6} "
+        f"{'R1Ctx':>6} {'R1XCos':>7} "
         f"{'R2Brst':>7} {'R2Ctx':>6} "
-        f"{'ApConn':>7} {'ApPrm':>6} {'ApPrd':>6} {'PrdSet':>7}"
+        f"{'ApConn':>7} {'ApPrm':>6} "
+        f"{'ApPrd':>6} {'PrdSet':>7}"
     )
     print("=" * 120)
 
@@ -203,22 +182,70 @@ def main():
             f"{r['r1_select']:>6.3f} {r['r1_ctx_disc']:>6.3f} "
             f"{r['r1_cross_cos']:>7.3f} "
             f"{r['r2_burst']:>6.1%} {r['r2_ctx_disc']:>6.3f} "
-            f"{r['apical_conn']:>6.1%} {r['apical_perm']:>6.4f} "
+            f"{r['apical_conn']:>6.1%} "
+            f"{r['apical_perm']:>6.4f} "
             f"{r['apical_pred']:>6} {r['pred_sets']:>7}"
         )
 
     print("=" * 120)
 
-    # Delta analysis
+    # Delta analysis vs baseline
     base = results[0]
-    fb = results[1]
-    d_burst = fb["r1_burst"] - base["r1_burst"]
-    d_ctx = fb["r1_ctx_disc"] - base["r1_ctx_disc"]
-    print("\nDelta (feedback - baseline):")
-    print(f"  R1 burst rate: {d_burst:+.1%}")
-    print(f"  R1 ctx disc:   {d_ctx:+.3f}")
-    print(f"  Apical connected: {fb['apical_conn']:.1%}")
-    print(f"  Apical predicted cols: {fb['apical_pred']}")
+    for r in results[1:]:
+        d_burst = r["r1_burst"] - base["r1_burst"]
+        d_ctx = r["r1_ctx_disc"] - base["r1_ctx_disc"]
+        print(
+            f"\n  {r['label']} vs baseline: "
+            f"burst {d_burst:+.1%}  "
+            f"ctx_disc {d_ctx:+.3f}  "
+            f"apical_conn {r['apical_conn']:.1%}  "
+            f"apical_pred {r['apical_pred']}"
+        )
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tokens", type=int, default=5000)
+    parser.add_argument("--log-interval", type=int, default=1000)
+    parser.add_argument(
+        "--gain", type=float, default=1.5,
+        help="prediction_gain (single A/B mode)",
+    )
+    parser.add_argument(
+        "--sweep", action="store_true",
+        help="Sweep multiple gain values instead of single A/B",
+    )
+    args = parser.parse_args()
+
+    tokens = prepare_tokens(args.tokens)
+    encoder = CharbitEncoder(
+        length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS,
+    )
+
+    gains = (
+        [1.2, 1.5, 2.0, 2.5, 3.0]
+        if args.sweep
+        else [args.gain]
+    )
+
+    results = []
+
+    # Baseline: no apical feedback
+    r1a, r2a = make_regions(1.0, with_apical=False)
+    results.append(run_one(
+        "No feedback", tokens, encoder, r1a, r2a,
+        args.log_interval,
+    ))
+
+    # Each gain value
+    for gain in gains:
+        r1, r2 = make_regions(gain, with_apical=True)
+        results.append(run_one(
+            f"gain={gain}", tokens, encoder, r1, r2,
+            args.log_interval,
+        ))
+
+    print_summary(results)
 
 
 if __name__ == "__main__":
