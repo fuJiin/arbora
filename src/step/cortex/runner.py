@@ -154,7 +154,11 @@ def run_cortex(
                 prediction_log.clear()
 
     metrics.elapsed_seconds = time.monotonic() - start
-    metrics.representation = rep_tracker.summary(region.ff_weights)
+    rep_summ = rep_tracker.summary(region.ff_weights)
+    # Include per-column selectivity for dashboard visualization
+    sel = rep_tracker.column_selectivity()
+    rep_summ["column_selectivity_per_col"] = sel["per_column"]
+    metrics.representation = rep_summ
 
     # Print representation report
     rep_tracker.print_report(region.ff_weights)

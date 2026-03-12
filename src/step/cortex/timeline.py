@@ -21,6 +21,8 @@ class TimelineFrame:
     ff_weight_norms: np.ndarray  # (n_columns,) L2 norm per column
     voltage_l4_by_col: np.ndarray  # (n_columns,) max voltage per column
     excitability_l4_by_col: np.ndarray  # (n_columns,) max excitability per column
+    n_bursting: int = 0  # number of bursting columns this step
+    n_active: int = 0  # number of active columns this step
 
 
 @dataclass
@@ -54,5 +56,7 @@ class Timeline:
                 ff_weight_norms=ff_norms.copy(),
                 voltage_l4_by_col=voltage_by_col.copy(),
                 excitability_l4_by_col=excitability_by_col.copy(),
+                n_bursting=int(region.bursting_columns.sum()),
+                n_active=len(active_cols),
             )
         )

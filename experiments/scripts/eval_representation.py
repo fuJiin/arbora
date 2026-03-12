@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import string
 import time
 
 import numpy as np
@@ -24,6 +25,11 @@ from step.cortex.representation import RepresentationTracker
 from step.cortex.runner import STORY_BOUNDARY
 from step.cortex.sensory import SensoryRegion
 from step.decode import DecodeIndex
+from step.encoders.charbit import CharbitEncoder
+
+CHARS = string.printable
+CHAR_LENGTH = 8
+CHAR_WIDTH = len(CHARS) + 1
 
 
 class RandomBinaryEncoder:
@@ -129,15 +135,36 @@ def main():
         choices=["tinystories", "babylm"],
         default="tinystories",
     )
+    parser.add_argument(
+        "--encoder",
+        choices=["random", "charbit"],
+        default="random",
+    )
     args = parser.parse_args()
 
     tokens = prepare_tokens(args.dataset, args.tokens)
-    encoder = RandomBinaryEncoder(n=808, k=8)
+
+    if args.encoder == "charbit":
+        charbit = CharbitEncoder(
+            length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS
+        )
+        input_dim = CHAR_LENGTH * CHAR_WIDTH
+        encoding_width = CHAR_WIDTH
+
+        def encode_token(_tid: int, tok_str: str) -> np.ndarray:
+            return charbit.encode(tok_str)
+    else:
+        rand_enc = RandomBinaryEncoder(n=808, k=8)
+        input_dim = rand_enc.n
+        encoding_width = 0
+
+        def encode_token(tid: int, _tok_str: str) -> np.ndarray:
+            return rand_enc.encode(tid)
 
     # Use best config from previous sweep: thresh=2, inc=0.2
     region = SensoryRegion(
-        input_dim=encoder.n,
-        encoding_width=0,
+        input_dim=input_dim,
+        encoding_width=encoding_width,
         n_columns=32,
         n_l4=4,
         n_l23=4,
@@ -174,7 +201,10 @@ def main():
     syn_accs: list[float] = []
     overlaps: list[float] = []
 
-    print(f"--- {args.dataset} + random encoder + segments (t2+i0.2) ---\n")
+    print(
+        f"--- {args.dataset} + {args.encoder} encoder "
+        f"+ segments (t2+i0.2) ---\n"
+    )
 
     for t, (token_id, token_str) in enumerate(tokens):
         if token_id == STORY_BOUNDARY:
@@ -188,7 +218,7 @@ def main():
         syn_id, _ = syn_decoder.decode_synaptic(predicted_neurons, region)
 
         # Process
-        encoding = encoder.encode(token_id)
+        encoding = encode_token(token_id, token_str)
         active_neurons = region.process(encoding)
         active_set = frozenset(int(i) for i in active_neurons)
 
@@ -233,7 +263,8 @@ def main():
     avg_o = sum(overlaps) / len(overlaps) if overlaps else 0
     summ = diag.summary()
     print("\n--- Decoder metrics (monitoring) ---")
-    print(f"  syn accuracy: avg={avg_syn:.1%} last-100={sum(tail_syn)/len(tail_syn):.1%}")
+    last_syn = sum(tail_syn) / len(tail_syn)
+    print(f"  syn accuracy: avg={avg_syn:.1%} last-100={last_syn:.1%}")
     print(f"  overlap: avg={avg_o:.4f}")
     print(f"  burst rate: {summ['burst_rate']:.1%}")
 
