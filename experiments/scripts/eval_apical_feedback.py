@@ -223,7 +223,7 @@ def main():
     )
 
     gains = (
-        [1.2, 1.5, 2.0, 2.5, 3.0]
+        [1.5, 2.0, 2.5, 3.0]
         if args.sweep
         else [args.gain]
     )
