@@ -477,6 +477,7 @@ def main():
         ltd_rate=cortex_cfg.ltd_rate,
         encoding_width=CHAR_WIDTH,
         burst_learning_scale=cortex_cfg.burst_learning_scale,
+        prediction_ltd_rate=cortex_cfg.prediction_ltd_rate,
         seed=cortex_cfg.seed,
     )
 

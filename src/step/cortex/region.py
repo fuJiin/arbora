@@ -34,6 +34,7 @@ class CorticalRegion:
         fb_boost_threshold: float = 0.3,
         fb_boost: float = 0.4,
         burst_learning_scale: float = 3.0,
+        prediction_ltd_rate: float = 0.1,
         seed: int = 0,
     ):
         self.n_columns = n_columns
@@ -48,6 +49,7 @@ class CorticalRegion:
         self.fb_boost_threshold = fb_boost_threshold
         self.fb_boost = fb_boost
         self.burst_learning_scale = burst_learning_scale
+        self.prediction_ltd_rate = prediction_ltd_rate
         self._rng = np.random.default_rng(seed)
 
         self.n_l4_total = n_columns * n_l4
@@ -113,11 +115,13 @@ class CorticalRegion:
             return np.arange(len(v))
         return np.argpartition(v, -k)[-k:]
 
-    def step(self, column_drive: np.ndarray) -> np.ndarray:
-        """Run one timestep given column-level feedforward drive.
+    def step(self, drive: np.ndarray) -> np.ndarray:
+        """Run one timestep given feedforward drive.
 
         Args:
-            column_drive: (n_columns,) feedforward activation per column.
+            drive: either (n_columns,) column-level drive (broadcast to
+                   all neurons in each column) or (n_l4_total,) per-neuron
+                   drive for per-neuron ff_weights mode.
 
         Returns:
             Array of global indices of active L4 neurons.
@@ -131,8 +135,13 @@ class CorticalRegion:
         #    exceeds the dendritic spike threshold.
         self._compute_predictions()
 
-        # 3. Feedforward: column drive -> all L4 neurons in each column
-        self.voltage_l4 += np.repeat(column_drive, self.n_l4)
+        # 3. Feedforward drive to L4 neurons
+        if drive.shape[0] == self.n_columns:
+            # Column-level: broadcast to all neurons in each column
+            self.voltage_l4 += np.repeat(drive, self.n_l4)
+        else:
+            # Per-neuron: direct neuron-level drive
+            self.voltage_l4 += drive
 
         # 4. Predicted neurons get a voltage boost (they're primed)
         self.voltage_l4[self.predicted_l4] += self.fb_boost
@@ -270,6 +279,11 @@ class CorticalRegion:
         Learning rate is scaled by burst_learning_scale for neurons
         in bursting columns — stronger updates to rewire predictions
         for surprising inputs.
+
+        Prediction LTD: weaken fb/lateral synapses that predicted
+        neurons which didn't fire (heterosynaptic depression).
+        Biologically: dendritic segment depolarized but no somatic
+        spike → synapses on that segment weaken.
         """
         # Build per-neuron learning rate based on burst state
         lr_l4 = np.full(self.n_l4_total, self.learning_rate)
@@ -283,8 +297,9 @@ class CorticalRegion:
         active_l4_f = self.active_l4.astype(np.float64)
         active_l23_f = self.active_l23.astype(np.float64)
 
+        # --- LTP: strengthen synapses to active neurons ---
+
         # L2/3 -> L4 feedback synapses
-        # Scale by destination (L4) learning rate
         self.fb_weights += (
             self.trace_l23[:, np.newaxis] * (lr_l4 * active_l4_f)[np.newaxis, :]
         )
@@ -298,6 +313,30 @@ class CorticalRegion:
         self.l23_lateral_weights += (
             self.trace_l23[:, np.newaxis] * (lr_l23 * active_l23_f)[np.newaxis, :]
         )
+
+        # --- Prediction LTD: weaken synapses to predicted-but-inactive neurons ---
+        # predicted_l4 was set BEFORE feedforward input arrived.
+        # Neurons that were predicted but didn't fire = false positive predictions.
+        # Weaken the synapses that caused those false predictions.
+        if self.prediction_ltd_rate > 0:
+            false_predicted_l4 = self.predicted_l4 & ~self.active_l4
+            if false_predicted_l4.any():
+                fp_l4_f = false_predicted_l4.astype(np.float64)
+
+                # Weaken fb synapses from previously-active L2/3 to false-predicted L4
+                # Source: previous L2/3 activity is in trace_l23
+                self.fb_weights -= (
+                    self.prediction_ltd_rate
+                    * self.trace_l23[:, np.newaxis]
+                    * fp_l4_f[np.newaxis, :]
+                )
+
+                # Weaken lateral synapses from previously-active L4 to false-predicted L4
+                self.lateral_weights -= (
+                    self.prediction_ltd_rate
+                    * self.trace_l4[:, np.newaxis]
+                    * fp_l4_f[np.newaxis, :]
+                )
 
         # Decay all synapses
         self.fb_weights *= self.synapse_decay
