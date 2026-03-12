@@ -24,14 +24,6 @@ class Snapshot:
     ff_std: float = 0.0
     ff_max: float = 0.0
     ff_sparsity: float = 0.0
-    fb_mean: float = 0.0
-    fb_std: float = 0.0
-    fb_max: float = 0.0
-    fb_sparsity: float = 0.0
-    lat_mean: float = 0.0
-    lat_std: float = 0.0
-    lat_max: float = 0.0
-    lat_sparsity: float = 0.0
     l23_lat_mean: float = 0.0
     l23_lat_std: float = 0.0
     l23_lat_max: float = 0.0
@@ -48,17 +40,8 @@ class Snapshot:
     trace_l23_mean: float = 0.0
     trace_l23_nonzero: int = 0
 
-    # Prediction signal breakdown
-    prediction_max: float = 0.0
-    feedback_contribution: float = 0.0
-    lateral_contribution: float = 0.0
-
     # Prediction quality diagnostics
     n_predicted_neurons: int = 0
-    prediction_voltage_std: float = 0.0
-    prediction_voltage_range: float = 0.0
-    fb_row_cosine_mean: float = 0.0
-    lat_row_cosine_mean: float = 0.0
 
     # Dendritic segment health
     fb_seg_perm_mean: float = 0.0
@@ -154,8 +137,6 @@ class CortexDiagnostics:
         # Weight health
         for prefix, w in [
             ("ff", region.ff_weights),
-            ("fb", region.fb_weights),
-            ("lat", region.lateral_weights),
             ("l23_lat", region.l23_lateral_weights),
         ]:
             setattr(snap, f"{prefix}_mean", float(np.mean(w)))
@@ -174,33 +155,8 @@ class CortexDiagnostics:
         snap.trace_l23_mean = float(np.mean(region.trace_l23))
         snap.trace_l23_nonzero = int(np.count_nonzero(region.trace_l23 > 0.01))
 
-        # Prediction signal breakdown (dendritic spike model)
-        v = region.voltage_l4 * region.voltage_decay
-        fb_signal = np.zeros_like(v)
-        lat_signal = np.zeros_like(v)
-
-        if region.active_l23.any():
-            fb_raw = region.active_l23.astype(np.float64) @ region.fb_weights
-            fb_signal = region.fb_boost * (fb_raw > region.fb_boost_threshold)
-
-        if region.active_l4.any():
-            lat_raw = region.active_l4.astype(np.float64) @ region.lateral_weights
-            lat_signal = region.fb_boost * (lat_raw > region.fb_boost_threshold)
-
-        pred_v = v + fb_signal + lat_signal
-        snap.prediction_max = float(np.max(pred_v))
-        snap.feedback_contribution = float(np.max(fb_signal))
-        snap.lateral_contribution = float(np.max(lat_signal))
-
-        # Prediction voltage distribution — is there real signal or flat?
-        snap.n_predicted_neurons = int((fb_signal + lat_signal > 0).sum())
-        snap.prediction_voltage_std = float(np.std(pred_v))
-        snap.prediction_voltage_range = float(np.max(pred_v) - np.min(pred_v))
-
-        # Weight differentiation: mean pairwise cosine similarity of rows
-        # High cosine = all rows learned the same thing = no differentiation
-        snap.fb_row_cosine_mean = _row_cosine_sample(region.fb_weights)
-        snap.lat_row_cosine_mean = _row_cosine_sample(region.lateral_weights)
+        # Prediction state from dendritic segments
+        snap.n_predicted_neurons = int(region.predicted_l4.sum())
 
         # Dendritic segment health
         if hasattr(region, "fb_seg_perm"):
@@ -299,7 +255,7 @@ class CortexDiagnostics:
         print("\n--- Cortex Diagnostics ---")
 
         print("\nWeight health (latest snapshot):")
-        for name in ["ff", "fb", "lat", "l23_lat"]:
+        for name in ["ff", "l23_lat"]:
             m = getattr(s, f"{name}_mean")
             sd = getattr(s, f"{name}_std")
             mx = getattr(s, f"{name}_max")
@@ -322,19 +278,8 @@ class CortexDiagnostics:
         print(f"  L4:  mean={s.trace_l4_mean:.4f} nonzero={s.trace_l4_nonzero}")
         print(f"  L2/3: mean={s.trace_l23_mean:.4f} nonzero={s.trace_l23_nonzero}")
 
-        print("\nPrediction signal:")
-        print(f"  max prediction voltage: {s.prediction_max:.4f}")
-        print(f"  feedback contribution:  {s.feedback_contribution:.4f}")
-        print(f"  lateral contribution:   {s.lateral_contribution:.4f}")
-        print(f"  predicted neurons:      {s.n_predicted_neurons}")
-        print(f"  voltage std:            {s.prediction_voltage_std:.4f}")
-        print(f"  voltage range:          {s.prediction_voltage_range:.4f}")
-
-        print("\nWeight differentiation (row cosine similarity, lower=more diverse):")
-        print(f"  fb_weights rows:  {s.fb_row_cosine_mean:.4f}")
-        print(f"  lat_weights rows: {s.lat_row_cosine_mean:.4f}")
-
         print("\nPrediction quality:")
+        print(f"  predicted neurons:       {s.n_predicted_neurons}")
         print(f"  unique prediction sets:  {summ['unique_prediction_sets']}")
         print(f"  hit rate (neuron):       {summ['prediction_hit_neuron']:.1%}")
         print(f"  hit rate (column):       {summ['prediction_hit_column']:.1%}")
@@ -363,29 +308,3 @@ class CortexDiagnostics:
         print(f"  burst rate: {summ['burst_rate']:.1%}")
 
 
-def _row_cosine_sample(weights: np.ndarray, max_pairs: int = 200) -> float:
-    """Mean pairwise cosine similarity of weight matrix rows (sampled).
-
-    1.0 = all rows identical (no differentiation).
-    0.0 = all rows orthogonal (maximum differentiation).
-    """
-    n_rows = weights.shape[0]
-    if n_rows < 2:
-        return 0.0
-
-    # Compute row norms, skip zero rows
-    norms = np.linalg.norm(weights, axis=1)
-    nonzero = np.nonzero(norms > 1e-8)[0]
-    if len(nonzero) < 2:
-        return 0.0
-
-    # Sample pairs for efficiency
-    rng = np.random.default_rng(42)
-    n_pairs = min(max_pairs, len(nonzero) * (len(nonzero) - 1) // 2)
-    cosines = []
-    for _ in range(n_pairs):
-        i, j = rng.choice(nonzero, size=2, replace=False)
-        cos = float(weights[i] @ weights[j] / (norms[i] * norms[j]))
-        cosines.append(cos)
-
-    return float(np.mean(cosines))

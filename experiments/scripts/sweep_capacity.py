@@ -24,13 +24,10 @@ CHAR_LENGTH = 8
 CHAR_WIDTH = len(CHARS) + 1
 
 CONFIGS = [
-    # (name, n_l4, n_l23, per_neuron_ff)
-    ("shared-4n", 4, 4, False),
-    ("shared-8n", 8, 8, False),
-    ("shared-16n", 16, 16, False),
-    ("neuron-4n", 4, 4, True),
-    ("neuron-8n", 8, 8, True),
-    ("neuron-16n", 16, 16, True),
+    # (name, n_l4, n_l23)
+    ("4n", 4, 4),
+    ("8n", 8, 8),
+    ("16n", 16, 16),
 ]
 
 
@@ -64,7 +61,7 @@ def prepare_tokens(max_tokens: int):
     return tokens
 
 
-def run_config(name, n_l4, n_l23, per_neuron_ff, tokens, log_interval):
+def run_config(name, n_l4, n_l23, tokens, log_interval):
     """Run a single configuration and return results dict."""
     cortex_cfg = CortexConfig(n_l4=n_l4, n_l23=n_l23)
     charbit = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
@@ -87,21 +84,15 @@ def run_config(name, n_l4, n_l23, per_neuron_ff, tokens, log_interval):
         ltd_rate=cortex_cfg.ltd_rate,
         burst_learning_scale=cortex_cfg.burst_learning_scale,
         prediction_ltd_rate=cortex_cfg.prediction_ltd_rate,
-        per_neuron_ff=per_neuron_ff,
         seed=cortex_cfg.seed,
     )
 
-    n_params = (
-        region.ff_weights.size
-        + region.fb_weights.size
-        + region.lateral_weights.size
-        + region.l23_lateral_weights.size
-    )
+    n_params = region.ff_weights.size + region.l23_lateral_weights.size
 
     diag = CortexDiagnostics(snapshot_interval=log_interval)
 
     print(f"--- {name} ---")
-    print(f"  n_l4={n_l4} n_l23={n_l23} per_neuron_ff={per_neuron_ff}")
+    print(f"  n_l4={n_l4} n_l23={n_l23}")
     print(f"  ff_weights: {region.ff_weights.shape}, params: {n_params:,}")
 
     metrics = run_cortex(
@@ -124,7 +115,6 @@ def run_config(name, n_l4, n_l23, per_neuron_ff, tokens, log_interval):
         "name": name,
         "n_l4": n_l4,
         "n_l23": n_l23,
-        "per_neuron_ff": per_neuron_ff,
         "n_params": n_params,
         "time": metrics.elapsed_seconds,
         # Overall averages
@@ -169,8 +159,8 @@ def main():
     tokens = prepare_tokens(args.tokens)
 
     results = []
-    for name, n_l4, n_l23, per_neuron_ff in CONFIGS:
-        result = run_config(name, n_l4, n_l23, per_neuron_ff, tokens, args.log_interval)
+    for name, n_l4, n_l23 in CONFIGS:
+        result = run_config(name, n_l4, n_l23, tokens, args.log_interval)
         results.append(result)
 
     # Summary table

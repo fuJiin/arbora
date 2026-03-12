@@ -106,12 +106,7 @@ def main():
         seed=cortex_cfg.seed,
     )
 
-    n_params_cortex = (
-        region.ff_weights.size
-        + region.fb_weights.size
-        + region.lateral_weights.size
-        + region.l23_lateral_weights.size
-    )
+    n_params_cortex = region.ff_weights.size + region.l23_lateral_weights.size
 
     diag = CortexDiagnostics(snapshot_interval=args.log_interval)
 
