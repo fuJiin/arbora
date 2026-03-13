@@ -14,7 +14,7 @@ import numpy as np
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
 from step.data import STORY_BOUNDARY
-from step.decoders import InvertedIndexDecoder, SynapticDecoder
+from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
 from step.probes.timeline import Timeline
@@ -32,6 +32,7 @@ class RunMetrics:
     accuracies: list[float] = field(default_factory=list)
     synaptic_accuracies: list[float] = field(default_factory=list)
     column_accuracies: list[float] = field(default_factory=list)
+    dendritic_accuracies: list[float] = field(default_factory=list)
     elapsed_seconds: float = 0.0
     representation: dict = field(default_factory=dict)
 
@@ -48,6 +49,7 @@ class _RegionState:
     # Entry region only:
     decode_index: InvertedIndexDecoder | None = None
     syn_decoder: SynapticDecoder | None = None
+    dendritic_decoder: DendriticDecoder | None = None
 
 
 @dataclass
@@ -125,6 +127,9 @@ class Topology:
         if entry:
             state.decode_index = InvertedIndexDecoder()
             state.syn_decoder = SynapticDecoder()
+            state.dendritic_decoder = DendriticDecoder(
+                source_dim=region.n_l23_total,
+            )
 
         self._regions[name] = state
         return self
@@ -267,6 +272,21 @@ class Topology:
                         idx_str = entry_state.syn_decoder._token_strs[i]
                         break
 
+            # Dendritic decoder: reads L2/3 binary activations from previous step
+            den_predictions = entry_state.dendritic_decoder.decode(
+                entry_region.active_l23
+            )
+            den_id = den_predictions[0] if den_predictions else -1
+            den_str = ""
+            if den_id >= 0 and den_id in entry_state.syn_decoder._token_id_set:
+                for i, tid in enumerate(entry_state.syn_decoder._token_ids):
+                    if tid == den_id:
+                        den_str = entry_state.syn_decoder._token_strs[i]
+                        break
+
+            # Snapshot L2/3 binary state before processing (for dendritic decoder)
+            prev_l23 = entry_region.active_l23.copy()
+
             # -- Process in topo order --
             for name in topo_order:
                 s = self._regions[name]
@@ -335,13 +355,19 @@ class Topology:
                 col_acc = 1.0 if col_id == token_id else 0.0
                 metrics[entry_name].column_accuracies.append(col_acc)
 
+                den_acc = 1.0 if den_id == token_id else 0.0
+                metrics[entry_name].dendritic_accuracies.append(den_acc)
+
                 if show_predictions > 0:
-                    prediction_log.append((token_str, idx_str, col_str, syn_str))
+                    prediction_log.append(
+                        (token_str, den_str, idx_str, col_str, syn_str)
+                    )
 
             entry_state.decode_index.observe(token_id, active_set)
             entry_state.syn_decoder.observe(
                 token_id, token_str, encoding, entry_region.active_columns
             )
+            entry_state.dendritic_decoder.observe(token_id, prev_l23)
 
             # -- Logging --
             if (
@@ -444,11 +470,13 @@ class Topology:
         surprise_modulators: dict[str, list[float]],
         rolling_window: int,
         show_predictions: int,
-        prediction_log: list[tuple[str, str, str, str]],
+        prediction_log: list[tuple[str, ...]],
     ):
         entry_metrics = metrics[entry_name]
         entry_diag = self._regions[entry_name].diagnostics
 
+        tail_den = entry_metrics.dendritic_accuracies[-rolling_window:]
+        roll_den = sum(tail_den) / len(tail_den) if tail_den else 0.0
         tail_syn = entry_metrics.synaptic_accuracies[-rolling_window:]
         roll_syn = sum(tail_syn) / len(tail_syn)
         tail_o = entry_metrics.overlaps[-rolling_window:]
@@ -475,6 +503,7 @@ class Topology:
 
         print(
             f"  [{label}] t={t:,} "
+            f"den={roll_den:.4f} "
             f"syn={roll_syn:.4f} "
             f"overlap={roll_o:.4f} "
             f"burst={burst_pct:.1%}"
@@ -484,18 +513,24 @@ class Topology:
 
         if show_predictions > 0 and prediction_log:
             samples = prediction_log[-show_predictions:]
-            hdr = f"{'actual':>12s} | {'idx':>12s} | {'col':>12s} | {'syn':>12s}"
+            hdr = (
+                f"{'actual':>12s} | {'den':>12s} | {'idx':>12s} "
+                f"| {'col':>12s} | {'syn':>12s}"
+            )
+            sep = f"{'-' * 12}-+-" * 4 + f"{'-' * 12}"
             print(f"    {hdr}")
-            print(f"    {'-' * 12}-+-{'-' * 12}-+-{'-' * 12}-+-{'-' * 12}")
-            for actual, idx_p, col_p, syn_p in samples:
+            print(f"    {sep}")
+            for actual, den_p, idx_p, col_p, syn_p in samples:
                 fmt = lambda s: repr(s)[:12].ljust(12)  # noqa: E731
                 marks = [
-                    "*" if p == actual else " " for p in (idx_p, col_p, syn_p)
+                    "*" if p == actual else " "
+                    for p in (den_p, idx_p, col_p, syn_p)
                 ]
                 print(
                     f"    {fmt(actual)} "
-                    f"|{marks[0]}{fmt(idx_p)} "
-                    f"|{marks[1]}{fmt(col_p)} "
-                    f"|{marks[2]}{fmt(syn_p)}"
+                    f"|{marks[0]}{fmt(den_p)} "
+                    f"|{marks[1]}{fmt(idx_p)} "
+                    f"|{marks[2]}{fmt(col_p)} "
+                    f"|{marks[3]}{fmt(syn_p)}"
                 )
             prediction_log.clear()
