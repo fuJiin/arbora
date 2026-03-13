@@ -133,12 +133,17 @@ def _build_tabbed_html(
             f'{fig.to_html(full_html=False, include_plotlyjs=False)}</div>'
             for _t, fig in figs
         )
-        content_html += f'<div class="tab-content{active}" id="tab-{name}">{chart_divs}</div>'
+        content_html += (
+            f'<div class="tab-content{active}" id="tab-{name}">'
+            f"{chart_divs}</div>"
+        )
 
     js = """
     function switchTab(name) {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(
+            b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(
+            c => c.classList.remove('active'));
         event.target.classList.add('active');
         document.getElementById('tab-' + name).classList.add('active');
         // Trigger Plotly resize for newly visible charts

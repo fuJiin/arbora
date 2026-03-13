@@ -22,12 +22,12 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
-from step.data import STORY_BOUNDARY
-from step.probes.diagnostics import CortexDiagnostics
-from step.runner import run_hierarchy
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
+from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.runner import run_hierarchy
 
 CHARS = string.printable
 CHAR_LENGTH = 8
