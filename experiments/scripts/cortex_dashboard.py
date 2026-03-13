@@ -15,7 +15,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import step.env  # noqa: F401
-from step.config import CortexConfig
+from step.config import CortexConfig, _default_region2_config
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
 from step.data import prepare_tokens, prepare_tokens_charlevel
@@ -106,17 +106,32 @@ def main():
 
     # Build config banner
     enc_name = type(encoder).__name__
-    config_html = (
-        '<div class="config-banner">'
+    r1_dim = cortex_cfg.n_columns * cortex_cfg.n_l23
+    config_parts = [
         f'<span><span class="cfg-label">Encoder:</span> {enc_name} '
-        f'({input_dim}-dim)</span>'
+        f'({input_dim}-dim)</span>',
         f'<span><span class="cfg-label">R1:</span> '
         f'{cortex_cfg.n_columns} cols, k={cortex_cfg.k_columns}, '
         f'{cortex_cfg.n_l4} L4, {cortex_cfg.n_l23} L2/3 '
-        f'(L2/3 dim={cortex_cfg.n_columns * cortex_cfg.n_l23})</span>'
-        f'<span><span class="cfg-label">LTD:</span> {cortex_cfg.ltd_rate}</span>'
-        f'<span><span class="cfg-label">Tokens:</span> {len(tokens):,}</span>'
-        "</div>"
+        f'(dim={r1_dim}), '
+        f'lr={cortex_cfg.learning_rate}, ltd={cortex_cfg.ltd_rate}</span>',
+        f'<span><span class="cfg-label">Tokens:</span> {len(tokens):,}</span>',
+    ]
+    if args.hierarchy:
+        r2_cfg = _default_region2_config()
+        r2_dim = r2_cfg.n_columns * r2_cfg.n_l23
+        config_parts.insert(2,
+            f'<span><span class="cfg-label">R2:</span> '
+            f'{r2_cfg.n_columns} cols, k={r2_cfg.k_columns}, '
+            f'{r2_cfg.n_l4} L4, {r2_cfg.n_l23} L2/3 '
+            f'(dim={r2_dim}), '
+            f'lr={r2_cfg.learning_rate}, ltd={r2_cfg.ltd_rate}, '
+            f'v_decay={r2_cfg.voltage_decay}</span>'
+        )
+    config_html = (
+        '<div class="config-banner">'
+        + "".join(config_parts)
+        + "</div>"
     )
 
     if args.hierarchy:
@@ -220,18 +235,19 @@ def _run_hierarchy_dashboard(
     config_html="",
 ) -> str:
     region1 = _make_region(cortex_cfg, input_dim, encoding_width)
+    r2_cfg = _default_region2_config()
     region2 = SensoryRegion(
         input_dim=region1.n_l23_total,
         encoding_width=0,
-        n_columns=16,
-        n_l4=4,
-        n_l23=4,
-        k_columns=2,
-        voltage_decay=0.8,
-        eligibility_decay=0.98,
-        synapse_decay=0.9999,
-        learning_rate=0.01,
-        ltd_rate=0.4,
+        n_columns=r2_cfg.n_columns,
+        n_l4=r2_cfg.n_l4,
+        n_l23=r2_cfg.n_l23,
+        k_columns=r2_cfg.k_columns,
+        voltage_decay=r2_cfg.voltage_decay,
+        eligibility_decay=r2_cfg.eligibility_decay,
+        synapse_decay=r2_cfg.synapse_decay,
+        learning_rate=r2_cfg.learning_rate,
+        ltd_rate=r2_cfg.ltd_rate,
         seed=123,
     )
 
@@ -296,7 +312,7 @@ def _run_hierarchy_dashboard(
     )
 
     n_cols_r1 = cortex_cfg.n_columns
-    n_cols_r2 = 16
+    n_cols_r2 = r2_cfg.n_columns
 
     tabs = {
         "Overview": [

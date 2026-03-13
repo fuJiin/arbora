@@ -32,19 +32,24 @@ class CortexConfig:
 
 
 def _default_region2_config() -> "CortexConfig":
-    """Region 2 defaults: slower temporal dynamics, lower learning rate.
+    """Region 2 defaults: slower temporal dynamics, moderate learning rate.
+
+    Tuned for char-level R1 input (128-dim L2/3 firing rates).
+    32 cols with k=2 gives selective columns while maintaining context
+    discrimination. lr=0.03 and ltd=0.30 balance weight growth with
+    pruning on the higher-dimensional R1 output.
 
     Use encoding_width=0 (sliding window) when constructing the SensoryRegion,
     since R1's L2/3 output has no character-position structure.
     """
     return CortexConfig(
-        n_columns=16,
-        k_columns=2,
+        n_columns=32,
+        k_columns=4,
         voltage_decay=0.8,
         eligibility_decay=0.98,
         synapse_decay=0.9999,
-        learning_rate=0.01,
-        ltd_rate=0.4,
+        learning_rate=0.20,
+        ltd_rate=0.20,
     )
 
 
