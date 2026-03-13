@@ -27,6 +27,8 @@ def build_column_activation_heatmap(timeline: Timeline, n_columns: int) -> go.Fi
     # Compute cumulative activation rate for column ordering
     cum_rate = matrix.sum(axis=1)
     order = np.argsort(-cum_rate)  # most active at top
+    n_dead = int((cum_rate == 0).sum())
+    n_rare = int(((cum_rate > 0) & (cum_rate < n_steps * 0.01)).sum())
 
     fig = go.Figure(
         go.Heatmap(
@@ -37,8 +39,13 @@ def build_column_activation_heatmap(timeline: Timeline, n_columns: int) -> go.Fi
             showscale=False,
         )
     )
+    dead_text = f"{n_dead} dead columns (never fired)"
+    if n_rare:
+        dead_text += f", {n_rare} rare (<1% of steps)"
     fig.update_layout(
-        title="Which Columns Fire? (sorted by how often each column activates)",
+        title=(
+            f"Which Columns Fire? ({dead_text})"
+        ),
         xaxis_title="Timestep",
         yaxis_title="Column",
         height=500,
@@ -48,7 +55,7 @@ def build_column_activation_heatmap(timeline: Timeline, n_columns: int) -> go.Fi
 
 
 def build_ff_weight_divergence(timeline: Timeline, n_columns: int) -> go.Figure:
-    """Per-column ff_weight L2 norm over time — divergence = differentiation."""
+    """Per-column ff_weight change from initial over time."""
     n_steps = len(timeline.frames)
     norms = np.zeros((n_columns, n_steps))
     for i, frame in enumerate(timeline.frames):
@@ -57,12 +64,17 @@ def build_ff_weight_divergence(timeline: Timeline, n_columns: int) -> go.Figure:
         n_per_col = len(per_neuron) // n_columns
         norms[:, i] = per_neuron.reshape(n_columns, n_per_col).max(axis=1)
 
+    # Relative change from initial values so small movements are visible
+    initial = norms[:, 0:1]
+    safe_initial = np.where(initial > 1e-8, initial, 1.0)
+    rel_change = (norms - initial) / safe_initial
+
     fig = go.Figure()
     for col in range(n_columns):
         fig.add_trace(
             go.Scatter(
                 x=list(range(n_steps)),
-                y=norms[col],
+                y=rel_change[col],
                 mode="lines",
                 name=f"col {col}",
                 line=dict(width=1),
@@ -70,12 +82,12 @@ def build_ff_weight_divergence(timeline: Timeline, n_columns: int) -> go.Figure:
             )
         )
 
-    # Add spread line (how different the columns are from each other)
-    norm_std = norms.std(axis=0)
+    # Spread: std of relative changes across columns
+    rel_std = rel_change.std(axis=0)
     fig.add_trace(
         go.Scatter(
             x=list(range(n_steps)),
-            y=norm_std,
+            y=rel_std,
             mode="lines",
             name="spread between columns",
             line=dict(color="white", width=3),
@@ -85,11 +97,11 @@ def build_ff_weight_divergence(timeline: Timeline, n_columns: int) -> go.Figure:
     fig.update_layout(
         title=(
             "Are Columns Learning Different Features?"
-            " (each line = one column's learned weight strength;"
-            " white = spread between columns)"
+            " (each line = one column's weight change from initial;"
+            " white = divergence between columns)"
         ),
         xaxis_title="Timestep",
-        yaxis_title="Weight Strength",
+        yaxis_title="Relative Weight Change",
         height=450,
         template="plotly_dark",
         showlegend=False,
@@ -485,34 +497,66 @@ def build_dual_burst_rate(
 
 def build_segment_health_over_time(
     diag: CortexDiagnostics,
+    region_label: str = "",
 ) -> go.Figure:
-    """Connected fraction for all segment types over training."""
+    """Segment learning progress: active segments and mean permanence."""
+    if not diag.snapshots:
+        return go.Figure()
+
     steps = [s.t for s in diag.snapshots]
-    fb_conn = [s.fb_seg_connected_frac for s in diag.snapshots]
-    lat_conn = [s.lat_seg_connected_frac for s in diag.snapshots]
-    l23_conn = [s.l23_seg_connected_frac for s in diag.snapshots]
-    apical_conn = [s.apical_seg_connected_frac for s in diag.snapshots]
 
-    fig = go.Figure()
-    for name, data, color in [
-        ("Feedback (L2/3->L4)", fb_conn, "#e94560"),
-        ("Lateral (L4->L4)", lat_conn, "#ffd166"),
-        ("L2/3 Lateral", l23_conn, "#06d6a0"),
-        ("Apical (R2->R1)", apical_conn, "#118ab2"),
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.10,
+        subplot_titles=[
+            "Active Segments Per Type (firing given current activity)",
+            "Mean Permanence Per Type (learned synapse strength)",
+        ],
+    )
+
+    # Row 1: active segment counts (more sensitive than connected fraction)
+    for name, attr, color in [
+        ("Feedback (L2/3->L4)", "n_active_fb_segments", "#e94560"),
+        ("Lateral (L4->L4)", "n_active_lat_segments", "#ffd166"),
+        ("L2/3 Lateral", "n_active_l23_segments", "#06d6a0"),
+        ("Apical (R2->R1)", "n_apical_predicted_cols", "#118ab2"),
     ]:
-        fig.add_trace(
-            go.Scatter(
-                x=steps, y=data, name=name, line=dict(color=color, width=2)
+        data = [getattr(s, attr) for s in diag.snapshots]
+        if any(d > 0 for d in data):
+            fig.add_trace(
+                go.Scatter(
+                    x=steps, y=data, name=name,
+                    line=dict(color=color, width=2),
+                ),
+                row=1, col=1,
             )
-        )
 
+    # Row 2: mean permanence (only for non-zero, shows learning progress)
+    for name, attr, color in [
+        ("Feedback", "fb_seg_perm_mean", "#e94560"),
+        ("Lateral", "lat_seg_perm_mean", "#ffd166"),
+        ("L2/3 Lateral", "l23_seg_perm_mean", "#06d6a0"),
+        ("Apical", "apical_seg_perm_mean", "#118ab2"),
+    ]:
+        data = [getattr(s, attr) for s in diag.snapshots]
+        if any(d > 0 for d in data):
+            fig.add_trace(
+                go.Scatter(
+                    x=steps, y=data, name=name,
+                    line=dict(color=color, width=2),
+                    showlegend=False,
+                ),
+                row=2, col=1,
+            )
+
+    prefix = f"{region_label} " if region_label else ""
     fig.update_layout(
-        title="Segment Connectivity Over Time (fraction with connected synapses)",
-        xaxis_title="Step",
-        yaxis_title="Connected Fraction",
-        yaxis_range=[0, 1.05],
-        height=400,
+        title=f"{prefix}Segment Learning Progress",
+        height=550,
         template="plotly_dark",
+        xaxis2_title="Step",
     )
     return fig
 
