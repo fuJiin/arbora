@@ -97,6 +97,8 @@ def run_hierarchy(
     *,
     surprise_tracker: SurpriseTracker | None = None,
     enable_apical_feedback: bool = False,
+    buffer_depth: int = 1,
+    burst_gate: bool = False,
     log_interval: int = 100,
     rolling_window: int = 100,
     diagnostics1: CortexDiagnostics | None = None,
@@ -122,7 +124,10 @@ def run_hierarchy(
         "S2", region2,
         diagnostics=diagnostics2 is not None,
     )
-    cortex.connect("S1", "S2", "feedforward")
+    cortex.connect(
+        "S1", "S2", "feedforward",
+        buffer_depth=buffer_depth, burst_gate=burst_gate,
+    )
     cortex.connect(
         "S1", "S2", "surprise",
         surprise_tracker=surprise_tracker,
