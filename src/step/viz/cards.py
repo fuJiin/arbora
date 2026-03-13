@@ -26,6 +26,7 @@ def build_hierarchy_summary_cards(
     burst2: float,
     modulators: list[float],
     diag1: CortexDiagnostics | None = None,
+    motor_metrics: dict | None = None,
 ) -> str:
     """Build HTML stat cards comparing Region 1 and Region 2."""
     mod_arr = np.array(modulators) if modulators else np.array([1.0])
@@ -107,6 +108,28 @@ def build_hierarchy_summary_cards(
             _health_color(apical_conn, (0.02, 0.15), (0.005, 0.3)),
         ),
     ]
+
+    # Motor cortex cards (if present)
+    if motor_metrics:
+        m_acc = motor_metrics.get("accuracy", 0)
+        m_sil = motor_metrics.get("silence_rate", 0)
+        m_sel = motor_metrics.get("selectivity", 0)
+        cards.append(
+            _card(
+                f"{m_acc:.0%}",
+                "M1 Accuracy",
+                f"when speaking (silence {m_sil:.0%})",
+                _health_color(m_acc, (0.3, 1.0), (0.1, 1.0)),
+            )
+        )
+        cards.append(
+            _card(
+                f"{m_sel:.2f}",
+                "M1 Selectivity",
+                "column specialization to tokens",
+                _health_color(m_sel, (0.05, 0.6), (0.02, 0.8)),
+            )
+        )
 
     return '<div class="summary">' + "".join(cards) + "</div>"
 

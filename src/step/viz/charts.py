@@ -447,6 +447,120 @@ def build_surprise_modulator_over_time(
     return fig
 
 
+def build_motor_accuracy_over_time(
+    accuracies: list[float],
+    confidences: list[float],
+    window: int = 50,
+) -> go.Figure:
+    """Motor cortex accuracy and silence rate over time."""
+    n = len(accuracies)
+    if n == 0:
+        return go.Figure()
+
+    # Rolling accuracy (only when M1 speaks)
+    rolling_acc = []
+    for i in range(n):
+        start = max(0, i - window + 1)
+        rolling_acc.append(sum(accuracies[start : i + 1]) / (i - start + 1))
+
+    # Rolling silence rate from confidences
+    nc = len(confidences)
+    rolling_sil = []
+    for i in range(nc):
+        start = max(0, i - window + 1)
+        chunk = confidences[start : i + 1]
+        rolling_sil.append(sum(1 for c in chunk if c == 0.0) / len(chunk))
+
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08)
+
+    # Accuracy panel
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=accuracies,
+            name="raw accuracy",
+            line=dict(color="#ef476f", width=1),
+            opacity=0.2,
+        ),
+        row=1, col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=rolling_acc,
+            name=f"rolling acc (w={window})",
+            line=dict(color="#ef476f", width=2),
+        ),
+        row=1, col=1,
+    )
+
+    # Silence rate panel
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(nc)),
+            y=rolling_sil,
+            name=f"silence rate (w={window})",
+            line=dict(color="#ffd166", width=2),
+        ),
+        row=2, col=1,
+    )
+
+    fig.update_layout(
+        title="Motor Cortex — Accuracy (when speaking) & Silence Rate",
+        height=500,
+        template="plotly_dark",
+        yaxis_title="Accuracy",
+        yaxis_range=[0, 1.05],
+        yaxis2_title="Silence Rate",
+        yaxis2_range=[0, 1.05],
+        xaxis2_title="Timestep",
+    )
+    return fig
+
+
+def build_thalamic_gate_over_time(
+    readiness: list[float], window: int = 50
+) -> go.Figure:
+    """Thalamic gate readiness time series — how open the feedback path is."""
+    n = len(readiness)
+    if n == 0:
+        return go.Figure()
+
+    # Rolling average
+    rolling = []
+    for i in range(n):
+        start = max(0, i - window + 1)
+        rolling.append(sum(readiness[start : i + 1]) / (i - start + 1))
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=readiness,
+            name="raw",
+            line=dict(color="#06d6a0", width=1),
+            opacity=0.3,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=rolling,
+            name=f"rolling avg (w={window})",
+            line=dict(color="#06d6a0", width=2),
+        )
+    )
+    fig.update_layout(
+        title="Thalamic Gate Readiness — 0 = feedback suppressed, 1 = fully open",
+        xaxis_title="Timestep",
+        yaxis_title="Readiness",
+        yaxis_range=[0, 1.05],
+        height=400,
+        template="plotly_dark",
+    )
+    return fig
+
+
 def build_dual_burst_rate(
     timeline1: Timeline, timeline2: Timeline, window: int = 50
 ) -> go.Figure:

@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from step.cortex.sensory import SensoryRegion
+from step.cortex.surprise import ThalamicGate
 from step.cortex.topology import Topology
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
@@ -359,3 +360,79 @@ class TestResultsMatchRunner:
         np.testing.assert_allclose(
             old_metrics.synaptic_accuracies, new_metrics.synaptic_accuracies
         )
+
+
+class TestThalamicGate:
+    """Unit tests for ThalamicGate."""
+
+    def test_gate_starts_closed(self):
+        gate = ThalamicGate()
+        assert gate.readiness == pytest.approx(0.0)
+
+    def test_gate_opens_with_low_burst_rate(self):
+        gate = ThalamicGate()
+        for _ in range(100):
+            gate.update(0.0)
+        assert gate.readiness > 0.95
+
+    def test_gate_stays_closed_with_high_burst_rate(self):
+        gate = ThalamicGate()
+        for _ in range(100):
+            gate.update(1.0)
+        assert gate.readiness < 0.05
+
+    def test_gate_reset(self):
+        gate = ThalamicGate()
+        for _ in range(100):
+            gate.update(0.0)
+        assert gate.readiness > 0.95
+        gate.reset()
+        assert gate.readiness == pytest.approx(0.0)
+
+
+class TestThalamicGateIntegration:
+    """Integration tests for thalamic gating in topology."""
+
+    def test_apical_with_thalamic_gate_runs(self, region1, region2, encoder):
+        """Hierarchy with thalamic gate runs and populates thalamic_readiness."""
+        tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(30)]
+        cortex = Topology(encoder)
+        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("S2", region2)
+        cortex.connect("S1", "S2", "feedforward")
+        cortex.connect("S1", "S2", "surprise")
+        cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
+        result = cortex.run(tokens, log_interval=1000)
+        assert "S2->S1" in result.thalamic_readiness
+        assert len(result.thalamic_readiness["S2->S1"]) > 0
+
+    def test_story_boundary_resets_gate(self, region1, region2, encoder):
+        """Gate resets at story boundary (readiness drops back toward 0)."""
+        tokens = (
+            [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
+            + [(STORY_BOUNDARY, "")]
+            + [(i % 3, chr(ord("a") + i % 3)) for i in range(5)]
+        )
+        gate = ThalamicGate()
+        cortex = Topology(encoder)
+        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("S2", region2)
+        cortex.connect("S1", "S2", "feedforward")
+        cortex.connect("S1", "S2", "surprise")
+        cortex.connect("S2", "S1", "apical", thalamic_gate=gate)
+        cortex.run(tokens, log_interval=1000)
+        # After boundary + 5 tokens, gate should be partially open but not fully
+        # (it was reset at the boundary, so readiness should be modest)
+        assert gate.readiness < 0.5
+
+    def test_no_gate_backward_compatible(self, region1, region2, encoder):
+        """Apical without gate works and thalamic_readiness is empty."""
+        tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
+        cortex = Topology(encoder)
+        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("S2", region2)
+        cortex.connect("S1", "S2", "feedforward")
+        cortex.connect("S1", "S2", "surprise")
+        cortex.connect("S2", "S1", "apical")
+        result = cortex.run(tokens, log_interval=1000)
+        assert result.thalamic_readiness == {}

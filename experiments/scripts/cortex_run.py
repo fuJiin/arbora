@@ -11,9 +11,10 @@ import argparse
 import string
 
 import step.env  # noqa: F401
-from step.config import CortexConfig, _default_region2_config
+from step.config import CortexConfig, _default_motor_config, _default_region2_config
+from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker
+from step.cortex.surprise import SurpriseTracker, ThalamicGate
 from step.cortex.topology import Topology
 from step.data import prepare_tokens, prepare_tokens_charlevel
 from step.encoders.charbit import CharbitEncoder
@@ -55,6 +56,16 @@ def main():
         "--apical",
         action="store_true",
         help="Enable S2→S1 apical feedback connection",
+    )
+    parser.add_argument(
+        "--gate-feedback",
+        action="store_true",
+        help="Thalamic gating: suppress feedback until receiver stabilizes",
+    )
+    parser.add_argument(
+        "--motor",
+        action="store_true",
+        help="Add M1 motor region: S1→M1 feedforward, M1→S1 apical feedback",
     )
     args = parser.parse_args()
 
@@ -103,6 +114,8 @@ def main():
         buffer_depth=args.buffer_depth,
         burst_gate=args.burst_gate,
         apical=args.apical,
+        gate_feedback=args.gate_feedback,
+        motor=args.motor,
     )
 
     tags = auto_tags(
@@ -111,6 +124,8 @@ def main():
         buffer_depth=args.buffer_depth,
         burst_gate=args.burst_gate,
         apical=args.apical,
+        gate_feedback=args.gate_feedback,
+        motor=args.motor,
     )
 
     run_dir = save_run(
@@ -182,7 +197,29 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
     )
     cortex.connect("S1", "S2", "surprise", surprise_tracker=surprise)
     if args.apical:
-        cortex.connect("S2", "S1", "apical")
+        gate = ThalamicGate() if args.gate_feedback else None
+        cortex.connect("S2", "S1", "apical", thalamic_gate=gate)
+
+    if args.motor:
+        m1_cfg = _default_motor_config()
+        motor = MotorRegion(
+            input_dim=region1.n_l23_total,
+            n_columns=m1_cfg.n_columns,
+            n_l4=m1_cfg.n_l4,
+            n_l23=m1_cfg.n_l23,
+            k_columns=m1_cfg.k_columns,
+            voltage_decay=m1_cfg.voltage_decay,
+            eligibility_decay=m1_cfg.eligibility_decay,
+            synapse_decay=m1_cfg.synapse_decay,
+            learning_rate=m1_cfg.learning_rate,
+            ltd_rate=m1_cfg.ltd_rate,
+            seed=456,
+        )
+        cortex.add_region("M1", motor)
+        cortex.connect("S1", "M1", "feedforward")
+        cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
+        m1_gate = ThalamicGate() if args.gate_feedback else None
+        cortex.connect("M1", "S1", "apical", thalamic_gate=m1_gate)
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
     result = cortex.run(tokens, log_interval=args.log_interval)
@@ -245,6 +282,18 @@ def _build_region_configs(cortex_cfg, args):
             "buffer_depth": args.buffer_depth,
             "burst_gate": args.burst_gate,
             "apical": args.apical,
+        }
+    if args.motor:
+        m1_cfg = _default_motor_config()
+        configs["M1"] = {
+            "n_columns": m1_cfg.n_columns,
+            "k_columns": m1_cfg.k_columns,
+            "n_l4": m1_cfg.n_l4,
+            "n_l23": m1_cfg.n_l23,
+            "learning_rate": m1_cfg.learning_rate,
+            "ltd_rate": m1_cfg.ltd_rate,
+            "voltage_decay": m1_cfg.voltage_decay,
+            "motor": True,
         }
     return configs
 

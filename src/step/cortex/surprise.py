@@ -40,3 +40,29 @@ class SurpriseTracker:
         baseline = max(self.baseline_burst_rate, self.min_baseline)
         surprise = self._burst_ema / baseline
         return min(surprise, 2.0)
+
+
+class ThalamicGate:
+    """Receiver-side gating: suppresses feedback when receiver is still learning.
+
+    Models the pulvinar modulated by L6 projections from receiving cortex.
+    readiness = 1.0 - smoothed_burst_rate
+    """
+
+    def __init__(self, ema_decay: float = 0.95):
+        self._ema_decay = ema_decay
+        self._burst_ema: float = 1.0  # Start closed
+
+    @property
+    def readiness(self) -> float:
+        return 1.0 - self._burst_ema
+
+    def update(self, burst_rate: float) -> float:
+        self._burst_ema = (
+            self._ema_decay * self._burst_ema
+            + (1.0 - self._ema_decay) * burst_rate
+        )
+        return self.readiness
+
+    def reset(self) -> None:
+        self._burst_ema = 1.0

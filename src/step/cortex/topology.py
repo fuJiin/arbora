@@ -11,8 +11,9 @@ from typing import Protocol
 
 import numpy as np
 
+from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker
+from step.cortex.surprise import SurpriseTracker, ThalamicGate
 from step.data import STORY_BOUNDARY
 from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
 from step.probes.diagnostics import CortexDiagnostics
@@ -33,6 +34,8 @@ class RunMetrics:
     synaptic_accuracies: list[float] = field(default_factory=list)
     column_accuracies: list[float] = field(default_factory=list)
     dendritic_accuracies: list[float] = field(default_factory=list)
+    motor_accuracies: list[float] = field(default_factory=list)
+    motor_confidences: list[float] = field(default_factory=list)
     elapsed_seconds: float = 0.0
     representation: dict = field(default_factory=dict)
 
@@ -46,6 +49,7 @@ class _RegionState:
     diagnostics: CortexDiagnostics | None
     timeline: Timeline | None
     entry: bool = False
+    motor: bool = False
     # Entry region only:
     decode_index: InvertedIndexDecoder | None = None
     syn_decoder: SynapticDecoder | None = None
@@ -60,6 +64,7 @@ class Connection:
     surprise_tracker: SurpriseTracker | None = None
     buffer_depth: int = 1
     burst_gate: bool = False
+    thalamic_gate: ThalamicGate | None = None
     _buffer: np.ndarray | None = field(default=None, repr=False)
     _buffer_pos: int = 0
 
@@ -68,6 +73,7 @@ class Connection:
 class CortexResult:
     per_region: dict[str, RunMetrics] = field(default_factory=dict)
     surprise_modulators: dict[str, list[float]] = field(default_factory=dict)
+    thalamic_readiness: dict[str, list[float]] = field(default_factory=dict)
     elapsed_seconds: float = 0.0
 
 
@@ -123,6 +129,7 @@ class Topology:
             diagnostics=diag,
             timeline=timeline,
             entry=entry,
+            motor=isinstance(region, MotorRegion),
         )
         if entry:
             state.decode_index = InvertedIndexDecoder()
@@ -145,6 +152,7 @@ class Topology:
         surprise_tracker: SurpriseTracker | None = None,
         buffer_depth: int = 1,
         burst_gate: bool = False,
+        thalamic_gate: ThalamicGate | None = None,
     ) -> "Topology":
         """Wire source -> target."""
         for name in (source, target):
@@ -156,6 +164,7 @@ class Topology:
         conn = Connection(
             source=source, target=target, kind=kind,
             buffer_depth=buffer_depth, burst_gate=burst_gate,
+            thalamic_gate=thalamic_gate,
         )
         if kind == "surprise":
             conn.surprise_tracker = surprise_tracker or SurpriseTracker()
@@ -231,9 +240,12 @@ class Topology:
         }
         # Per-surprise-connection modulator lists, keyed by target name
         surprise_modulators: dict[str, list[float]] = {}
+        thalamic_readiness: dict[str, list[float]] = {}
         for conn in self._connections:
             if conn.kind == "surprise":
                 surprise_modulators[conn.target] = []
+            if conn.thalamic_gate is not None:
+                thalamic_readiness[f"{conn.source}->{conn.target}"] = []
 
         prediction_log: list[tuple[str, str, str, str]] = []
         start = time.monotonic()
@@ -248,6 +260,8 @@ class Topology:
                     if conn._buffer is not None:
                         conn._buffer[:] = 0.0
                         conn._buffer_pos = 0
+                    if conn.thalamic_gate is not None:
+                        conn.thalamic_gate.reset()
                 if hasattr(self._encoder, "reset"):
                     self._encoder.reset()
                 continue
@@ -320,7 +334,16 @@ class Topology:
                         r_active = int(src.active_columns.sum())
                         r_bursting = int(src.bursting_columns.sum())
                         confidence = 1.0 - (r_bursting / max(r_active, 1))
-                        tgt.set_apical_context(src.firing_rate_l23 * confidence)
+                        signal = src.firing_rate_l23 * confidence
+                        if conn.thalamic_gate is not None:
+                            tgt_active = int(tgt.active_columns.sum())
+                            tgt_bursting = int(tgt.bursting_columns.sum())
+                            tgt_burst_rate = tgt_bursting / max(tgt_active, 1)
+                            readiness = conn.thalamic_gate.update(tgt_burst_rate)
+                            signal = signal * readiness
+                            key = f"{conn.source}->{conn.target}"
+                            thalamic_readiness[key].append(readiness)
+                        tgt.set_apical_context(signal)
 
             # -- Per-region bookkeeping --
             for _name, s in self._regions.items():
@@ -335,6 +358,19 @@ class Topology:
                         s.region,
                         s.region.last_column_drive,
                     )
+
+            # -- Motor metrics --
+            for _name, s in self._regions.items():
+                if s.motor:
+                    motor_region = s.region
+                    motor_region.observe_token(token_id)
+                    if t > 0:
+                        m_id, m_conf = motor_region.get_output()
+                        metrics[_name].motor_confidences.append(m_conf)
+                        if m_id >= 0:
+                            metrics[_name].motor_accuracies.append(
+                                1.0 if m_id == token_id else 0.0
+                            )
 
             # -- Entry metrics --
             active_set = frozenset(
@@ -379,7 +415,8 @@ class Topology:
             ):
                 self._log_step(
                     t, start, entry_name, metrics, surprise_modulators,
-                    rolling_window, show_predictions, prediction_log,
+                    thalamic_readiness, rolling_window, show_predictions,
+                    prediction_log,
                 )
 
         elapsed = time.monotonic() - start
@@ -404,6 +441,7 @@ class Topology:
         return CortexResult(
             per_region=metrics,
             surprise_modulators=surprise_modulators,
+            thalamic_readiness=thalamic_readiness,
             elapsed_seconds=elapsed,
         )
 
@@ -470,6 +508,7 @@ class Topology:
         entry_name: str,
         metrics: dict[str, RunMetrics],
         surprise_modulators: dict[str, list[float]],
+        thalamic_readiness: dict[str, list[float]],
         rolling_window: int,
         show_predictions: int,
         prediction_log: list[tuple[str, ...]],
@@ -497,11 +536,37 @@ class Topology:
         # Surprise modulator info
         mod_str = ""
         if surprise_modulators:
-            for _tgt, mods in surprise_modulators.items():
+            multi = len(surprise_modulators) > 1
+            for tgt, mods in surprise_modulators.items():
                 if mods:
                     tail_mod = mods[-rolling_window:]
                     avg_mod = sum(tail_mod) / len(tail_mod)
-                    mod_str += f" mod={avg_mod:.2f}"
+                    tag = f"mod({tgt})" if multi else "mod"
+                    mod_str += f" {tag}={avg_mod:.2f}"
+
+        # Thalamic gate readiness
+        gate_str = ""
+        if thalamic_readiness:
+            multi = len(thalamic_readiness) > 1
+            for key, vals in thalamic_readiness.items():
+                if vals:
+                    tail_gate = vals[-rolling_window:]
+                    avg_gate = sum(tail_gate) / len(tail_gate)
+                    tag = f"gate({key})" if multi else "gate"
+                    gate_str += f" {tag}={avg_gate:.2f}"
+
+        # Motor accuracy
+        motor_str = ""
+        for _name, s in self._regions.items():
+            if s.motor:
+                m = metrics[_name]
+                if m.motor_accuracies:
+                    tail_m = m.motor_accuracies[-rolling_window:]
+                    roll_m = sum(tail_m) / len(tail_m)
+                    # Silence rate: steps with confidence 0 / total steps
+                    tail_c = m.motor_confidences[-rolling_window:]
+                    silence = sum(1 for c in tail_c if c == 0.0) / max(len(tail_c), 1)
+                    motor_str += f" M1={roll_m:.4f} sil={silence:.0%}"
 
         print(
             f"  [{label}] t={t:,} "
@@ -509,7 +574,7 @@ class Topology:
             f"syn={roll_syn:.4f} "
             f"overlap={roll_o:.4f} "
             f"burst={burst_pct:.1%}"
-            f"{mod_str} "
+            f"{mod_str}{gate_str}{motor_str} "
             f"({elapsed:.1f}s)"
         )
 
