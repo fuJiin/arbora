@@ -41,6 +41,14 @@ def main():
         action="store_true",
         help="Only run single-region baseline (skip hierarchy)",
     )
+    parser.add_argument(
+        "--buffer-depth", type=int, default=1,
+        help="Temporal buffer depth for S1→S2 feedforward (default: 1 = direct)",
+    )
+    parser.add_argument(
+        "--burst-gate", action="store_true",
+        help="Gate feedforward signal by bursting columns (novel events only)",
+    )
     args = parser.parse_args()
 
     tokens = prepare_tokens(args.tokens, dataset=args.dataset)
@@ -92,8 +100,9 @@ def main():
         k_columns=4,
         seed=42,
     )
+    r2_input_dim = region1.n_l23_total * args.buffer_depth
     region2 = SensoryRegion(
-        input_dim=region1.n_l23_total,
+        input_dim=r2_input_dim,
         encoding_width=0,  # sliding window — no positional structure in L2/3 output
         n_columns=16,
         n_l4=4,
@@ -117,6 +126,8 @@ def main():
         encoder,
         tokens,
         surprise_tracker=surprise,
+        buffer_depth=args.buffer_depth,
+        burst_gate=args.burst_gate,
         log_interval=args.log_interval,
         diagnostics1=diag1,
         diagnostics2=diag2,

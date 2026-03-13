@@ -65,3 +65,8 @@ class HierarchyConfig:
     # When enabled, feedback is precision-weighted by S2's confidence
     # (1 - burst_rate), modeling thalamic gating / predictive coding.
     enable_apical_feedback: bool = False
+    # Temporal buffer: S2 sees a sliding window of recent S1 states.
+    # buffer_depth=1 is direct pass-through (default, backward compatible).
+    ff_buffer_depth: int = 1
+    # Burst gating: S2 only sees novel/surprising events (bursting columns).
+    ff_burst_gate: bool = False

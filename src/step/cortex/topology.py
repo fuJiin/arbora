@@ -56,6 +56,10 @@ class Connection:
     target: str
     kind: str  # "feedforward" | "surprise" | "apical"
     surprise_tracker: SurpriseTracker | None = None
+    buffer_depth: int = 1
+    burst_gate: bool = False
+    _buffer: np.ndarray | None = field(default=None, repr=False)
+    _buffer_pos: int = 0
 
 
 @dataclass
@@ -132,6 +136,8 @@ class Topology:
         kind: str = "feedforward",
         *,
         surprise_tracker: SurpriseTracker | None = None,
+        buffer_depth: int = 1,
+        burst_gate: bool = False,
     ) -> "Topology":
         """Wire source -> target."""
         for name in (source, target):
@@ -140,7 +146,10 @@ class Topology:
         if kind not in ("feedforward", "surprise", "apical"):
             raise ValueError(f"Unknown connection kind: {kind!r}")
 
-        conn = Connection(source=source, target=target, kind=kind)
+        conn = Connection(
+            source=source, target=target, kind=kind,
+            buffer_depth=buffer_depth, burst_gate=burst_gate,
+        )
         if kind == "surprise":
             conn.surprise_tracker = surprise_tracker or SurpriseTracker()
         if kind == "apical":
@@ -148,6 +157,19 @@ class Topology:
             tgt_region = self._regions[target].region
             if not tgt_region.has_apical:
                 tgt_region.init_apical_segments(source_dim=src_region.n_l23_total)
+
+        # Allocate temporal buffer for feedforward connections
+        if kind == "feedforward" and buffer_depth > 1:
+            src_region = self._regions[source].region
+            tgt_region = self._regions[target].region
+            expected_dim = buffer_depth * src_region.n_l23_total
+            if tgt_region.input_dim != expected_dim:
+                raise ValueError(
+                    f"Target {target!r} input_dim={tgt_region.input_dim} "
+                    f"but buffer_depth={buffer_depth} * "
+                    f"source n_l23_total={src_region.n_l23_total} = {expected_dim}"
+                )
+            conn._buffer = np.zeros((buffer_depth, src_region.n_l23_total))
 
         self._connections.append(conn)
         return self
@@ -215,6 +237,10 @@ class Topology:
                 for s in self._regions.values():
                     s.region.reset_working_memory()
                     s.rep_tracker.reset_context()
+                for conn in self._connections:
+                    if conn._buffer is not None:
+                        conn._buffer[:] = 0.0
+                        conn._buffer_pos = 0
                 if hasattr(self._encoder, "reset"):
                     self._encoder.reset()
                 continue
@@ -251,8 +277,7 @@ class Topology:
                     # Find feedforward source
                     for conn in self._connections:
                         if conn.target == name and conn.kind == "feedforward":
-                            src = self._regions[conn.source].region
-                            s.region.process(src.firing_rate_l23)
+                            s.region.process(self._get_ff_signal(conn))
                             break
 
             # -- Inter-region signals (after all regions processed) --
@@ -357,6 +382,30 @@ class Topology:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _get_ff_signal(self, conn: Connection) -> np.ndarray:
+        """Build the feedforward signal for a connection.
+
+        Applies burst gating (if enabled) then writes into the temporal
+        buffer (if depth > 1), returning the concatenated oldest-first
+        window.
+        """
+        src = self._regions[conn.source].region
+        signal = src.firing_rate_l23.copy()
+
+        # Burst gate: zero precisely-predicted columns
+        if conn.burst_gate:
+            burst_mask = np.repeat(src.bursting_columns, src.n_l23)
+            signal *= burst_mask
+
+        # No buffer: direct pass-through
+        if conn.buffer_depth <= 1:
+            return signal
+
+        # Write into circular buffer, read oldest-first
+        conn._buffer[conn._buffer_pos] = signal
+        conn._buffer_pos = (conn._buffer_pos + 1) % conn.buffer_depth
+        return np.roll(conn._buffer, -conn._buffer_pos, axis=0).flatten()
 
     def _topo_order(self) -> list[str]:
         """BFS from entry following feedforward edges."""

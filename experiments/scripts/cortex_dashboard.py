@@ -59,6 +59,14 @@ def main():
         "--char-level", action="store_true",
         help="Use character-level tokenization with positional encoding",
     )
+    parser.add_argument(
+        "--buffer-depth", type=int, default=1,
+        help="Temporal buffer depth for S1→S2 feedforward (default: 1 = direct)",
+    )
+    parser.add_argument(
+        "--burst-gate", action="store_true",
+        help="Gate feedforward signal by bursting columns (novel events only)",
+    )
     args = parser.parse_args()
 
     cortex_cfg = CortexConfig()
@@ -95,13 +103,18 @@ def main():
     if args.hierarchy:
         r2_cfg = _default_region2_config()
         r2_dim = r2_cfg.n_columns * r2_cfg.n_l23
+        ff_extras = ""
+        if args.buffer_depth > 1:
+            ff_extras += f", buffer_depth={args.buffer_depth}"
+        if args.burst_gate:
+            ff_extras += ", burst_gate=True"
         config_parts.insert(2,
             f'<span><span class="cfg-label">S2:</span> '
             f'{r2_cfg.n_columns} cols, k={r2_cfg.k_columns}, '
             f'{r2_cfg.n_l4} L4, {r2_cfg.n_l23} L2/3 '
             f'(dim={r2_dim}), '
             f'lr={r2_cfg.learning_rate}, ltd={r2_cfg.ltd_rate}, '
-            f'v_decay={r2_cfg.voltage_decay}</span>'
+            f'v_decay={r2_cfg.voltage_decay}{ff_extras}</span>'
         )
     config_html = (
         '<div class="config-banner">'
@@ -222,8 +235,9 @@ def _run_hierarchy_dashboard(
 ) -> str:
     region1 = _make_region(cortex_cfg, input_dim, encoding_width)
     r2_cfg = _default_region2_config()
+    r2_input_dim = region1.n_l23_total * args.buffer_depth
     region2 = SensoryRegion(
-        input_dim=region1.n_l23_total,
+        input_dim=r2_input_dim,
         encoding_width=0,
         n_columns=r2_cfg.n_columns,
         n_l4=r2_cfg.n_l4,
@@ -246,7 +260,10 @@ def _run_hierarchy_dashboard(
     )
     cortex.add_region("S1", region1, entry=True)
     cortex.add_region("S2", region2)
-    cortex.connect("S1", "S2", "feedforward")
+    cortex.connect(
+        "S1", "S2", "feedforward",
+        buffer_depth=args.buffer_depth, burst_gate=args.burst_gate,
+    )
     cortex.connect("S1", "S2", "surprise", surprise_tracker=surprise)
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
