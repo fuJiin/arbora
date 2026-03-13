@@ -67,6 +67,10 @@ def main():
         "--burst-gate", action="store_true",
         help="Gate feedforward signal by bursting columns (novel events only)",
     )
+    parser.add_argument(
+        "--apical", action="store_true",
+        help="Enable S2→S1 apical feedback connection",
+    )
     args = parser.parse_args()
 
     cortex_cfg = CortexConfig()
@@ -108,6 +112,8 @@ def main():
             ff_extras += f", buffer_depth={args.buffer_depth}"
         if args.burst_gate:
             ff_extras += ", burst_gate=True"
+        if args.apical:
+            ff_extras += ", apical=S2→S1"
         config_parts.insert(2,
             f'<span><span class="cfg-label">S2:</span> '
             f'{r2_cfg.n_columns} cols, k={r2_cfg.k_columns}, '
@@ -265,6 +271,8 @@ def _run_hierarchy_dashboard(
         buffer_depth=args.buffer_depth, burst_gate=args.burst_gate,
     )
     cortex.connect("S1", "S2", "surprise", surprise_tracker=surprise)
+    if args.apical:
+        cortex.connect("S2", "S1", "apical")
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
     result = cortex.run(tokens, log_interval=args.log_interval)
