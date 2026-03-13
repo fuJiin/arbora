@@ -184,6 +184,7 @@ def run_hierarchy(
     tokens: list[tuple[int, str]],
     *,
     surprise_tracker: SurpriseTracker | None = None,
+    enable_apical_feedback: bool = False,
     log_interval: int = 100,
     rolling_window: int = 100,
     diagnostics1: CortexDiagnostics | None = None,
@@ -193,7 +194,7 @@ def run_hierarchy(
 
     Region 2 receives Region 1's L2/3 firing rate as its encoding.
     Surprise (Region 1 burst rate) modulates Region 2 learning rate.
-    If Region 1 has apical segments, Region 2's L2/3 firing rate is
+    If enable_apical_feedback is True and Region 1 has apical segments,
     fed back as apical context for top-down prediction.
     """
     if surprise_tracker is None:
@@ -245,10 +246,16 @@ def run_hierarchy(
         region2.process(region1.firing_rate_l23)
 
         # --- Apical feedback: Region 2 L2/3 → Region 1 apical context ---
-        # Top-down context for next R1 step. R2's L2/3 firing rate provides
-        # a continuous signal that R1 apical segments can learn from.
-        if region1.has_apical:
-            region1.set_apical_context(region2.firing_rate_l23)
+        # Precision-weighted: R2's feedback strength scales with its own
+        # confidence (1 - burst_rate). When R2 is mostly bursting (uncertain),
+        # feedback is suppressed. As R2 learns, feedback ramps up naturally.
+        # Models thalamic gating and predictive coding precision weighting.
+        # Disabled by default — R2 needs mature representations first.
+        if enable_apical_feedback and region1.has_apical:
+            r2_active = int(region2.active_columns.sum())
+            r2_bursting = int(region2.bursting_columns.sum())
+            r2_confidence = 1.0 - (r2_bursting / max(r2_active, 1))
+            region1.set_apical_context(region2.firing_rate_l23 * r2_confidence)
 
         rep_tracker2.observe(token_id, region2.active_columns, region2.active_l4)
         if diagnostics2 is not None:

@@ -251,8 +251,10 @@ def _run_hierarchy_dashboard(
         seed=123,
     )
 
-    # Initialize apical feedback: R2 L2/3 -> R1 apical segments
-    region1.init_apical_segments(source_dim=region2.n_l23_total)
+    # Apical feedback disabled by default — R2 needs mature representations first.
+    enable_apical_feedback = False
+    if enable_apical_feedback:
+        region1.init_apical_segments(source_dim=region2.n_l23_total)
 
     surprise = SurpriseTracker()
     diag1 = CortexDiagnostics(snapshot_interval=args.log_interval)
@@ -283,6 +285,7 @@ def _run_hierarchy_dashboard(
         encoder,
         tokens,
         surprise_tracker=surprise,
+        enable_apical_feedback=enable_apical_feedback,
         log_interval=args.log_interval,
         diagnostics1=diag1,
         diagnostics2=diag2,

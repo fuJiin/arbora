@@ -227,7 +227,7 @@ class TestHierarchyApical:
             n_columns=4,
             n_l4=2,
             n_l23=2,
-            k_columns=1,
+            k_columns=2,
             seed=123,
         )
         # Initialize apical feedback: R2 L2/3 → R1
@@ -242,22 +242,31 @@ class TestHierarchyApical:
             (STORY_BOUNDARY, ""),
             (0, "a"), (1, "b"),
         ]
-        metrics = run_hierarchy(r1, r2, encoder, tokens, log_interval=1000)
+        metrics = run_hierarchy(
+            r1, r2, encoder, tokens,
+            enable_apical_feedback=True, log_interval=1000,
+        )
         assert metrics.elapsed_seconds > 0
 
     def test_apical_context_flows(self, regions, encoder):
         """After processing tokens, R1 apical context should be non-zero."""
         r1, r2 = regions
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
-        run_hierarchy(r1, r2, encoder, tokens, log_interval=1000)
+        run_hierarchy(
+            r1, r2, encoder, tokens,
+            enable_apical_feedback=True, log_interval=1000,
+        )
         # R2 should have produced some firing rate, which flows to R1 apical
         assert r1._apical_context.any()
 
     def test_apical_segments_grow(self, regions, encoder):
         """Apical segments should grow over a training sequence."""
         r1, r2 = regions
-        tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(50)]
-        run_hierarchy(r1, r2, encoder, tokens, log_interval=1000)
+        tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(200)]
+        run_hierarchy(
+            r1, r2, encoder, tokens,
+            enable_apical_feedback=True, log_interval=1000,
+        )
         # Some apical permanences should have changed from zero
         assert r1.apical_seg_perm.sum() > 0
 
