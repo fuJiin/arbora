@@ -37,20 +37,28 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Positional encoding wins**: 16.3% top-1 vs 14.8% Charbit vs 9.9% OneHot
 - **LTD=0.05 for char-level**: default 0.2 too aggressive
 - **S2 needs high LR (0.20)**: S1's EMA has high inter-token cosine similarity (0.48)
-- **Apical feedback disabled**: S2 "precise but wrong" — feedback hurts S1
 - **Temporal buffer on Connection, not Region**: different connections can have different depths
 - **Burst gating before buffering**: each slot captures what was novel at that moment
-- **Representation quality > decoder accuracy** — build representations for downstream regions
+- **Apical feedback works with buffer+burst**: previously S2 was "precise but wrong", now S2 ctx_disc 0.947 and apical boosts S1 ctx_disc 0.657→0.890
+- **Apical tradeoff**: S1 gains ctx_disc but loses selectivity (0.580→0.684) — columns become more context-dependent, less token-specific. Acceptable for feeding motor cortex.
+- **Dendritic decoder must use active_l23 (boolean)**: firing_rate_l23 EMA is 128/128 nonzero due to decay, making `> 0` threshold useless for segment discrimination
 - **Firing rate > boolean for inter-region** — rate-coded EMA is biologically grounded
 
 ## Performance (20k chars, char-level, positional)
-- **S1**: burst 46%→14%, overlap 0.38→0.85, ctx_disc 0.932
+- **S1 baseline**: burst 40%, overlap ~0.38, ctx_disc 0.657
+- **S1 + apical** (buffer+burst+apical): burst 33.7%, ctx_disc 0.890, overlap ~0.46
 - **S2 baseline**: ctx_disc 0.737
-- **S2 + buffer_depth=4**: ctx_disc 0.899 (+22%)
-- **S2 + buffer_depth=4 + burst_gate**: ctx_disc 0.912 (+24%), higher sparsity (0.949), lower cross-col cosine (0.041)
-- Burst gating benefit emerges at scale (neutral at 500 tokens with ~50% burst, +1.3% at 20k with ~14% burst)
+- **S2 + buffer_depth=4 + burst_gate**: ctx_disc 0.912
+- **S2 + buffer+burst+apical**: ctx_disc 0.947
+- **Decoder accuracy** (buffer+burst+apical, last 100): dendritic 11%, index 5%, column 6%, synaptic 4% (chance=3.2%)
+
+## Dashboard CLI
+- `--hierarchy --char-level` — two-region hierarchy with char-level input
+- `--buffer-depth 4` — temporal buffer for S1→S2
+- `--burst-gate` — gate by bursting columns
+- `--apical` — S2→S1 apical feedback
 
 ## Next Steps
-- [ ] Revisit apical feedback: S2 ctx_disc now 0.912 with buffer+burst — test if feedback helps S1
 - [ ] Motor cortex design: babbling loop (char-by-char output, 32 classes)
 - [ ] Consider L5 (motor output) and L6 (thalamic control) layers
+- [ ] Dendritic decoder capacity: 4 segments × 24 synapses may be too few for 31 tokens
