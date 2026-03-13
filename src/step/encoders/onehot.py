@@ -5,7 +5,7 @@ No positional padding — each character is one input vector, and temporal
 structure comes from the sequence of steps.
 
 This is the natural pairing with character-level tokenization: the input
-to R1 L4 is exactly the vocabulary size, with one bit active per step.
+to S1 L4 is exactly the vocabulary size, with one bit active per step.
 """
 
 import numpy as np

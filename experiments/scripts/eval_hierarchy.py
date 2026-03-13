@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate two-region sensory hierarchy on BabyLM.
 
-Runs Region 1 (sensory) → Region 2 (secondary sensory) with
+Runs S1 (sensory) → S2 (secondary sensory) with
 surprise-modulated learning. Reports per-region representation
 metrics and hierarchy-specific diagnostics.
 
@@ -139,7 +139,7 @@ def main():
         print(f"\nSingle region syn accuracy (last 100): {sum(tail) / len(tail):.4f}")
     if metrics_hier.region1.synaptic_accuracies:
         tail = metrics_hier.region1.synaptic_accuracies[-100:]
-        print(f"Hierarchy R1 syn accuracy (last 100):  {sum(tail) / len(tail):.4f}")
+        print(f"Hierarchy S1 syn accuracy (last 100):  {sum(tail) / len(tail):.4f}")
 
     # Surprise modulator distribution
     mods = metrics_hier.surprise_modulators
@@ -153,10 +153,10 @@ def main():
             f"max={mods_arr.max():.3f}"
         )
 
-    # Region 2 representation summary
+    # S2 representation summary
     r2_rep = metrics_hier.region2.representation
     if r2_rep:
-        print("\nRegion 2 representation:")
+        print("\nS2 representation:")
         print(
             f"  selectivity={r2_rep.get('column_selectivity_mean', 0):.3f} "
             f"similarity={r2_rep.get('similarity_mean', 0):.3f} "
@@ -166,7 +166,7 @@ def main():
     # Burst rates
     summ1 = diag1.summary()
     summ2 = diag2.summary()
-    print(f"\nBurst rates: R1={summ1['burst_rate']:.1%}  R2={summ2['burst_rate']:.1%}")
+    print(f"\nBurst rates: S1={summ1['burst_rate']:.1%}  S2={summ2['burst_rate']:.1%}")
 
 
 if __name__ == "__main__":

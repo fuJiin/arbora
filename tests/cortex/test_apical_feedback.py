@@ -230,7 +230,7 @@ class TestHierarchyApical:
             k_columns=2,
             seed=123,
         )
-        # Initialize apical feedback: R2 L2/3 → R1
+        # Initialize apical feedback: S2 L2/3 → S1
         r1.init_apical_segments(source_dim=r2.n_l23_total)
         return r1, r2
 
@@ -249,14 +249,14 @@ class TestHierarchyApical:
         assert metrics.elapsed_seconds > 0
 
     def test_apical_context_flows(self, regions, encoder):
-        """After processing tokens, R1 apical context should be non-zero."""
+        """After processing tokens, S1 apical context should be non-zero."""
         r1, r2 = regions
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
         run_hierarchy(
             r1, r2, encoder, tokens,
             enable_apical_feedback=True, log_interval=1000,
         )
-        # R2 should have produced some firing rate, which flows to R1 apical
+        # S2 should have produced some firing rate, which flows to S1 apical
         assert r1._apical_context.any()
 
     def test_apical_segments_grow(self, regions, encoder):

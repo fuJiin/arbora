@@ -85,7 +85,7 @@ def main():
     config_parts = [
         f'<span><span class="cfg-label">Encoder:</span> {enc_name} '
         f'({input_dim}-dim)</span>',
-        f'<span><span class="cfg-label">R1:</span> '
+        f'<span><span class="cfg-label">S1:</span> '
         f'{cortex_cfg.n_columns} cols, k={cortex_cfg.k_columns}, '
         f'{cortex_cfg.n_l4} L4, {cortex_cfg.n_l23} L2/3 '
         f'(dim={r1_dim}), '
@@ -96,7 +96,7 @@ def main():
         r2_cfg = _default_region2_config()
         r2_dim = r2_cfg.n_columns * r2_cfg.n_l23
         config_parts.insert(2,
-            f'<span><span class="cfg-label">R2:</span> '
+            f'<span><span class="cfg-label">S2:</span> '
             f'{r2_cfg.n_columns} cols, k={r2_cfg.k_columns}, '
             f'{r2_cfg.n_l4} L4, {r2_cfg.n_l23} L2/3 '
             f'(dim={r2_dim}), '
@@ -167,14 +167,14 @@ def _run_single_dashboard(
         enable_timeline=True,
         diagnostics_interval=args.log_interval,
     )
-    cortex.add_region("R1", region, entry=True)
+    cortex.add_region("S1", region, entry=True)
 
     print(f"\nRunning cortex on {len(tokens):,} tokens...")
     result = cortex.run(tokens, log_interval=args.log_interval)
 
-    timeline = cortex.timelines["R1"]
-    diag = cortex.diagnostics["R1"]
-    metrics = result.per_region["R1"]
+    timeline = cortex.timelines["S1"]
+    diag = cortex.diagnostics["S1"]
+    metrics = result.per_region["S1"]
 
     diag.print_report()
 
@@ -201,7 +201,7 @@ def _run_single_dashboard(
             ("Signal Balance", build_voltage_excitability(timeline, n_cols)),
         ],
         "Segments": [
-            ("Segment Health", build_segment_health_over_time(diag, region_label="R1")),
+            ("Segment Health", build_segment_health_over_time(diag, region_label="S1")),
             ("Apical Predictions", build_apical_prediction_over_time(timeline)),
         ],
     }
@@ -244,27 +244,27 @@ def _run_hierarchy_dashboard(
         enable_timeline=True,
         diagnostics_interval=args.log_interval,
     )
-    cortex.add_region("R1", region1, entry=True)
-    cortex.add_region("R2", region2)
-    cortex.connect("R1", "R2", "feedforward")
-    cortex.connect("R1", "R2", "surprise", surprise_tracker=surprise)
+    cortex.add_region("S1", region1, entry=True)
+    cortex.add_region("S2", region2)
+    cortex.connect("S1", "S2", "feedforward")
+    cortex.connect("S1", "S2", "surprise", surprise_tracker=surprise)
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
     result = cortex.run(tokens, log_interval=args.log_interval)
 
-    timeline1 = cortex.timelines["R1"]
-    timeline2 = cortex.timelines["R2"]
-    diag1 = cortex.diagnostics["R1"]
-    diag2 = cortex.diagnostics["R2"]
+    timeline1 = cortex.timelines["S1"]
+    timeline2 = cortex.timelines["S2"]
+    diag1 = cortex.diagnostics["S1"]
+    diag2 = cortex.diagnostics["S2"]
 
     print(
-        f"\nCaptured {len(timeline1.frames)} R1"
-        f" + {len(timeline2.frames)} R2 frames"
+        f"\nCaptured {len(timeline1.frames)} S1"
+        f" + {len(timeline2.frames)} S2 frames"
     )
     print("Building hierarchy dashboard...")
 
-    rep1 = result.per_region["R1"].representation
-    rep2 = result.per_region["R2"].representation
+    rep1 = result.per_region["S1"].representation
+    rep2 = result.per_region["S2"].representation
     summ1 = diag1.summary()
     summ2 = diag2.summary()
 
@@ -273,7 +273,7 @@ def _run_hierarchy_dashboard(
         rep2,
         summ1["burst_rate"],
         summ2["burst_rate"],
-        result.surprise_modulators.get("R2", []),
+        result.surprise_modulators.get("S2", []),
         diag1=diag1,
     )
 
@@ -286,61 +286,61 @@ def _run_hierarchy_dashboard(
             (
                 "Surprise Modulator",
                 build_surprise_modulator_over_time(
-                    result.surprise_modulators.get("R2", []),
+                    result.surprise_modulators.get("S2", []),
                 ),
             ),
             (
-                "R1 Column Selectivity",
-                build_column_selectivity_bar(rep1, region_label="R1 (Sensory)"),
+                "S1 Column Selectivity",
+                build_column_selectivity_bar(rep1, region_label="S1 (Sensory)"),
             ),
             (
-                "R2 Column Selectivity",
-                build_column_selectivity_bar(rep2, region_label="R2 (Secondary)"),
+                "S2 Column Selectivity",
+                build_column_selectivity_bar(rep2, region_label="S2 (Secondary)"),
             ),
         ],
         "Region 1": [
-            ("R1 Surprise Rate", build_burst_rate_over_time(timeline1)),
+            ("S1 Surprise Rate", build_burst_rate_over_time(timeline1)),
             (
-                "R1 Column Usage",
+                "S1 Column Usage",
                 build_column_entropy_over_time(timeline1, n_cols_r1),
             ),
             (
-                "R1 Column Activation",
+                "S1 Column Activation",
                 build_column_activation_heatmap(timeline1, n_cols_r1),
             ),
             (
-                "R1 Feature Differentiation",
+                "S1 Feature Differentiation",
                 build_ff_weight_divergence(timeline1, n_cols_r1),
             ),
             (
-                "R1 Signal Balance",
+                "S1 Signal Balance",
                 build_voltage_excitability(timeline1, n_cols_r1),
             ),
         ],
         "Region 2": [
-            ("R2 Surprise Rate", build_burst_rate_over_time(timeline2)),
+            ("S2 Surprise Rate", build_burst_rate_over_time(timeline2)),
             (
-                "R2 Column Activation",
+                "S2 Column Activation",
                 build_column_activation_heatmap(timeline2, n_cols_r2),
             ),
             (
-                "R2 Feature Differentiation",
+                "S2 Feature Differentiation",
                 build_ff_weight_divergence(timeline2, n_cols_r2),
             ),
             (
-                "R2 Column Usage",
+                "S2 Column Usage",
                 build_column_entropy_over_time(timeline2, n_cols_r2),
             ),
         ],
         "Feedback": [
             (
-                "R1 Segment Health",
-                build_segment_health_over_time(diag1, region_label="R1"),
+                "S1 Segment Health",
+                build_segment_health_over_time(diag1, region_label="S1"),
             ),
             ("Apical Predictions", build_apical_prediction_over_time(timeline1)),
             (
-                "R2 Segment Health",
-                build_segment_health_over_time(diag2, region_label="R2"),
+                "S2 Segment Health",
+                build_segment_health_over_time(diag2, region_label="S2"),
             ),
         ],
     }

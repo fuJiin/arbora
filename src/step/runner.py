@@ -69,7 +69,7 @@ def run_cortex(
     )
     cortex = Topology(encoder, diagnostics_interval=diag_interval)
     cortex.add_region(
-        "R1", region, entry=True, diagnostics=diagnostics is not None
+        "S1", region, entry=True, diagnostics=diagnostics is not None
     )
     result = cortex.run(
         tokens,
@@ -77,8 +77,8 @@ def run_cortex(
         rolling_window=rolling_window,
         show_predictions=show_predictions,
     )
-    _copy_diag(cortex, "R1", diagnostics)
-    return result.per_region["R1"]
+    _copy_diag(cortex, "S1", diagnostics)
+    return result.per_region["S1"]
 
 
 @dataclass
@@ -102,10 +102,10 @@ def run_hierarchy(
     diagnostics1: CortexDiagnostics | None = None,
     diagnostics2: CortexDiagnostics | None = None,
 ) -> HierarchyMetrics:
-    """Run two-region hierarchy: Region 1 → Region 2.
+    """Run two-region hierarchy: S1 → S2.
 
-    Region 2 receives Region 1's L2/3 firing rate as its encoding.
-    Surprise (Region 1 burst rate) modulates Region 2 learning rate.
+    S2 receives S1's L2/3 firing rate as its encoding.
+    Surprise (S1 burst rate) modulates S2 learning rate.
     """
     diag_interval = 100
     if diagnostics1 is not None:
@@ -115,20 +115,20 @@ def run_hierarchy(
 
     cortex = Topology(encoder, diagnostics_interval=diag_interval)
     cortex.add_region(
-        "R1", region1, entry=True,
+        "S1", region1, entry=True,
         diagnostics=diagnostics1 is not None,
     )
     cortex.add_region(
-        "R2", region2,
+        "S2", region2,
         diagnostics=diagnostics2 is not None,
     )
-    cortex.connect("R1", "R2", "feedforward")
+    cortex.connect("S1", "S2", "feedforward")
     cortex.connect(
-        "R1", "R2", "surprise",
+        "S1", "S2", "surprise",
         surprise_tracker=surprise_tracker,
     )
     if enable_apical_feedback:
-        cortex.connect("R2", "R1", "apical")
+        cortex.connect("S2", "S1", "apical")
 
     result = cortex.run(
         tokens,
@@ -136,12 +136,12 @@ def run_hierarchy(
         rolling_window=rolling_window,
     )
 
-    _copy_diag(cortex, "R1", diagnostics1)
-    _copy_diag(cortex, "R2", diagnostics2)
+    _copy_diag(cortex, "S1", diagnostics1)
+    _copy_diag(cortex, "S2", diagnostics2)
 
     metrics = HierarchyMetrics()
-    metrics.region1 = result.per_region["R1"]
-    metrics.region2 = result.per_region["R2"]
-    metrics.surprise_modulators = result.surprise_modulators.get("R2", [])
+    metrics.region1 = result.per_region["S1"]
+    metrics.region2 = result.per_region["S2"]
+    metrics.surprise_modulators = result.surprise_modulators.get("S2", [])
     metrics.elapsed_seconds = result.elapsed_seconds
     return metrics

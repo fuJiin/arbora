@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""A/B evaluation: hierarchy with vs without apical feedback (R2→R1).
+"""A/B evaluation: hierarchy with vs without apical feedback (S2→S1).
 
 Runs the two-region hierarchy with various prediction_gain values:
   - No apical feedback (baseline)
   - Apical feedback at each gain value
 
-Compares R1 burst rate, context discrimination, and apical segment growth.
+Compares S1 burst rate, context discrimination, and apical segment growth.
 
 Usage:
   uv run experiments/scripts/eval_apical_feedback.py
@@ -68,7 +68,7 @@ def prepare_tokens(max_tokens: int):
 
 
 def make_regions(prediction_gain: float, with_apical: bool, seed: int = 42):
-    """Create R1 + R2 with optional apical feedback."""
+    """Create S1 + S2 with optional apical feedback."""
     input_dim = CHAR_LENGTH * CHAR_WIDTH
     r1 = SensoryRegion(
         input_dim=input_dim,

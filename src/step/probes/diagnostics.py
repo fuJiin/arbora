@@ -57,7 +57,7 @@ class Snapshot:
     n_active_l23_segments: int = 0
     n_predicted_l23: int = 0
 
-    # Apical segment health (R2 → R1 feedback)
+    # Apical segment health (S2 → S1 feedback)
     apical_seg_perm_mean: float = 0.0
     apical_seg_connected_frac: float = 0.0
     n_apical_predicted_cols: int = 0

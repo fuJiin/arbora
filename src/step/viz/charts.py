@@ -396,7 +396,7 @@ def build_column_selectivity_bar(
 def build_surprise_modulator_over_time(
     modulators: list[float], window: int = 50
 ) -> go.Figure:
-    """Surprise modulator time series — how much Region 2 learning is boosted."""
+    """Surprise modulator time series — how much S2 learning is boosted."""
     n = len(modulators)
     if n == 0:
         return go.Figure()
@@ -435,8 +435,8 @@ def build_surprise_modulator_over_time(
     )
     fig.update_layout(
         title=(
-            "Surprise Modulator (Region 2 Learning Rate Scale)"
-            " — >1 = R1 surprised, R2 learns faster"
+            "Surprise Modulator (S2 Learning Rate Scale)"
+            " — >1 = S1 surprised, S2 learns faster"
         ),
         xaxis_title="Timestep",
         yaxis_title="Modulator",
@@ -450,7 +450,7 @@ def build_surprise_modulator_over_time(
 def build_dual_burst_rate(
     timeline1: Timeline, timeline2: Timeline, window: int = 50
 ) -> go.Figure:
-    """Side-by-side burst rate for Region 1 and Region 2."""
+    """Side-by-side burst rate for S1 and S2."""
 
     def _rolling_burst(tl: Timeline) -> list[float]:
         n = len(tl.frames)
@@ -521,7 +521,7 @@ def build_segment_health_over_time(
         ("Feedback (L2/3->L4)", "n_active_fb_segments", "#e94560"),
         ("Lateral (L4->L4)", "n_active_lat_segments", "#ffd166"),
         ("L2/3 Lateral", "n_active_l23_segments", "#06d6a0"),
-        ("Apical (R2->R1)", "n_apical_predicted_cols", "#118ab2"),
+        ("Apical (S2->S1)", "n_apical_predicted_cols", "#118ab2"),
     ]:
         data = [getattr(s, attr) for s in diag.snapshots]
         if any(d > 0 for d in data):

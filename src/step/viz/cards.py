@@ -46,16 +46,16 @@ def build_hierarchy_summary_cards(
         apical_conn = snap.apical_seg_connected_frac
         apical_pred = snap.n_apical_predicted_cols
 
-    # Surprise: green if R2 improves on R1, yellow if similar, red if worse
+    # Surprise: green if S2 improves on S1, yellow if similar, red if worse
     burst_delta = burst2 - burst1
     if burst_delta < -0.03:
-        burst_color = "#06d6a0"  # R2 improved
+        burst_color = "#06d6a0"  # S2 improved
     elif burst_delta < 0.03:
         burst_color = "#ffd166"  # similar
     else:
-        burst_color = "#e94560"  # R2 worse
+        burst_color = "#e94560"  # S2 worse
 
-    # Context: green if R2 improves on R1
+    # Context: green if S2 improves on S1
     ctx1 = rep1.get("context_discrimination", 0)
     ctx2 = rep2.get("context_discrimination", 0)
     ctx_improved = ctx2 > ctx1
@@ -68,30 +68,30 @@ def build_hierarchy_summary_cards(
     cards = [
         _card(
             f"{burst1:.0%} -> {burst2:.0%}",
-            "Surprise Rate (R1 -> R2)",
-            "R2 should be lower if it learns R1 patterns",
+            "Surprise Rate (S1 -> S2)",
+            "S2 should be lower if it learns S1 patterns",
             burst_color,
         ),
         _card(
             f"{rep1.get('column_selectivity_mean', 0):.2f}",
-            "R1 Feature Selectivity",
-            "how picky R1 columns are",
+            "S1 Feature Selectivity",
+            "how picky S1 columns are",
             _health_color(
                 rep1.get("column_selectivity_mean", 1), (0.05, 0.5), (0.02, 0.8)
             ),
         ),
         _card(
             f"{rep2.get('column_selectivity_mean', 0):.2f}",
-            "R2 Feature Selectivity",
-            "how picky R2 columns are",
+            "S2 Feature Selectivity",
+            "how picky S2 columns are",
             _health_color(
                 rep2.get("column_selectivity_mean", 1), (0.05, 0.7), (0.02, 0.9)
             ),
         ),
         _card(
             f"{ctx1:.2f} -> {ctx2:.2f}",
-            "Context Sensitivity (R1 -> R2)",
-            "R2 should discriminate context better",
+            "Context Sensitivity (S1 -> S2)",
+            "S2 should discriminate context better",
             ctx_color,
         ),
         _card(
@@ -103,7 +103,7 @@ def build_hierarchy_summary_cards(
         _card(
             f"{apical_conn:.1%}",
             "Apical Connectivity",
-            f"{apical_pred} cols predicted -- R2->R1 feedback strength",
+            f"{apical_pred} cols predicted -- S2->S1 feedback strength",
             _health_color(apical_conn, (0.02, 0.15), (0.005, 0.3)),
         ),
     ]

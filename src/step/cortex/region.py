@@ -125,7 +125,7 @@ class CorticalRegion:
         self._pred_context_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
         self._pred_context_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
 
-        # Apical feedback (R2 L2/3 → R1 L4): initialized lazily via
+        # Apical feedback (S2 L2/3 → S1 L4): initialized lazily via
         # init_apical_segments() once the higher region exists.
         self._apical_source_dim: int = 0
         self.apical_seg_indices: np.ndarray | None = None
@@ -707,7 +707,7 @@ class CorticalRegion:
         )
 
     # ------------------------------------------------------------------
-    # Apical segment learning (R2 L2/3 → R1 L4)
+    # Apical segment learning (S2 L2/3 → S1 L4)
     # ------------------------------------------------------------------
 
     def _learn_apical_segments(self):
