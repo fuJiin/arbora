@@ -42,23 +42,18 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Apical feedback works with buffer+burst**: previously S2 was "precise but wrong", now S2 ctx_disc 0.947 and apical boosts S1 ctx_disc 0.657→0.890
 - **Apical tradeoff**: S1 gains ctx_disc but loses selectivity (0.580→0.684) — columns become more context-dependent, less token-specific. Acceptable for feeding motor cortex.
 - **Dendritic decoder must use active_l23 (boolean)**: firing_rate_l23 EMA is 128/128 nonzero due to decay, making `> 0` threshold useless for segment discrimination
+- **Dendritic decoder tuned to 16seg/48syn**: sweep over {4,8,16,32}×{24,48,96} — 16 segments is sweet spot, 32 dilutes learning. 48 syn covers ~37% of 128-dim L2/3 per segment.
 - **Firing rate > boolean for inter-region** — rate-coded EMA is biologically grounded
 
-## Performance (20k chars, char-level, positional)
-- **S1 baseline**: burst 40%, overlap ~0.38, ctx_disc 0.657
-- **S1 + apical** (buffer+burst+apical): burst 33.7%, ctx_disc 0.890, overlap ~0.46
-- **S2 baseline**: ctx_disc 0.737
-- **S2 + buffer_depth=4 + burst_gate**: ctx_disc 0.912
-- **S2 + buffer+burst+apical**: ctx_disc 0.947
-- **Decoder accuracy** (buffer+burst+apical, last 100): dendritic 11%, index 5%, column 6%, synaptic 4% (chance=3.2%)
+## Performance (20k chars, char-level, positional, buffer+burst+apical)
+- **S1**: burst 33.7%, ctx_disc 0.890, overlap ~0.46
+- **S2**: ctx_disc 0.947
+- **Dendritic decoder** (16seg/48syn): 13.8% last500, 16% last100 (chance=3.2%, still climbing)
+- Other decoders: index 5%, column 6%, synaptic 4%
 
 ## Dashboard CLI
-- `--hierarchy --char-level` — two-region hierarchy with char-level input
-- `--buffer-depth 4` — temporal buffer for S1→S2
-- `--burst-gate` — gate by bursting columns
-- `--apical` — S2→S1 apical feedback
+- `--hierarchy --char-level --buffer-depth 4 --burst-gate --apical` — full pipeline
 
 ## Next Steps
 - [ ] Motor cortex design: babbling loop (char-by-char output, 32 classes)
 - [ ] Consider L5 (motor output) and L6 (thalamic control) layers
-- [ ] Dendritic decoder capacity: 4 segments × 24 synapses may be too few for 31 tokens
