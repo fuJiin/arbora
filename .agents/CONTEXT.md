@@ -43,15 +43,14 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Representation quality > decoder accuracy** — build representations for downstream regions
 - **Firing rate > boolean for inter-region** — rate-coded EMA is biologically grounded
 
-## Performance
-- **S1** (20k chars): burst 46%→14%, overlap 0.38→0.85, ctx_disc 0.932
-- **S2 baseline** (20k): ctx_disc 0.950
-- **S2 + buffer_depth=4** (500 chars): ctx_disc 0.762→0.883 (+16%)
-- **Burst gating**: neutral at 500 tokens (~50% burst rate); needs longer runs where S1 is more predictive
+## Performance (20k chars, char-level, positional)
+- **S1**: burst 46%→14%, overlap 0.38→0.85, ctx_disc 0.932
+- **S2 baseline**: ctx_disc 0.737
+- **S2 + buffer_depth=4**: ctx_disc 0.899 (+22%)
+- **S2 + buffer_depth=4 + burst_gate**: ctx_disc 0.912 (+24%), higher sparsity (0.949), lower cross-col cosine (0.041)
+- Burst gating benefit emerges at scale (neutral at 500 tokens with ~50% burst, +1.3% at 20k with ~14% burst)
 
 ## Next Steps
-- [ ] Run buffer_depth=4 at 20k tokens to confirm S2 ctx_disc improvement at scale
-- [ ] Test burst_gate at 20k tokens where S1 burst rate is ~14% (gating should matter more)
+- [ ] Revisit apical feedback: S2 ctx_disc now 0.912 with buffer+burst — test if feedback helps S1
 - [ ] Motor cortex design: babbling loop (char-by-char output, 32 classes)
 - [ ] Consider L5 (motor output) and L6 (thalamic control) layers
-- [ ] Revisit apical feedback once S2 representations improve
