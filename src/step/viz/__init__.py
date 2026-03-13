@@ -15,7 +15,7 @@ from step.viz.charts import (
     build_surprise_modulator_over_time,
     build_voltage_excitability,
 )
-from step.viz.layout import build_dashboard_html
+from step.viz.layout import build_dashboard_html, build_index_html
 
 __all__ = [
     "build_apical_prediction_over_time",
@@ -28,6 +28,7 @@ __all__ = [
     "build_dual_burst_rate",
     "build_ff_weight_divergence",
     "build_hierarchy_summary_cards",
+    "build_index_html",
     "build_representation_summary_cards",
     "build_segment_health_over_time",
     "build_surprise_modulator_over_time",
