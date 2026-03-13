@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""R2 sweep v2: bridge selectivity and context discrimination."""
+"""S2 sweep v2: bridge selectivity and context discrimination."""
 
 import time
 

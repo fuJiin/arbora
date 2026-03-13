@@ -34,13 +34,13 @@ class CortexConfig:
 def _default_region2_config() -> "CortexConfig":
     """Region 2 defaults: slower temporal dynamics, moderate learning rate.
 
-    Tuned for char-level R1 input (128-dim L2/3 firing rates).
+    Tuned for char-level S1 input (128-dim L2/3 firing rates).
     32 cols with k=2 gives selective columns while maintaining context
     discrimination. lr=0.03 and ltd=0.30 balance weight growth with
-    pruning on the higher-dimensional R1 output.
+    pruning on the higher-dimensional S1 output.
 
     Use encoding_width=0 (sliding window) when constructing the SensoryRegion,
-    since R1's L2/3 output has no character-position structure.
+    since S1's L2/3 output has no character-position structure.
     """
     return CortexConfig(
         n_columns=32,
@@ -61,7 +61,7 @@ class HierarchyConfig:
     region2: CortexConfig = field(default_factory=_default_region2_config)
     surprise_baseline_decay: float = 0.99
     surprise_min_baseline: float = 0.01
-    # Apical feedback: disabled by default until R2 representations mature.
-    # When enabled, feedback is precision-weighted by R2's confidence
+    # Apical feedback: disabled by default until S2 representations mature.
+    # When enabled, feedback is precision-weighted by S2's confidence
     # (1 - burst_rate), modeling thalamic gating / predictive coding.
     enable_apical_feedback: bool = False

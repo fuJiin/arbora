@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Sweep R2 parameters for char-level hierarchy.
+"""Sweep S2 parameters for char-level hierarchy.
 
-Measures R2 column selectivity and context discrimination to find
-configs where R2 actually differentiates tokens.
+Measures S2 column selectivity and context discrimination to find
+configs where S2 actually differentiates tokens.
 """
 
 import time
@@ -22,7 +22,7 @@ alphabet = sorted({ch for _, ch in tokens if _ != STORY_BOUNDARY})
 
 
 def run_hierarchy(r2_cols, r2_k, r2_lr, r2_ltd, r2_vdecay):
-    """Run hierarchy, return R2 selectivity and context discrimination."""
+    """Run hierarchy, return S2 selectivity and context discrimination."""
     r1_cfg = CortexConfig(ltd_rate=0.05)
     enc = PositionalCharEncoder("".join(alphabet), max_positions=8)
 
@@ -99,7 +99,7 @@ configs = [
     # (cols, k, lr, ltd, v_decay)
     (16, 2, 0.01, 0.4, 0.8),   # current default
     (16, 2, 0.05, 0.1, 0.8),   # higher lr, lower ltd
-    (16, 2, 0.05, 0.05, 0.8),  # match R1 ltd
+    (16, 2, 0.05, 0.05, 0.8),  # match S1 ltd
     (16, 2, 0.05, 0.2, 0.5),   # faster voltage decay
     (16, 4, 0.05, 0.1, 0.8),   # more active cols
     (16, 4, 0.05, 0.05, 0.5),  # more active + faster decay

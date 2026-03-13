@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Sweep Region 2 learning parameters at 20k tokens.
+"""Sweep S2 learning parameters at 20k tokens.
 
-Tests learning_rate and ltd_rate combinations to improve R2 column
+Tests learning_rate and ltd_rate combinations to improve S2 column
 diversity (cross-col cosine) and FF sparsity. Runs on BabyLM with
 CharbitEncoder.
 
@@ -31,7 +31,7 @@ CHAR_WIDTH = len(CHARS) + 1
 
 
 def run_one(tokens, encoder, input_dim, r2_lr, r2_ltd, log_interval):
-    """Run hierarchy with given R2 params, return summary dict."""
+    """Run hierarchy with given S2 params, return summary dict."""
     region1 = SensoryRegion(
         input_dim=input_dim,
         encoding_width=CHAR_WIDTH,
@@ -99,7 +99,7 @@ def main():
     encoder = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
     input_dim = CHAR_LENGTH * CHAR_WIDTH
 
-    # Sweep grid: R2 learning_rate and ltd_rate
+    # Sweep grid: S2 learning_rate and ltd_rate
     lr_values = [0.01, 0.03, 0.05, 0.1]
     ltd_values = [0.05, 0.1, 0.2, 0.4]
 
@@ -108,7 +108,7 @@ def main():
 
     for i, (lr, ltd) in enumerate(itertools.product(lr_values, ltd_values)):
         print(f"\n{'=' * 60}")
-        print(f"[{i + 1}/{total}] R2 lr={lr}, ltd={ltd}")
+        print(f"[{i + 1}/{total}] S2 lr={lr}, ltd={ltd}")
         print(f"{'=' * 60}")
 
         result = run_one(tokens, encoder, input_dim, lr, ltd, args.log_interval)
