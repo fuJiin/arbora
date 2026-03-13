@@ -1,12 +1,18 @@
 """Plotly chart builders for cortex diagnostics dashboards."""
 
+from __future__ import annotations
+
 from collections import Counter
+from typing import TYPE_CHECKING
 
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from step.probes.timeline import Timeline
+
+if TYPE_CHECKING:
+    from step.probes.diagnostics import CortexDiagnostics
 
 
 def build_column_activation_heatmap(timeline: Timeline, n_columns: int) -> go.Figure:
@@ -478,10 +484,10 @@ def build_dual_burst_rate(
 
 
 def build_segment_health_over_time(
-    diag: "CortexDiagnostics",
+    diag: CortexDiagnostics,
 ) -> go.Figure:
     """Connected fraction for all segment types over training."""
-    steps = [s.step for s in diag.snapshots]
+    steps = [s.t for s in diag.snapshots]
     fb_conn = [s.fb_seg_connected_frac for s in diag.snapshots]
     lat_conn = [s.lat_seg_connected_frac for s in diag.snapshots]
     l23_conn = [s.l23_seg_connected_frac for s in diag.snapshots]

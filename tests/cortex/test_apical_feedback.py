@@ -4,8 +4,8 @@ import pytest
 from step.cortex import SensoryRegion
 from step.cortex.region import CorticalRegion
 from step.data import STORY_BOUNDARY
-from step.runner import run_hierarchy
 from step.encoders.charbit import CharbitEncoder
+from step.runner import run_hierarchy
 
 # ---------------------------------------------------------------------------
 # Apical segment initialization
