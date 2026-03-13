@@ -10,7 +10,8 @@ Research project exploring biologically-plausible learning for next-token predic
 - **`src/step/probes/`** — observation: `diagnostics.py`, `representation.py`, `timeline.py`
 - **`src/step/runner.py`** — thin wrappers `run_cortex()`, `run_hierarchy()` delegating to `Topology`
 - **`src/step/data.py`** — token loading: `prepare_tokens()`, `prepare_tokens_charlevel()`, `STORY_BOUNDARY`
-- **`src/step/viz/`** — dashboard chart builders (`cards.py`, `charts.py`, `layout.py`)
+- **`src/step/runs.py`** — run serialization: `save_run`/`load_run`/`list_runs`/`auto_name`
+- **`src/step/viz/`** — dashboard chart builders (`cards.py`, `charts.py`, `layout.py`, `build_index_html`)
 - **`src/step/encoders/`** — `CharbitEncoder`, `OneHotCharEncoder`, `PositionalCharEncoder`
 - **`src/step/decoders/`** — `InvertedIndexDecoder`, `SynapticDecoder`, `DendriticDecoder`
 
@@ -51,8 +52,11 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Dendritic decoder** (16seg/48syn): 13.8% last500, 16% last100 (chance=3.2%, still climbing)
 - Other decoders: index 5%, column 6%, synaptic 4%
 
-## Dashboard CLI
-- `--hierarchy --char-level --buffer-depth 4 --burst-gate --apical` — full pipeline
+## Dashboard Architecture
+- **`cortex_run.py`**: runs cortex, saves `data.pkl` + `meta.json` to `experiments/runs/{name}--{timestamp}/`
+- **`cortex_dashboard.py`**: generates HTML from saved runs (`--latest`, `--all`, `--run DIR`, `--index-only`), serves with `--serve --port N`
+- **Index page**: `build_index_html()` lists all runs with metrics, tags, links
+- Legacy inline mode still works: `--tokens N --char-level --hierarchy`
 
 ## Next Steps
 - [ ] Motor cortex design: babbling loop (char-by-char output, 32 classes)
