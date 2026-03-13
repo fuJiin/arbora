@@ -9,12 +9,19 @@ This is a sanity check, not a generation test. If the probe works,
 the representations contain recoverable temporal structure. If it fails,
 the representations may not support downstream use.
 
+Evaluation modes:
+  --top-k K         Filter to top-K most frequent tokens (fair test at our
+                    dimensionality). 0 = all tokens (default).
+  --burst-analysis  Print per-token burst rate analysis showing which tokens
+                    the dendritic segments have learned to anticipate.
+
 Usage: uv run experiments/scripts/probe_l23.py [--tokens 5000] [--lr 0.01]
 """
 
 import argparse
 import string
 import time
+from collections import defaultdict
 
 import numpy as np
 
@@ -32,12 +39,23 @@ CHAR_WIDTH = len(CHARS) + 1
 def collect_activations(
     tokens: list[tuple[int, str]],
     cfg: CortexConfig,
-) -> tuple[np.ndarray, np.ndarray]:
+    *,
+    use_firing_rate: bool = False,
+    track_bursts: bool = False,
+) -> tuple[np.ndarray, np.ndarray, dict[int, list[float]] | None]:
     """Run cortex and collect (L2/3 activation, next_token_id) pairs.
 
-    Returns X of shape (n_samples, n_l23_total) and y of shape (n_samples,).
+    Returns X of shape (n_samples, n_l23_total), y of shape (n_samples,),
+    and optionally a dict mapping token_id -> list of per-step burst rates.
+
     Each sample pairs the L2/3 state AFTER processing token t with the
     token_id of token t+1 (the "next token" to predict).
+
+    If use_firing_rate=True, uses the continuous firing_rate_l23 EMA
+    instead of boolean active_l23. This captures temporal context.
+
+    If track_bursts=True, records the burst rate after processing each token
+    (bursting_columns.sum() / active_columns.sum()).
     """
     charbit = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
     input_dim = CHAR_LENGTH * CHAR_WIDTH
@@ -61,6 +79,9 @@ def collect_activations(
 
     X_list: list[np.ndarray] = []
     y_list: list[int] = []
+    burst_rates: dict[int, list[float]] | None = (
+        defaultdict(list) if track_bursts else None
+    )
 
     prev_l23: np.ndarray | None = None
     prev_was_boundary = False
@@ -76,13 +97,26 @@ def collect_activations(
         encoding = charbit.encode(token_str)
         region.process(encoding)
 
+        # Track per-token burst rate
+        if burst_rates is not None:
+            n_active = region.active_columns.sum()
+            rate = (
+                region.bursting_columns.sum() / n_active
+                if n_active > 0
+                else 1.0
+            )
+            burst_rates[token_id].append(float(rate))
+
         # Pair previous L2/3 state with current token_id
         if prev_l23 is not None and not prev_was_boundary:
             X_list.append(prev_l23)
             y_list.append(token_id)
 
-        # Save current L2/3 activation (as float for the probe)
-        prev_l23 = region.active_l23.astype(np.float32).copy()
+        # Save current L2/3 state
+        if use_firing_rate:
+            prev_l23 = region.firing_rate_l23.astype(np.float32).copy()
+        else:
+            prev_l23 = region.active_l23.astype(np.float32).copy()
         prev_was_boundary = False
 
         if t > 0 and t % 1000 == 0:
@@ -94,7 +128,7 @@ def collect_activations(
 
     X = np.array(X_list)
     y = np.array(y_list)
-    return X, y
+    return X, y, dict(burst_rates) if burst_rates is not None else None
 
 
 def softmax(logits: np.ndarray) -> np.ndarray:
@@ -172,19 +206,106 @@ def evaluate(
     return {"top1": float(top1_acc), "top5": float(top5_acc)}
 
 
+def _filter_top_k(
+    X: np.ndarray, y: np.ndarray, top_k: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Filter samples to only include the top-K most frequent tokens."""
+    token_ids, counts = np.unique(y, return_counts=True)
+    top_k_indices = np.argsort(counts)[-top_k:]
+    keep_tokens = set(token_ids[top_k_indices])
+
+    mask = np.array([t in keep_tokens for t in y])
+    X_filtered = X[mask]
+    y_filtered = y[mask]
+
+    print(f"\nTop-K filtering: kept {len(keep_tokens)} tokens, "
+          f"{mask.sum():,}/{len(y):,} samples ({mask.mean() * 100:.1f}%)")
+
+    return X_filtered, y_filtered
+
+
+def _print_burst_analysis(burst_rates: dict[int, list[float]]) -> None:
+    """Print top-20 tokens by burst rate (lowest = best predicted)."""
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("gpt2")
+
+    # Compute mean burst rate per token, require minimum occurrences
+    min_occurrences = 5
+    token_stats: list[tuple[int, float, int]] = []
+    for token_id, rates in burst_rates.items():
+        if len(rates) >= min_occurrences:
+            token_stats.append((token_id, float(np.mean(rates)), len(rates)))
+
+    token_stats.sort(key=lambda x: x[1])
+
+    print(f"\n{'=' * 60}")
+    print("Burst rate analysis (lowest = best anticipated by dendrites)")
+    print(f"  {len(token_stats)} tokens with >= {min_occurrences} occurrences")
+    print(f"{'=' * 60}")
+
+    # Overall burst rate
+    all_rates = [r for rates in burst_rates.values() for r in rates]
+    overall = float(np.mean(all_rates))
+    print(f"  Overall mean burst rate: {overall:.4f}")
+
+    print("\n  Top 20 best-predicted tokens (lowest burst rate):")
+    print(f"  {'Token':>14s}  {'BurstRate':>9s}  {'Count':>6s}")
+    print(f"  {'-' * 14}  {'-' * 9}  {'-' * 6}")
+    for token_id, mean_rate, count in token_stats[:20]:
+        tok_str = repr(tokenizer.decode([token_id]))
+        print(f"  {tok_str:>14s}  {mean_rate:9.4f}  {count:6d}")
+
+    print("\n  Top 20 worst-predicted tokens (highest burst rate):")
+    print(f"  {'Token':>14s}  {'BurstRate':>9s}  {'Count':>6s}")
+    print(f"  {'-' * 14}  {'-' * 9}  {'-' * 6}")
+    for token_id, mean_rate, count in token_stats[-20:][::-1]:
+        tok_str = repr(tokenizer.decode([token_id]))
+        print(f"  {tok_str:>14s}  {mean_rate:9.4f}  {count:6d}")
+
+    print(f"{'=' * 60}\n")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tokens", type=int, default=5000)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--train-frac", type=float, default=0.8)
+    parser.add_argument(
+        "--firing-rate", action="store_true",
+        help="Use continuous firing_rate_l23 instead of boolean active_l23",
+    )
+    parser.add_argument(
+        "--top-k", type=int, default=0,
+        help="Filter to top-K most frequent tokens (0 = all tokens)",
+    )
+    parser.add_argument(
+        "--burst-analysis", action="store_true",
+        help="Print per-token burst rate analysis (which tokens are best predicted)",
+    )
     args = parser.parse_args()
 
     tokens = prepare_tokens(args.tokens)
     cfg = CortexConfig()
 
-    print("\nRunning cortex to collect L2/3 activations...")
-    X, y = collect_activations(tokens, cfg)
+    mode = (
+        "firing_rate_l23 (continuous)" if args.firing_rate
+        else "active_l23 (boolean)"
+    )
+    print(f"\nRunning cortex to collect L2/3 activations ({mode})...")
+    X, y, burst_rates = collect_activations(
+        tokens, cfg, use_firing_rate=args.firing_rate,
+        track_bursts=args.burst_analysis,
+    )
+
+    # --- Burst rate analysis ---
+    if args.burst_analysis and burst_rates is not None:
+        _print_burst_analysis(burst_rates)
+
+    # --- Top-K token filtering ---
+    if args.top_k > 0:
+        X, y = _filter_top_k(X, y, args.top_k)
 
     # Map token IDs to contiguous class indices
     unique_tokens = np.unique(y)
