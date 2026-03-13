@@ -61,3 +61,7 @@ class HierarchyConfig:
     region2: CortexConfig = field(default_factory=_default_region2_config)
     surprise_baseline_decay: float = 0.99
     surprise_min_baseline: float = 0.01
+    # Apical feedback: disabled by default until R2 representations mature.
+    # When enabled, feedback is precision-weighted by R2's confidence
+    # (1 - burst_rate), modeling thalamic gating / predictive coding.
+    enable_apical_feedback: bool = False
