@@ -70,3 +70,25 @@ class HierarchyConfig:
     ff_buffer_depth: int = 1
     # Burst gating: S2 only sees novel/surprising events (bursting columns).
     ff_burst_gate: bool = False
+    # Thalamic gating: receiver-side surprise suppresses feedback until stable.
+    gate_feedback: bool = False
+    # Motor cortex: M1 receives S1 L2/3, predicts next token, feeds back.
+    enable_motor: bool = False
+
+
+def _default_motor_config() -> "CortexConfig":
+    """Motor region defaults: responsive to current context, moderate learning.
+
+    Receives S1's L2/3 firing rate (128-dim). 32 columns (one per char)
+    with k=4 competitive selection. Lower voltage_decay than S2 for
+    crisper output decisions. Moderate LTD for column specialization.
+    """
+    return CortexConfig(
+        n_columns=32,
+        k_columns=1,
+        voltage_decay=0.5,
+        eligibility_decay=0.95,
+        synapse_decay=0.999,
+        learning_rate=0.15,
+        ltd_rate=0.15,
+    )

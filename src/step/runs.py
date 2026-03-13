@@ -103,6 +103,8 @@ def auto_name(
     buffer_depth: int = 1,
     burst_gate: bool = False,
     apical: bool = False,
+    gate_feedback: bool = False,
+    motor: bool = False,
 ) -> str:
     """Derive a run name from parameters."""
     parts = []
@@ -118,6 +120,10 @@ def auto_name(
         parts.append("burst")
     if apical:
         parts.append("apical")
+    if gate_feedback:
+        parts.append("gated")
+    if motor:
+        parts.append("motor")
     if n_tokens:
         if n_tokens >= 1000:
             parts.append(f"{n_tokens // 1000}k")
@@ -133,6 +139,8 @@ def auto_tags(
     buffer_depth: int = 1,
     burst_gate: bool = False,
     apical: bool = False,
+    gate_feedback: bool = False,
+    motor: bool = False,
 ) -> list[str]:
     """Derive tags from parameters."""
     tags = []
@@ -146,4 +154,8 @@ def auto_tags(
         tags.append("burst-gate")
     if apical:
         tags.append("apical")
+    if gate_feedback:
+        tags.append("gate-feedback")
+    if motor:
+        tags.append("motor")
     return tags

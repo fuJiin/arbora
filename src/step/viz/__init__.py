@@ -11,8 +11,10 @@ from step.viz.charts import (
     build_column_selectivity_bar,
     build_dual_burst_rate,
     build_ff_weight_divergence,
+    build_motor_accuracy_over_time,
     build_segment_health_over_time,
     build_surprise_modulator_over_time,
+    build_thalamic_gate_over_time,
     build_voltage_excitability,
 )
 from step.viz.layout import build_dashboard_html, build_index_html
@@ -29,8 +31,10 @@ __all__ = [
     "build_ff_weight_divergence",
     "build_hierarchy_summary_cards",
     "build_index_html",
+    "build_motor_accuracy_over_time",
     "build_representation_summary_cards",
     "build_segment_health_over_time",
     "build_surprise_modulator_over_time",
+    "build_thalamic_gate_over_time",
     "build_voltage_excitability",
 ]

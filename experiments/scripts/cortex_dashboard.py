@@ -26,7 +26,7 @@ from pathlib import Path
 import step.env  # noqa: F401
 from step.config import CortexConfig, _default_region2_config
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker
+from step.cortex.surprise import SurpriseTracker, ThalamicGate
 from step.cortex.topology import Topology
 from step.data import prepare_tokens, prepare_tokens_charlevel
 from step.encoders.charbit import CharbitEncoder
@@ -44,9 +44,11 @@ from step.viz import (
     build_ff_weight_divergence,
     build_hierarchy_summary_cards,
     build_index_html,
+    build_motor_accuracy_over_time,
     build_representation_summary_cards,
     build_segment_health_over_time,
     build_surprise_modulator_over_time,
+    build_thalamic_gate_over_time,
     build_voltage_excitability,
 )
 
@@ -95,6 +97,7 @@ def main():
     parser.add_argument("--buffer-depth", type=int, default=1)
     parser.add_argument("--burst-gate", action="store_true")
     parser.add_argument("--apical", action="store_true")
+    parser.add_argument("--gate-feedback", action="store_true")
     args = parser.parse_args()
 
     # Dispatch
@@ -284,6 +287,27 @@ def _build_hierarchy_dashboard(
     n_cols_r1 = region_configs["S1"]["n_columns"]
     n_cols_r2 = region_configs["S2"]["n_columns"]
 
+    # Build motor metrics dict if M1 is present
+    motor_card_metrics = None
+    if "M1" in result.per_region:
+        m1_m = result.per_region["M1"]
+        m1_rep = m1_m.representation
+        if m1_m.motor_accuracies:
+            acc = sum(m1_m.motor_accuracies) / len(m1_m.motor_accuracies)
+        else:
+            acc = 0.0
+        if m1_m.motor_confidences:
+            sil = sum(1 for c in m1_m.motor_confidences if c == 0.0) / len(
+                m1_m.motor_confidences
+            )
+        else:
+            sil = 1.0
+        motor_card_metrics = {
+            "accuracy": acc,
+            "silence_rate": sil,
+            "selectivity": m1_rep.get("column_selectivity_mean", 0),
+        }
+
     cards_html = build_hierarchy_summary_cards(
         rep1,
         rep2,
@@ -291,6 +315,7 @@ def _build_hierarchy_dashboard(
         summ2["burst_rate"],
         result.surprise_modulators.get("S2", []),
         diag1=diag1,
+        motor_metrics=motor_card_metrics,
     )
 
     tabs = {
@@ -348,6 +373,56 @@ def _build_hierarchy_dashboard(
             ),
         ],
     }
+
+    # Add thalamic gate chart if data present
+    gate_data = getattr(result, "thalamic_readiness", {})
+    if gate_data:
+        for key, vals in gate_data.items():
+            tabs["Feedback"].insert(
+                2,
+                (f"Thalamic Gate ({key})", build_thalamic_gate_over_time(vals)),
+            )
+
+    # Add M1 tab if motor region present
+    if "M1" in timelines:
+        timeline_m1 = timelines["M1"]
+        diag_m1 = diagnostics["M1"]
+        rep_m1 = result.per_region["M1"].representation
+        m1_metrics = result.per_region["M1"]
+        n_cols_m1 = region_configs["M1"]["n_columns"]
+
+        motor_charts = [
+            (
+                "Motor Accuracy & Silence",
+                build_motor_accuracy_over_time(
+                    m1_metrics.motor_accuracies,
+                    m1_metrics.motor_confidences,
+                ),
+            ),
+            ("M1 Surprise Rate", build_burst_rate_over_time(timeline_m1)),
+            (
+                "M1 Column Activation",
+                build_column_activation_heatmap(timeline_m1, n_cols_m1),
+            ),
+            (
+                "M1 Column Selectivity",
+                build_column_selectivity_bar(rep_m1, region_label="M1 (Motor)"),
+            ),
+            ("M1 Column Usage", build_column_entropy_over_time(timeline_m1, n_cols_m1)),
+            (
+                "M1 Segment Health",
+                build_segment_health_over_time(diag_m1, region_label="M1"),
+            ),
+        ]
+        tabs["Motor"] = motor_charts
+
+        # Add M1 selectivity to Overview
+        tabs["Overview"].append(
+            (
+                "M1 Column Selectivity",
+                build_column_selectivity_bar(rep_m1, region_label="M1 (Motor)"),
+            )
+        )
 
     return build_dashboard_html(
         [],
@@ -625,7 +700,8 @@ def _legacy_run_hierarchy(
     )
     cortex.connect("S1", "S2", "surprise", surprise_tracker=surprise)
     if args.apical:
-        cortex.connect("S2", "S1", "apical")
+        gate = ThalamicGate() if args.gate_feedback else None
+        cortex.connect("S2", "S1", "apical", thalamic_gate=gate)
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
     result = cortex.run(tokens, log_interval=args.log_interval)
@@ -707,6 +783,15 @@ def _legacy_run_hierarchy(
             ),
         ],
     }
+
+    # Add thalamic gate chart if data present
+    gate_data = getattr(result, "thalamic_readiness", {})
+    if gate_data:
+        for key, vals in gate_data.items():
+            tabs["Feedback"].insert(
+                2,
+                (f"Thalamic Gate ({key})", build_thalamic_gate_over_time(vals)),
+            )
 
     return build_dashboard_html(
         [],
