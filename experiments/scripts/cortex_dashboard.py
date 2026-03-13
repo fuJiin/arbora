@@ -289,9 +289,15 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
             ),
         ],
         "Feedback": [
-            ("R1 Segment Health", build_segment_health_over_time(diag1)),
+            (
+                "R1 Segment Health",
+                build_segment_health_over_time(diag1, region_label="R1"),
+            ),
             ("Apical Predictions", build_apical_prediction_over_time(timeline1)),
-            ("R2 Segment Health", build_segment_health_over_time(diag2)),
+            (
+                "R2 Segment Health",
+                build_segment_health_over_time(diag2, region_label="R2"),
+            ),
         ],
     }
 
