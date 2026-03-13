@@ -58,6 +58,30 @@ Research project exploring biologically-plausible learning for next-token predic
 - **Index page**: `build_index_html()` lists all runs with metrics, tags, links
 - Legacy inline mode still works: `--tokens N --char-level --hierarchy`
 
+## Architecture: Thalamic Gating + Motor Cortex
+
+### Thalamic Gate (build first)
+- **Problem**: feedback connections (S2→S1, future M1→S1) disrupt receiver early when sender is still learning garbage
+- **Two complementary mechanisms**:
+  1. **Sender precision** (already have): feedback scaled by sender's `(1 - burst_rate)`
+  2. **Receiver gating** (new): receiver's smoothed surprise tells thalamus to suppress incoming feedback
+- **Formula**: `effective_feedback = signal * sender_confidence * receiver_readiness`
+- **Biology**: pulvinar (higher-order thalamic nucleus) modulated by L6 projections from receiving cortex
+- Per-connection, lives on Connection infrastructure — apply to S2→S1 immediately to validate
+
+### Motor Cortex (M1)
+- **L2/3 (always on)**: receives S1/S2 L2/3, predicts next char via dendritic segments. Learns sensory→motor mapping continuously.
+- **L5 (gated output)**: actual "speak this char" signal. Default: inhibited. Fires when prediction confidence > threshold.
+- **Babbling→speech arc**: early on confidence low → mostly silent; as learning proceeds → increasingly commits to outputs
+- **32 output classes** (chars), receives S1 L2/3 as input
+- Basal ganglia deferred — confidence threshold captures disinhibition for now
+
+### Sequencing
+1. ThalamicGate on feedback connections, validate on S2→S1
+2. Motor region M1: L2/3 predicts, L5 gated output
+3. M1→S1 feedback through thalamic gate (auto-suppressed early)
+
 ## Next Steps
-- [ ] Motor cortex design: babbling loop (char-by-char output, 32 classes)
-- [ ] Consider L5 (motor output) and L6 (thalamic control) layers
+- [ ] Implement ThalamicGate (receiver surprise-based gating on feedback connections)
+- [ ] Validate on S2→S1: compare with current precision-only gating
+- [ ] Motor cortex M1: L2/3 prediction + L5 gated output
