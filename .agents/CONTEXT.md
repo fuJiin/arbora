@@ -3,44 +3,54 @@
 ## Overview
 Research project exploring biologically-plausible learning for next-token prediction. Cortical region model: neocortical minicolumn with L4/L2/3 layers, dendritic segments for prediction, per-neuron feedforward weights. Built with NumPy, Python 3.12+, managed with uv.
 
-## Project Structure (post-refactor)
+## Project Structure
 
 - **`src/step/config.py`** — `CortexConfig`, `HierarchyConfig`
 - **`src/step/cortex/`** — models: `region.py`, `sensory.py`, `surprise.py`
 - **`src/step/probes/`** — observation: `diagnostics.py`, `representation.py`, `timeline.py`
-- **`src/step/runner.py`** — `run_cortex()`, `run_hierarchy()`
-- **`src/step/data.py`** — shared token loading (`prepare_tokens()`, `STORY_BOUNDARY`)
+- **`src/step/runner.py`** — `run_cortex()`, `run_hierarchy()` (accepts any encoder via Protocol)
+- **`src/step/data.py`** — token loading: `prepare_tokens()`, `prepare_tokens_charlevel()`, `STORY_BOUNDARY`
 - **`src/step/viz/`** — dashboard chart builders (`cards.py`, `charts.py`, `layout.py`)
-- **`src/step/encoders/`** — `CharbitEncoder` (canonical)
-- **`src/step/decoders/`** — `InvertedIndexDecoder`, `SynapticDecoder`
+- **`src/step/encoders/`** — `CharbitEncoder`, `OneHotCharEncoder`, `PositionalCharEncoder`
+- **`src/step/decoders/`** — `InvertedIndexDecoder`, `SynapticDecoder`, `DendriticDecoder`
 
 ## Two-Region Hierarchy
-- **Region 1** (sensory): CharbitEncoder → 32 cols, standard config
+- **Region 1** (sensory): encoder → 32 cols, k=4, ltd=0.05 (char-level)
 - **Region 2** (secondary): R1's L2/3 firing rate → 16 cols, sliding window receptive fields
 - **Feedforward**: `firing_rate_l23` EMA signal R1→R2
 - **Feedback**: R2 `firing_rate_l23` → R1 apical segments → `prediction_gain` column boost
 - **Surprise modulation**: R1 burst rate → SurpriseTracker → scales all R2 learning
 
-## Canonical Setup
-- **CharbitEncoder**, **BabyLM** dataset, **per-neuron ff_weights** (always on)
-- **Dendritic segments**: fb (L2/3→L4), lat (L4→L4), l23 (L2/3→L2/3), apical (R2→R1)
-- **Apical feedback**: `prediction_gain=2.5`, 4 apical segments per L4 neuron
-- **R2 tuned defaults**: lr=0.01, ltd=0.4, voltage_decay=0.8, eligibility_decay=0.98
-
-## Dashboard
-- Single-region default, `--hierarchy` for dual-region tabbed view (Overview/R1/R2/Feedback)
-- Stat cards use directional color logic (R2 vs R1 comparison, not absolute values)
-- ASCII `->` for arrows (Unicode/HTML entities don't render reliably)
-- Apical viz: segment connectivity over time, apical prediction hit rate
+## Current Encoding: PositionalCharEncoder (256-dim)
+- **Char-level tokenization** on BabyLM (32 unique chars: 26 lowercase + space + `!'-?.`)
+- **PositionalCharEncoder**: encodes (char_identity, position_in_word) as 8×32 = 256-dim boolean matrix
+- Position resets at word boundaries (space, punctuation)
+- **Best config**: 32 cols, k=4, ltd=0.05 → 19.9% top-1 (beats 19.7% majority baseline)
+- Dashboard supports `--char-level` flag for char tokenization + positional encoding
 
 ## Key Decisions
+- **Char-level over BPE**: BPE gives 1538 vocab (too many for 128-dim L2/3). Char-level gives 32 vocab, tractable for motor output.
+- **Positional encoding wins**: 16.3% top-1 vs 14.8% (Charbit 808-dim) vs 9.9% (OneHot 32-dim). Position-in-word info helps.
+- **LTD=0.05 for char-level**: Default 0.2 too aggressive. Sweep showed 0.05 > 0.10 > 0.20.
 - **Representation quality over decoder accuracy** — sensory cortex builds representations for downstream regions
-- **Motor cortex will generate responses** (not predict next token)
+- **Motor cortex will generate char-by-char** — 32 possible outputs makes motor learning tractable
 - **Firing rate > boolean for inter-region** — rate-coded EMA is biologically grounded
-- **Direct cortico-cortical feedback** — R2 L2/3 → R1 apical segments (no thalamic relay yet)
-- **Apical = column-level, fb = neuron-level** — apical prediction_gain is multiplicative column boost, fb_boost is additive per-neuron
-- **prediction_gain=2.5** — sweep showed 2.5 is sweet spot: -7.3% burst, +0.083 ctx disc at 50k
+- **Decodability before motor cortex** — validate representations are actionable before investing in output architecture
+
+## Dashboard
+- Single-region tabbed (Activity/Representations/Segments), `--hierarchy` for dual-region (Overview/R1/R2/Feedback)
+- Config banner shows encoder, region params, LTD, token count
+- Stat cards with health-based color coding
+- `--char-level` flag switches to PositionalCharEncoder + char tokenization + ltd=0.05
+
+## Hierarchy Performance (20k chars, positional, ltd=0.05)
+- R1 burst: 46% → 14% (excellent learning)
+- R1 overlap: 0.38 → 0.75-0.85
+- R1 context discrimination: 0.932
+- R2 context discrimination: 0.950 (improves on R1)
+- Zero dead columns
 
 ## Next Steps
-- [ ] Explore motor cortex design for response generation
+- [ ] Motor cortex design: babbling loop (char-by-char output, 32 classes)
+- [ ] Investigate throughput: char-level is ~4-5x more steps per text unit than BPE
 - [ ] Consider L5 (motor output) and L6 (thalamic control) layers

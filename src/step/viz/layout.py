@@ -8,6 +8,7 @@ def build_dashboard_html(
     summary_cards_html: str = "",
     title: str = "Cortex Representation Dashboard",
     tabs: dict[str, list[tuple[str, go.Figure]]] | None = None,
+    config_html: str = "",
 ) -> str:
     """Combine all figures into a single HTML page.
 
@@ -83,10 +84,29 @@ def build_dashboard_html(
         .tab-content.active {
             display: block;
         }
+        .config-banner {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 10px 16px;
+            margin: 10px 0;
+            font-size: 0.85em;
+            color: #8b949e;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 24px;
+        }
+        .config-banner span {
+            white-space: nowrap;
+        }
+        .config-banner .cfg-label {
+            color: #c9d1d9;
+            font-weight: 600;
+        }
     """
 
     if tabs:
-        return _build_tabbed_html(tabs, summary_cards_html, title, css)
+        return _build_tabbed_html(tabs, summary_cards_html, title, css, config_html)
 
     chart_divs = []
     for _title, fig in figures:
@@ -101,6 +121,7 @@ def build_dashboard_html(
 </head>
 <body>
     <h1>{title}</h1>
+    {config_html}
     {summary_cards_html}
     {"".join(f'<div class="chart-container">{div}</div>' for div in chart_divs)}
 </body>
@@ -112,6 +133,7 @@ def _build_tabbed_html(
     summary_cards_html: str,
     title: str,
     css: str,
+    config_html: str = "",
 ) -> str:
     tab_names = list(tabs.keys())
 
@@ -160,6 +182,7 @@ def _build_tabbed_html(
 </head>
 <body>
     <h1>{title}</h1>
+    {config_html}
     {summary_cards_html}
     <div class="tab-bar">{buttons_html}</div>
     {content_html}
