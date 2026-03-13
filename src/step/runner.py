@@ -2,14 +2,20 @@
 
 import time
 from dataclasses import dataclass, field
+from typing import Protocol
 
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
 from step.data import STORY_BOUNDARY
 from step.decoders import InvertedIndexDecoder, SynapticDecoder
-from step.encoders.charbit import CharbitEncoder
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
+
+
+class Encoder(Protocol):
+    """Minimal encoder interface for the runner."""
+
+    def encode(self, token: str) -> "np.ndarray": ...  # noqa: F821
 
 
 @dataclass
@@ -24,7 +30,7 @@ class RunMetrics:
 
 def run_cortex(
     region: SensoryRegion,
-    encoder: CharbitEncoder,
+    encoder: Encoder,
     tokens: list[tuple[int, str]],
     log_interval: int = 100,
     rolling_window: int = 100,
@@ -51,6 +57,8 @@ def run_cortex(
     for t, (token_id, token_str) in enumerate(tokens):
         if token_id == STORY_BOUNDARY:
             region.reset_working_memory()
+            if hasattr(encoder, "reset"):
+                encoder.reset()
             rep_tracker.reset_context()
             continue
 
@@ -172,7 +180,7 @@ class HierarchyMetrics:
 def run_hierarchy(
     region1: SensoryRegion,
     region2: SensoryRegion,
-    encoder: CharbitEncoder,
+    encoder: Encoder,
     tokens: list[tuple[int, str]],
     *,
     surprise_tracker: SurpriseTracker | None = None,
@@ -203,6 +211,8 @@ def run_hierarchy(
         if token_id == STORY_BOUNDARY:
             region1.reset_working_memory()
             region2.reset_working_memory()
+            if hasattr(encoder, "reset"):
+                encoder.reset()
             rep_tracker1.reset_context()
             rep_tracker2.reset_context()
             continue

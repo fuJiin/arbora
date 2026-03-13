@@ -48,6 +48,11 @@ class SensoryRegion(CorticalRegion):
                     for w in range(window):
                         idx = pos * encoding_width + ((w_start + w) % encoding_width)
                         col_mask[idx, col] = True
+        elif input_dim <= self.n_columns:
+            # Small input (e.g., one-hot characters): full connectivity.
+            # Every column sees every input dimension. Differentiation
+            # comes from learned weights, not structural masking.
+            col_mask[:, :] = True
         else:
             window_size = (2 * input_dim) // max(self.n_columns, 1)
             stride = max(1, (input_dim - window_size) // max(self.n_columns - 1, 1))

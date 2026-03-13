@@ -18,8 +18,9 @@ import step.env  # noqa: F401
 from step.config import CortexConfig
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
-from step.data import prepare_tokens
+from step.data import prepare_tokens, prepare_tokens_charlevel
 from step.encoders.charbit import CharbitEncoder
+from step.encoders.positional import PositionalCharEncoder
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.timeline import Timeline
 from step.runner import run_cortex, run_hierarchy
@@ -79,23 +80,62 @@ def main():
     parser.add_argument(
         "--hierarchy", action="store_true", help="Run two-region hierarchy"
     )
+    parser.add_argument(
+        "--char-level", action="store_true",
+        help="Use character-level tokenization with positional encoding",
+    )
     args = parser.parse_args()
 
-    tokens = prepare_tokens(args.tokens)
-
     cortex_cfg = CortexConfig()
-    charbit = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
-    input_dim = CHAR_LENGTH * CHAR_WIDTH
+
+    if args.char_level:
+        tokens = prepare_tokens_charlevel(args.tokens)
+        alphabet = sorted(
+            {ch for _, ch in tokens if _ != -1}
+        )
+        encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
+        input_dim = encoder.input_dim
+        encoding_width = encoder.encoding_width
+        # Lower LTD for char-level (default 0.2 is too aggressive)
+        cortex_cfg = CortexConfig(ltd_rate=0.05)
+    else:
+        tokens = prepare_tokens(args.tokens)
+        encoder = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
+        input_dim = CHAR_LENGTH * CHAR_WIDTH
+        encoding_width = CHAR_WIDTH
+
+    # Build config banner
+    enc_name = type(encoder).__name__
+    config_html = (
+        '<div class="config-banner">'
+        f'<span><span class="cfg-label">Encoder:</span> {enc_name} '
+        f'({input_dim}-dim)</span>'
+        f'<span><span class="cfg-label">R1:</span> '
+        f'{cortex_cfg.n_columns} cols, k={cortex_cfg.k_columns}, '
+        f'{cortex_cfg.n_l4} L4, {cortex_cfg.n_l23} L2/3 '
+        f'(L2/3 dim={cortex_cfg.n_columns * cortex_cfg.n_l23})</span>'
+        f'<span><span class="cfg-label">LTD:</span> {cortex_cfg.ltd_rate}</span>'
+        f'<span><span class="cfg-label">Tokens:</span> {len(tokens):,}</span>'
+        "</div>"
+    )
 
     if args.hierarchy:
-        html = _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args)
+        html = _run_hierarchy_dashboard(
+            tokens, cortex_cfg, encoder, input_dim, args,
+            encoding_width=encoding_width,
+            config_html=config_html,
+        )
     else:
-        html = _run_single_dashboard(tokens, cortex_cfg, charbit, input_dim, args)
+        html = _run_single_dashboard(
+            tokens, cortex_cfg, encoder, input_dim, args,
+            encoding_width=encoding_width,
+            config_html=config_html,
+        )
 
     _serve_or_save(html, args)
 
 
-def _make_region(cortex_cfg, input_dim):
+def _make_region(cortex_cfg, input_dim, encoding_width=CHAR_WIDTH):
     return SensoryRegion(
         input_dim=input_dim,
         n_columns=cortex_cfg.n_columns,
@@ -109,7 +149,7 @@ def _make_region(cortex_cfg, input_dim):
         max_excitability=cortex_cfg.max_excitability,
         fb_boost=cortex_cfg.fb_boost,
         ltd_rate=cortex_cfg.ltd_rate,
-        encoding_width=CHAR_WIDTH,
+        encoding_width=encoding_width,
         burst_learning_scale=cortex_cfg.burst_learning_scale,
         n_fb_segments=cortex_cfg.n_fb_segments,
         n_lat_segments=cortex_cfg.n_lat_segments,
@@ -125,12 +165,16 @@ def _make_region(cortex_cfg, input_dim):
     )
 
 
-def _run_single_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> str:
-    region = _make_region(cortex_cfg, input_dim)
+def _run_single_dashboard(
+    tokens, cortex_cfg, encoder, input_dim, args,
+    encoding_width=CHAR_WIDTH,
+    config_html="",
+) -> str:
+    region = _make_region(cortex_cfg, input_dim, encoding_width)
 
     print(f"\nRunning cortex on {len(tokens):,} tokens...")
     metrics, timeline, diag = run_with_timeline(
-        tokens, region, charbit, args.log_interval
+        tokens, region, encoder, args.log_interval
     )
 
     print(f"\nCaptured {len(timeline.frames)} timeline frames")
@@ -143,21 +187,39 @@ def _run_single_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> str:
     cards_html = build_representation_summary_cards(rep_summary, burst_rate)
 
     n_cols = cortex_cfg.n_columns
-    figures = [
-        ("Surprise Rate", build_burst_rate_over_time(timeline)),
-        ("Column Selectivity", build_column_selectivity_bar(rep_summary)),
-        ("Column Usage", build_column_entropy_over_time(timeline, n_cols)),
-        ("Column Activation", build_column_activation_heatmap(timeline, n_cols)),
-        ("Feature Differentiation", build_ff_weight_divergence(timeline, n_cols)),
-        ("Signal Balance", build_voltage_excitability(timeline, n_cols)),
-        ("Input Distribution", build_column_drive_histogram(timeline)),
-    ]
+    tabs = {
+        "Activity": [
+            ("Surprise Rate", build_burst_rate_over_time(timeline)),
+            ("Column Activation", build_column_activation_heatmap(timeline, n_cols)),
+            ("Column Usage", build_column_entropy_over_time(timeline, n_cols)),
+            ("Input Distribution", build_column_drive_histogram(timeline)),
+        ],
+        "Representations": [
+            ("Column Selectivity", build_column_selectivity_bar(rep_summary)),
+            ("Feature Differentiation", build_ff_weight_divergence(timeline, n_cols)),
+            ("Signal Balance", build_voltage_excitability(timeline, n_cols)),
+        ],
+        "Segments": [
+            ("Segment Health", build_segment_health_over_time(diag, region_label="R1")),
+            ("Apical Predictions", build_apical_prediction_over_time(timeline)),
+        ],
+    }
 
-    return build_dashboard_html(figures, cards_html)
+    return build_dashboard_html(
+        [],
+        cards_html,
+        title="Cortex Dashboard",
+        tabs=tabs,
+        config_html=config_html,
+    )
 
 
-def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> str:
-    region1 = _make_region(cortex_cfg, input_dim)
+def _run_hierarchy_dashboard(
+    tokens, cortex_cfg, encoder, input_dim, args,
+    encoding_width=CHAR_WIDTH,
+    config_html="",
+) -> str:
+    region1 = _make_region(cortex_cfg, input_dim, encoding_width)
     region2 = SensoryRegion(
         input_dim=region1.n_l23_total,
         encoding_width=0,
@@ -202,7 +264,7 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
     hier_metrics = run_hierarchy(
         region1,
         region2,
-        charbit,
+        encoder,
         tokens,
         surprise_tracker=surprise,
         log_interval=args.log_interval,
@@ -306,6 +368,7 @@ def _run_hierarchy_dashboard(tokens, cortex_cfg, charbit, input_dim, args) -> st
         cards_html,
         title="Cortex Hierarchy Dashboard",
         tabs=tabs,
+        config_html=config_html,
     )
 
 
