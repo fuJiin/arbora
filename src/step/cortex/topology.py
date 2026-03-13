@@ -129,6 +129,8 @@ class Topology:
             state.syn_decoder = SynapticDecoder()
             state.dendritic_decoder = DendriticDecoder(
                 source_dim=region.n_l23_total,
+                n_segments=16,
+                n_synapses=48,
             )
 
         self._regions[name] = state
