@@ -1,0 +1,452 @@
+"""Topology: declarative region wiring that replaces boilerplate run loops.
+
+Build a topology by adding regions and connections, then call run() once.
+Supports single-region, two-region hierarchy, and arbitrary DAGs.
+"""
+
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Protocol
+
+import numpy as np
+
+from step.cortex.sensory import SensoryRegion
+from step.cortex.surprise import SurpriseTracker
+from step.data import STORY_BOUNDARY
+from step.decoders import InvertedIndexDecoder, SynapticDecoder
+from step.probes.diagnostics import CortexDiagnostics
+from step.probes.representation import RepresentationTracker
+from step.probes.timeline import Timeline
+
+
+class Encoder(Protocol):
+    """Minimal encoder interface for the runner."""
+
+    def encode(self, token: str) -> "np.ndarray": ...
+
+
+@dataclass
+class RunMetrics:
+    overlaps: list[float] = field(default_factory=list)
+    accuracies: list[float] = field(default_factory=list)
+    synaptic_accuracies: list[float] = field(default_factory=list)
+    column_accuracies: list[float] = field(default_factory=list)
+    elapsed_seconds: float = 0.0
+    representation: dict = field(default_factory=dict)
+
+
+@dataclass
+class _RegionState:
+    """Per-region bookkeeping created by add_region()."""
+
+    region: SensoryRegion
+    rep_tracker: RepresentationTracker
+    diagnostics: CortexDiagnostics | None
+    timeline: Timeline | None
+    entry: bool = False
+    # Entry region only:
+    decode_index: InvertedIndexDecoder | None = None
+    syn_decoder: SynapticDecoder | None = None
+
+
+@dataclass
+class Connection:
+    source: str
+    target: str
+    kind: str  # "feedforward" | "surprise" | "apical"
+    surprise_tracker: SurpriseTracker | None = None
+
+
+@dataclass
+class CortexResult:
+    per_region: dict[str, RunMetrics] = field(default_factory=dict)
+    surprise_modulators: dict[str, list[float]] = field(default_factory=dict)
+    elapsed_seconds: float = 0.0
+
+
+class Topology:
+    """Declarative region topology with a single run() loop."""
+
+    def __init__(
+        self,
+        encoder: Encoder,
+        *,
+        enable_timeline: bool = False,
+        diagnostics_interval: int = 100,
+    ):
+        self._encoder = encoder
+        self._enable_timeline = enable_timeline
+        self._diagnostics_interval = diagnostics_interval
+        self._regions: dict[str, _RegionState] = {}
+        self._connections: list[Connection] = []
+        self._entry_name: str | None = None
+
+    # ------------------------------------------------------------------
+    # Builder API
+    # ------------------------------------------------------------------
+
+    def add_region(
+        self,
+        name: str,
+        region: SensoryRegion,
+        *,
+        entry: bool = False,
+        diagnostics: bool = True,
+    ) -> "Topology":
+        """Register a region. Exactly one must have entry=True."""
+        if name in self._regions:
+            raise ValueError(f"Duplicate region name: {name!r}")
+        if entry:
+            if self._entry_name is not None:
+                raise ValueError(
+                    f"Multiple entry regions: {self._entry_name!r} and {name!r}"
+                )
+            self._entry_name = name
+
+        diag = (
+            CortexDiagnostics(snapshot_interval=self._diagnostics_interval)
+            if diagnostics
+            else None
+        )
+        timeline = Timeline() if self._enable_timeline else None
+
+        state = _RegionState(
+            region=region,
+            rep_tracker=RepresentationTracker(region.n_columns, region.n_l4),
+            diagnostics=diag,
+            timeline=timeline,
+            entry=entry,
+        )
+        if entry:
+            state.decode_index = InvertedIndexDecoder()
+            state.syn_decoder = SynapticDecoder()
+
+        self._regions[name] = state
+        return self
+
+    def connect(
+        self,
+        source: str,
+        target: str,
+        kind: str = "feedforward",
+        *,
+        surprise_tracker: SurpriseTracker | None = None,
+    ) -> "Topology":
+        """Wire source -> target."""
+        for name in (source, target):
+            if name not in self._regions:
+                raise ValueError(f"Unknown region: {name!r}")
+        if kind not in ("feedforward", "surprise", "apical"):
+            raise ValueError(f"Unknown connection kind: {kind!r}")
+
+        conn = Connection(source=source, target=target, kind=kind)
+        if kind == "surprise":
+            conn.surprise_tracker = surprise_tracker or SurpriseTracker()
+        if kind == "apical":
+            src_region = self._regions[source].region
+            tgt_region = self._regions[target].region
+            if not tgt_region.has_apical:
+                tgt_region.init_apical_segments(source_dim=src_region.n_l23_total)
+
+        self._connections.append(conn)
+        return self
+
+    # ------------------------------------------------------------------
+    # Accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def timelines(self) -> dict[str, Timeline]:
+        return {
+            name: s.timeline
+            for name, s in self._regions.items()
+            if s.timeline is not None
+        }
+
+    @property
+    def diagnostics(self) -> dict[str, CortexDiagnostics]:
+        return {
+            name: s.diagnostics
+            for name, s in self._regions.items()
+            if s.diagnostics is not None
+        }
+
+    def region(self, name: str) -> SensoryRegion:
+        return self._regions[name].region
+
+    # ------------------------------------------------------------------
+    # Run loop
+    # ------------------------------------------------------------------
+
+    def run(
+        self,
+        tokens: list[tuple[int, str]],
+        *,
+        log_interval: int = 100,
+        rolling_window: int = 100,
+        show_predictions: int = 0,
+    ) -> CortexResult:
+        if self._entry_name is None:
+            raise ValueError("No entry region. Call add_region(..., entry=True).")
+
+        topo_order = self._topo_order()
+        entry_name = self._entry_name
+        entry_state = self._regions[entry_name]
+        entry_region = entry_state.region
+        k = entry_region.k_columns
+
+        # Per-region metrics accumulators
+        metrics: dict[str, RunMetrics] = {
+            name: RunMetrics() for name in self._regions
+        }
+        # Per-surprise-connection modulator lists, keyed by target name
+        surprise_modulators: dict[str, list[float]] = {}
+        for conn in self._connections:
+            if conn.kind == "surprise":
+                surprise_modulators[conn.target] = []
+
+        prediction_log: list[tuple[str, str, str, str]] = []
+        start = time.monotonic()
+
+        for t, (token_id, token_str) in enumerate(tokens):
+            # -- Story boundary --
+            if token_id == STORY_BOUNDARY:
+                for s in self._regions.values():
+                    s.region.reset_working_memory()
+                    s.rep_tracker.reset_context()
+                if hasattr(self._encoder, "reset"):
+                    self._encoder.reset()
+                continue
+
+            # -- Entry prediction + decode --
+            predicted_neurons = entry_region.get_prediction(k)
+            predicted_set = frozenset(int(i) for i in predicted_neurons)
+
+            syn_id, syn_str = entry_state.syn_decoder.decode_synaptic(
+                predicted_neurons, entry_region
+            )
+            col_id, col_str = entry_state.syn_decoder.decode_columns(
+                predicted_neurons, entry_region.n_l4
+            )
+            idx_predicted = entry_state.decode_index.decode(predicted_set)
+
+            idx_str = ""
+            if (
+                idx_predicted >= 0
+                and idx_predicted in entry_state.syn_decoder._token_id_set
+            ):
+                for i, tid in enumerate(entry_state.syn_decoder._token_ids):
+                    if tid == idx_predicted:
+                        idx_str = entry_state.syn_decoder._token_strs[i]
+                        break
+
+            # -- Process in topo order --
+            for name in topo_order:
+                s = self._regions[name]
+                if name == entry_name:
+                    encoding = self._encoder.encode(token_str)
+                    s.region.process(encoding)
+                else:
+                    # Find feedforward source
+                    for conn in self._connections:
+                        if conn.target == name and conn.kind == "feedforward":
+                            src = self._regions[conn.source].region
+                            s.region.process(src.firing_rate_l23)
+                            break
+
+            # -- Inter-region signals (after all regions processed) --
+            for conn in self._connections:
+                src = self._regions[conn.source].region
+                tgt = self._regions[conn.target].region
+
+                if conn.kind == "surprise":
+                    n_active = int(src.active_columns.sum())
+                    n_bursting = int(src.bursting_columns.sum())
+                    burst_rate = n_bursting / max(n_active, 1)
+                    modulator = conn.surprise_tracker.update(burst_rate)
+                    tgt.surprise_modulator = modulator
+                    surprise_modulators[conn.target].append(modulator)
+
+                elif conn.kind == "apical":
+                    if tgt.has_apical:
+                        r_active = int(src.active_columns.sum())
+                        r_bursting = int(src.bursting_columns.sum())
+                        confidence = 1.0 - (r_bursting / max(r_active, 1))
+                        tgt.set_apical_context(src.firing_rate_l23 * confidence)
+
+            # -- Per-region bookkeeping --
+            for _name, s in self._regions.items():
+                s.rep_tracker.observe(
+                    token_id, s.region.active_columns, s.region.active_l4
+                )
+                if s.diagnostics is not None:
+                    s.diagnostics.step(t, s.region)
+                if s.timeline is not None:
+                    s.timeline.capture(
+                        len(s.timeline.frames),
+                        s.region,
+                        s.region.last_column_drive,
+                    )
+
+            # -- Entry metrics --
+            active_set = frozenset(
+                int(i) for i in np.nonzero(entry_region.active_l4)[0]
+            )
+
+            if t > 0:
+                if active_set:
+                    overlap = len(predicted_set & active_set) / len(active_set)
+                else:
+                    overlap = 0.0
+                metrics[entry_name].overlaps.append(overlap)
+
+                accuracy = 1.0 if idx_predicted == token_id else 0.0
+                metrics[entry_name].accuracies.append(accuracy)
+
+                syn_acc = 1.0 if syn_id == token_id else 0.0
+                metrics[entry_name].synaptic_accuracies.append(syn_acc)
+
+                col_acc = 1.0 if col_id == token_id else 0.0
+                metrics[entry_name].column_accuracies.append(col_acc)
+
+                if show_predictions > 0:
+                    prediction_log.append((token_str, idx_str, col_str, syn_str))
+
+            entry_state.decode_index.observe(token_id, active_set)
+            entry_state.syn_decoder.observe(
+                token_id, token_str, encoding, entry_region.active_columns
+            )
+
+            # -- Logging --
+            if (
+                t > 0
+                and t % log_interval == 0
+                and metrics[entry_name].overlaps
+            ):
+                self._log_step(
+                    t, start, entry_name, metrics, surprise_modulators,
+                    rolling_window, show_predictions, prediction_log,
+                )
+
+        elapsed = time.monotonic() - start
+
+        # -- Finalize per-region representation summaries --
+        for name, s in self._regions.items():
+            m = metrics[name]
+            m.elapsed_seconds = elapsed
+            rep_summ = s.rep_tracker.summary(s.region.ff_weights)
+            sel = s.rep_tracker.column_selectivity()
+            rep_summ["column_selectivity_per_col"] = sel["per_column"]
+            m.representation = rep_summ
+
+        # Print representation reports
+        if len(self._regions) == 1:
+            entry_state.rep_tracker.print_report(entry_region.ff_weights)
+        else:
+            for name, s in self._regions.items():
+                print(f"\n--- {name} ---")
+                s.rep_tracker.print_report(s.region.ff_weights)
+
+        return CortexResult(
+            per_region=metrics,
+            surprise_modulators=surprise_modulators,
+            elapsed_seconds=elapsed,
+        )
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _topo_order(self) -> list[str]:
+        """BFS from entry following feedforward edges."""
+        adj: dict[str, list[str]] = {name: [] for name in self._regions}
+        for conn in self._connections:
+            if conn.kind == "feedforward":
+                adj[conn.source].append(conn.target)
+
+        order: list[str] = []
+        visited: set[str] = set()
+        queue: deque[str] = deque()
+        queue.append(self._entry_name)
+        visited.add(self._entry_name)
+
+        while queue:
+            node = queue.popleft()
+            order.append(node)
+            for neighbor in adj[node]:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+
+        # Add any regions not reachable via feedforward (e.g. disconnected)
+        for name in self._regions:
+            if name not in visited:
+                order.append(name)
+
+        return order
+
+    def _log_step(
+        self,
+        t: int,
+        start: float,
+        entry_name: str,
+        metrics: dict[str, RunMetrics],
+        surprise_modulators: dict[str, list[float]],
+        rolling_window: int,
+        show_predictions: int,
+        prediction_log: list[tuple[str, str, str, str]],
+    ):
+        entry_metrics = metrics[entry_name]
+        entry_diag = self._regions[entry_name].diagnostics
+
+        tail_syn = entry_metrics.synaptic_accuracies[-rolling_window:]
+        roll_syn = sum(tail_syn) / len(tail_syn)
+        tail_o = entry_metrics.overlaps[-rolling_window:]
+        roll_o = sum(tail_o) / len(tail_o)
+        elapsed = time.monotonic() - start
+
+        burst_pct = 0.0
+        if entry_diag is not None:
+            bc = entry_diag._burst_count
+            pc = entry_diag._precise_count
+            total = bc + pc
+            burst_pct = bc / total if total > 0 else 0.0
+
+        label = entry_name if len(self._regions) > 1 else "cortex"
+
+        # Surprise modulator info
+        mod_str = ""
+        if surprise_modulators:
+            for _tgt, mods in surprise_modulators.items():
+                if mods:
+                    tail_mod = mods[-rolling_window:]
+                    avg_mod = sum(tail_mod) / len(tail_mod)
+                    mod_str += f" mod={avg_mod:.2f}"
+
+        print(
+            f"  [{label}] t={t:,} "
+            f"syn={roll_syn:.4f} "
+            f"overlap={roll_o:.4f} "
+            f"burst={burst_pct:.1%}"
+            f"{mod_str} "
+            f"({elapsed:.1f}s)"
+        )
+
+        if show_predictions > 0 and prediction_log:
+            samples = prediction_log[-show_predictions:]
+            hdr = f"{'actual':>12s} | {'idx':>12s} | {'col':>12s} | {'syn':>12s}"
+            print(f"    {hdr}")
+            print(f"    {'-' * 12}-+-{'-' * 12}-+-{'-' * 12}-+-{'-' * 12}")
+            for actual, idx_p, col_p, syn_p in samples:
+                fmt = lambda s: repr(s)[:12].ljust(12)  # noqa: E731
+                marks = [
+                    "*" if p == actual else " " for p in (idx_p, col_p, syn_p)
+                ]
+                print(
+                    f"    {fmt(actual)} "
+                    f"|{marks[0]}{fmt(idx_p)} "
+                    f"|{marks[1]}{fmt(col_p)} "
+                    f"|{marks[2]}{fmt(syn_p)}"
+                )
+            prediction_log.clear()

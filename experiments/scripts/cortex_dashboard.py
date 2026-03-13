@@ -18,12 +18,10 @@ import step.env  # noqa: F401
 from step.config import CortexConfig, _default_region2_config
 from step.cortex.sensory import SensoryRegion
 from step.cortex.surprise import SurpriseTracker
+from step.cortex.topology import Topology
 from step.data import prepare_tokens, prepare_tokens_charlevel
 from step.encoders.charbit import CharbitEncoder
 from step.encoders.positional import PositionalCharEncoder
-from step.probes.diagnostics import CortexDiagnostics
-from step.probes.timeline import Timeline
-from step.runner import run_cortex, run_hierarchy
 from step.viz import (
     build_apical_prediction_over_time,
     build_burst_rate_over_time,
@@ -44,29 +42,6 @@ from step.viz import (
 CHARS = string.printable
 CHAR_LENGTH = 8
 CHAR_WIDTH = len(CHARS) + 1
-
-
-def run_with_timeline(tokens, region, encoder, log_interval):
-    """Run cortex and capture per-step timeline + representation tracking."""
-    timeline = Timeline()
-    diag = CortexDiagnostics(snapshot_interval=log_interval)
-
-    original_process = region.process
-
-    def instrumented_process(encoding):
-        result = original_process(encoding)
-        timeline.capture(len(timeline.frames), region, region.last_column_drive)
-        return result
-
-    region.process = instrumented_process
-
-    metrics = run_cortex(
-        region, encoder, tokens, log_interval=log_interval, diagnostics=diag
-    )
-
-    diag.print_report()
-    region.process = original_process
-    return metrics, timeline, diag
 
 
 def main():
@@ -187,10 +162,21 @@ def _run_single_dashboard(
 ) -> str:
     region = _make_region(cortex_cfg, input_dim, encoding_width)
 
-    print(f"\nRunning cortex on {len(tokens):,} tokens...")
-    metrics, timeline, diag = run_with_timeline(
-        tokens, region, encoder, args.log_interval
+    cortex = Topology(
+        encoder,
+        enable_timeline=True,
+        diagnostics_interval=args.log_interval,
     )
+    cortex.add_region("R1", region, entry=True)
+
+    print(f"\nRunning cortex on {len(tokens):,} tokens...")
+    result = cortex.run(tokens, log_interval=args.log_interval)
+
+    timeline = cortex.timelines["R1"]
+    diag = cortex.diagnostics["R1"]
+    metrics = result.per_region["R1"]
+
+    diag.print_report()
 
     print(f"\nCaptured {len(timeline.frames)} timeline frames")
     print("Building dashboard...")
@@ -251,48 +237,25 @@ def _run_hierarchy_dashboard(
         seed=123,
     )
 
-    # Apical feedback disabled by default — R2 needs mature representations first.
-    enable_apical_feedback = False
-    if enable_apical_feedback:
-        region1.init_apical_segments(source_dim=region2.n_l23_total)
-
     surprise = SurpriseTracker()
-    diag1 = CortexDiagnostics(snapshot_interval=args.log_interval)
-    diag2 = CortexDiagnostics(snapshot_interval=args.log_interval)
-    timeline1 = Timeline()
-    timeline2 = Timeline()
 
-    orig_r1_process = region1.process
-    orig_r2_process = region2.process
-
-    def instrumented_r1(encoding):
-        result = orig_r1_process(encoding)
-        timeline1.capture(len(timeline1.frames), region1, region1.last_column_drive)
-        return result
-
-    def instrumented_r2(encoding):
-        result = orig_r2_process(encoding)
-        timeline2.capture(len(timeline2.frames), region2, region2.last_column_drive)
-        return result
-
-    region1.process = instrumented_r1
-    region2.process = instrumented_r2
+    cortex = Topology(
+        encoder,
+        enable_timeline=True,
+        diagnostics_interval=args.log_interval,
+    )
+    cortex.add_region("R1", region1, entry=True)
+    cortex.add_region("R2", region2)
+    cortex.connect("R1", "R2", "feedforward")
+    cortex.connect("R1", "R2", "surprise", surprise_tracker=surprise)
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
-    hier_metrics = run_hierarchy(
-        region1,
-        region2,
-        encoder,
-        tokens,
-        surprise_tracker=surprise,
-        enable_apical_feedback=enable_apical_feedback,
-        log_interval=args.log_interval,
-        diagnostics1=diag1,
-        diagnostics2=diag2,
-    )
+    result = cortex.run(tokens, log_interval=args.log_interval)
 
-    region1.process = orig_r1_process
-    region2.process = orig_r2_process
+    timeline1 = cortex.timelines["R1"]
+    timeline2 = cortex.timelines["R2"]
+    diag1 = cortex.diagnostics["R1"]
+    diag2 = cortex.diagnostics["R2"]
 
     print(
         f"\nCaptured {len(timeline1.frames)} R1"
@@ -300,8 +263,8 @@ def _run_hierarchy_dashboard(
     )
     print("Building hierarchy dashboard...")
 
-    rep1 = hier_metrics.region1.representation
-    rep2 = hier_metrics.region2.representation
+    rep1 = result.per_region["R1"].representation
+    rep2 = result.per_region["R2"].representation
     summ1 = diag1.summary()
     summ2 = diag2.summary()
 
@@ -310,7 +273,7 @@ def _run_hierarchy_dashboard(
         rep2,
         summ1["burst_rate"],
         summ2["burst_rate"],
-        hier_metrics.surprise_modulators,
+        result.surprise_modulators.get("R2", []),
         diag1=diag1,
     )
 
@@ -323,7 +286,7 @@ def _run_hierarchy_dashboard(
             (
                 "Surprise Modulator",
                 build_surprise_modulator_over_time(
-                    hier_metrics.surprise_modulators,
+                    result.surprise_modulators.get("R2", []),
                 ),
             ),
             (
