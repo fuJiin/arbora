@@ -561,6 +561,113 @@ def build_thalamic_gate_over_time(
     return fig
 
 
+def build_bpc_over_time(
+    bpc_overall: float,
+    bpc_recent: float,
+    n_chars: int,
+    vocab_size: int = 0,
+) -> go.Figure:
+    """BPC summary card as a simple indicator chart.
+
+    Since BPC is accumulated as a single number (not per-step), we show
+    overall vs recent as a comparison bar.
+    """
+    import math
+
+    labels = ["Overall BPC", "Recent BPC"]
+    values = [bpc_overall, bpc_recent]
+    colors = ["#118ab2", "#06d6a0"]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=values,
+            marker_color=colors,
+            text=[f"{v:.2f}" for v in values],
+            textposition="auto",
+        )
+    )
+
+    # Add random baseline if vocab size known
+    if vocab_size > 1:
+        random_bpc = math.log2(vocab_size)
+        fig.add_hline(
+            y=random_bpc,
+            line_dash="dash",
+            line_color="gray",
+            annotation_text=f"random ({random_bpc:.1f})",
+        )
+
+    fig.update_layout(
+        title=(
+            f"Bits Per Character — {n_chars:,} chars"
+            " (lower = better predictions)"
+        ),
+        yaxis_title="BPC (bits)",
+        yaxis_range=[0, max(max(values) * 1.3, 1.0)],
+        height=350,
+        template="plotly_dark",
+    )
+    return fig
+
+
+def build_bg_gate_over_time(
+    gate_values: list[float],
+    window: int = 50,
+) -> go.Figure:
+    """BG gate value over time with rolling average."""
+    n = len(gate_values)
+    if n == 0:
+        return go.Figure()
+
+    rolling = []
+    for i in range(n):
+        start = max(0, i - window + 1)
+        rolling.append(
+            sum(gate_values[start: i + 1]) / (i - start + 1)
+        )
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=gate_values,
+            name="raw gate",
+            line=dict(color="#ffd166", width=1),
+            opacity=0.2,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=rolling,
+            name=f"rolling avg (w={window})",
+            line=dict(color="#ffd166", width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(n)),
+            y=[0.5] * n,
+            name="neutral (0.5)",
+            line=dict(color="gray", dash="dash"),
+        )
+    )
+    fig.update_layout(
+        title=(
+            "Basal Ganglia Gate — 0 = closed (no-go),"
+            " 1 = open (go, M1 speaks)"
+        ),
+        xaxis_title="Timestep",
+        yaxis_title="Gate Value",
+        yaxis_range=[0, 1.05],
+        height=400,
+        template="plotly_dark",
+    )
+    return fig
+
+
 def build_dual_burst_rate(
     timeline1: Timeline, timeline2: Timeline, window: int = 50
 ) -> go.Figure:

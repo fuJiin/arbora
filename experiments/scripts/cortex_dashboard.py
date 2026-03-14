@@ -34,6 +34,8 @@ from step.encoders.positional import PositionalCharEncoder
 from step.runs import RUNS_DIR, list_runs, load_meta, load_run
 from step.viz import (
     build_apical_prediction_over_time,
+    build_bg_gate_over_time,
+    build_bpc_over_time,
     build_burst_rate_over_time,
     build_column_activation_heatmap,
     build_column_drive_histogram,
@@ -262,6 +264,20 @@ def _build_single_dashboard(
         ],
     }
 
+    # BPC chart if available
+    if metrics.bpc < float("inf"):
+        tabs["Activity"].insert(
+            0,
+            (
+                "BPC",
+                build_bpc_over_time(
+                    metrics.bpc,
+                    metrics.bpc_recent,
+                    len(metrics.dendritic_accuracies),
+                ),
+            ),
+        )
+
     return build_dashboard_html(
         [],
         cards_html,
@@ -302,10 +318,33 @@ def _build_hierarchy_dashboard(
             )
         else:
             sil = 1.0
+        # BG gate stats
+        bg_mean = None
+        if m1_m.bg_gate_values:
+            bg_mean = sum(m1_m.bg_gate_values) / len(m1_m.bg_gate_values)
+        int_rate = (
+            m1_m.turn_interruptions / m1_m.turn_input_steps
+            if m1_m.turn_input_steps > 0 else 0
+        )
+        speak_rate = (
+            m1_m.turn_correct_speak / m1_m.turn_eom_steps
+            if m1_m.turn_eom_steps > 0 else 0
+        )
+
+        # BPC from S1
+        s1_m = result.per_region.get("S1")
+        bpc_val = s1_m.bpc if s1_m and s1_m.bpc < float("inf") else None
+        bpc_recent = s1_m.bpc_recent if s1_m else None
+
         motor_card_metrics = {
             "accuracy": acc,
             "silence_rate": sil,
             "selectivity": m1_rep.get("column_selectivity_mean", 0),
+            "bg_gate_mean": bg_mean,
+            "int_rate": int_rate,
+            "speak_rate": speak_rate,
+            "bpc": bpc_val,
+            "bpc_recent": bpc_recent,
         }
 
     cards_html = build_hierarchy_summary_cards(
@@ -414,7 +453,40 @@ def _build_hierarchy_dashboard(
                 build_segment_health_over_time(diag_m1, region_label="M1"),
             ),
         ]
+
+        # BG gate chart
+        if m1_metrics.bg_gate_values:
+            motor_charts.insert(
+                1,
+                (
+                    "BG Gate",
+                    build_bg_gate_over_time(m1_metrics.bg_gate_values),
+                ),
+            )
+
         tabs["Motor"] = motor_charts
+
+        # BPC chart on Overview tab
+        s1_metrics = result.per_region.get("S1")
+        if s1_metrics and s1_metrics.bpc < float("inf"):
+            # Count unique chars for random baseline
+            n_unique = len(
+                s1_metrics.representation.get(
+                    "column_selectivity_per_col", []
+                )
+            )
+            tabs["Overview"].insert(
+                0,
+                (
+                    "BPC",
+                    build_bpc_over_time(
+                        s1_metrics.bpc,
+                        s1_metrics.bpc_recent,
+                        len(s1_metrics.dendritic_accuracies),
+                        vocab_size=n_unique,
+                    ),
+                ),
+            )
 
         # Add M1 selectivity to Overview
         tabs["Overview"].append(
