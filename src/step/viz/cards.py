@@ -130,6 +130,35 @@ def build_hierarchy_summary_cards(
                 _health_color(m_sel, (0.05, 0.6), (0.02, 0.8)),
             )
         )
+        # BG gate stats
+        bg_mean = motor_metrics.get("bg_gate_mean")
+        if bg_mean is not None:
+            int_rate = motor_metrics.get("int_rate", 0)
+            speak_rate = motor_metrics.get("speak_rate", 0)
+            cards.append(
+                _card(
+                    f"{bg_mean:.2f}",
+                    "BG Gate Mean",
+                    f"int={int_rate:.0%} spk={speak_rate:.0%}",
+                    _health_color(bg_mean, (0.1, 0.5), (0.05, 0.8)),
+                )
+            )
+
+    # BPC card (if available)
+    bpc = motor_metrics.get("bpc") if motor_metrics else None
+    if bpc is None:
+        # Check if passed directly
+        pass
+    if bpc is not None and bpc < float("inf"):
+        bpc_recent = motor_metrics.get("bpc_recent", bpc)
+        cards.append(
+            _card(
+                f"{bpc:.2f}",
+                "BPC (overall)",
+                f"recent={bpc_recent:.2f} — lower = better",
+                _health_color(bpc, (0, 4.0), (0, 5.5)),
+            )
+        )
 
     return '<div class="summary">' + "".join(cards) + "</div>"
 

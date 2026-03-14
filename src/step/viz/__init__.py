@@ -4,6 +4,8 @@ from step.viz.cards import (
 )
 from step.viz.charts import (
     build_apical_prediction_over_time,
+    build_bg_gate_over_time,
+    build_bpc_over_time,
     build_burst_rate_over_time,
     build_column_activation_heatmap,
     build_column_drive_histogram,
@@ -21,6 +23,8 @@ from step.viz.layout import build_dashboard_html, build_index_html
 
 __all__ = [
     "build_apical_prediction_over_time",
+    "build_bg_gate_over_time",
+    "build_bpc_over_time",
     "build_burst_rate_over_time",
     "build_column_activation_heatmap",
     "build_column_drive_histogram",
