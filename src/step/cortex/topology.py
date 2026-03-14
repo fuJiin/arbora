@@ -116,6 +116,14 @@ class Topology:
         self._connections: list[Connection] = []
         self._entry_name: str | None = None
 
+        # Persistent turn-taking state (survives across run() calls)
+        self._in_eom = False
+        self._eom_steps = 0
+        # When True, BG gate is forced to 1.0 (open) — for interactive use
+        self.force_gate_open = False
+        # Tracks total steps across run() calls (BG skips t=0 globally)
+        self._total_steps = 0
+
     # ------------------------------------------------------------------
     # Builder API
     # ------------------------------------------------------------------
@@ -283,8 +291,7 @@ class Topology:
                 reward_modulators[conn.target] = []
 
         # Turn-taking state for motor RL (Stage 1)
-        _in_eom = False  # True after EOM_TOKEN, M1 should speak
-        _eom_steps = 0   # Steps since last EOM
+        # Use persistent instance state so EOM carries across run() calls.
         _max_speak_steps = 20  # Anti-rambling: penalize after this many steps
 
         prediction_log: list[tuple[str, str, str, str]] = []
@@ -308,8 +315,8 @@ class Topology:
                         conn.thalamic_gate.reset()
                 if hasattr(self._encoder, "reset"):
                     self._encoder.reset()
-                _in_eom = False
-                _eom_steps = 0
+                self._in_eom = False
+                self._eom_steps = 0
                 for conn in self._connections:
                     if conn.kind == "reward" and conn.reward_modulator is not None:
                         conn.reward_modulator.reset()
@@ -317,16 +324,16 @@ class Topology:
 
             # -- EOM token: signal turn boundary for motor RL --
             if token_id == EOM_TOKEN:
-                _in_eom = True
-                _eom_steps = 0
+                self._in_eom = True
+                self._eom_steps = 0
                 continue
 
             # Track turn-taking state
-            if _in_eom:
-                _eom_steps += 1
+            if self._in_eom:
+                self._eom_steps += 1
                 # Auto-exit EOM phase after max speaking steps
-                if _eom_steps > _max_speak_steps:
-                    _in_eom = False
+                if self._eom_steps > _max_speak_steps:
+                    self._in_eom = False
 
             # -- Entry prediction + decode --
             predicted_neurons = entry_region.get_prediction(k)
@@ -433,7 +440,7 @@ class Topology:
                 if s.motor:
                     motor_region = s.region
                     motor_region.observe_token(token_id)
-                    if t > 0:
+                    if self._total_steps > 0:
                         # BG gating: step with S1 context, gate M1 output
                         if s.basal_ganglia is not None:
                             # BG context: per-column precision state (inverted
@@ -450,6 +457,8 @@ class Topology:
                             )
                             ctx = np.append(precision, prec_frac)
                             gate = s.basal_ganglia.step(ctx)
+                            if self.force_gate_open:
+                                gate = 1.0
                             motor_region.output_scores *= gate
                             metrics[_name].bg_gate_values.append(gate)
 
@@ -463,9 +472,18 @@ class Topology:
                         # -- Stage 1 reward: turn-taking --
                         spoke = m_id >= 0
                         reward = self._compute_turn_reward(
-                            spoke, _in_eom, _eom_steps, _max_speak_steps,
+                            spoke, self._in_eom, self._eom_steps,
+                            _max_speak_steps,
                         )
                         metrics[_name].motor_rewards.append(reward)
+
+                        # Expose last-step state for interactive use
+                        motor_region.last_output = (m_id, m_conf)
+                        motor_region.last_gate = (
+                            gate if s.basal_ganglia is not None
+                            else 1.0
+                        )
+                        motor_region.last_reward = reward
 
                         # Send gate error signal to BG every step.
                         # Stage 1 is supervised (phase labels known):
@@ -474,16 +492,16 @@ class Topology:
                         # Provides gradient from both phases, avoids
                         # sparse-reward collapse. Stage 2/3 will switch to RL.
                         if s.basal_ganglia is not None:
-                            gate_target = 1.0 if _in_eom else 0.0
+                            gate_target = 1.0 if self._in_eom else 0.0
                             gate_error = gate_target - s.basal_ganglia.gate_value
                             s.basal_ganglia.reward(gate_error)
 
                         # -- Turn-taking behavioral counters --
                         m = metrics[_name]
-                        if _in_eom:
+                        if self._in_eom:
                             m.turn_eom_steps += 1
                             if spoke:
-                                if _eom_steps > _max_speak_steps:
+                                if self._eom_steps > _max_speak_steps:
                                     m.turn_rambles += 1
                                 else:
                                     m.turn_correct_speak += 1
@@ -546,6 +564,8 @@ class Topology:
             )
             entry_state.dendritic_decoder.observe(token_id, prev_l23)
 
+            self._total_steps += 1
+
             # -- Logging --
             if (
                 t > 0
@@ -595,6 +615,157 @@ class Topology:
             reward_modulators=reward_modulators,
             elapsed_seconds=elapsed,
         )
+
+    # ------------------------------------------------------------------
+    # Checkpointing
+    # ------------------------------------------------------------------
+
+    def save_checkpoint(self, path: str) -> None:
+        """Save learned weights and state to a file.
+
+        Captures all learned state needed to resume without retraining:
+        region weights, segment permanences, motor mappings, BG weights,
+        decoder neurons, and modulator EMA state.
+        """
+        import pickle
+
+        state: dict = {"regions": {}, "connections": []}
+
+        for name, s in self._regions.items():
+            r = s.region
+            region_data: dict = {
+                "ff_weights": r.ff_weights,
+                "l23_lateral_weights": r.l23_lateral_weights,
+                "fb_seg_indices": r.fb_seg_indices,
+                "fb_seg_perm": r.fb_seg_perm,
+                "lat_seg_indices": r.lat_seg_indices,
+                "lat_seg_perm": r.lat_seg_perm,
+                "l23_seg_indices": r.l23_seg_indices,
+                "l23_seg_perm": r.l23_seg_perm,
+            }
+            if r.apical_seg_indices is not None:
+                region_data["apical_seg_indices"] = r.apical_seg_indices
+                region_data["apical_seg_perm"] = r.apical_seg_perm
+
+            if isinstance(r, MotorRegion):
+                region_data["_col_token_counts"] = r._col_token_counts
+                region_data["_col_token_map"] = r._col_token_map
+
+            if s.basal_ganglia is not None:
+                region_data["bg_go_weights"] = s.basal_ganglia.go_weights
+                region_data["bg_trace"] = s.basal_ganglia._trace
+
+            if s.dendritic_decoder is not None:
+                region_data["decoder_neurons"] = s.dendritic_decoder._neurons
+
+            state["regions"][name] = region_data
+
+        # Connection modulator state
+        for conn in self._connections:
+            conn_data: dict = {
+                "source": conn.source,
+                "target": conn.target,
+                "kind": conn.kind,
+            }
+            if conn.surprise_tracker is not None:
+                conn_data["surprise_burst_ema"] = (
+                    conn.surprise_tracker._burst_ema
+                )
+                conn_data["surprise_baseline"] = (
+                    conn.surprise_tracker.baseline_burst_rate
+                )
+            if conn.thalamic_gate is not None:
+                conn_data["thalamic_burst_ema"] = (
+                    conn.thalamic_gate._burst_ema
+                )
+            state["connections"].append(conn_data)
+
+        with open(path, "wb") as f:
+            pickle.dump(state, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def load_checkpoint(self, path: str) -> None:
+        """Restore learned weights and state from a checkpoint file.
+
+        The topology must already be built with the same architecture
+        (same regions, connections, dimensions) before loading.
+        """
+        import pickle
+
+        with open(path, "rb") as f:
+            state = pickle.load(f)
+
+        for name, region_data in state["regions"].items():
+            if name not in self._regions:
+                continue
+            s = self._regions[name]
+            r = s.region
+
+            r.ff_weights[:] = region_data["ff_weights"]
+            r.l23_lateral_weights[:] = region_data["l23_lateral_weights"]
+            r.fb_seg_indices[:] = region_data["fb_seg_indices"]
+            r.fb_seg_perm[:] = region_data["fb_seg_perm"]
+            r.lat_seg_indices[:] = region_data["lat_seg_indices"]
+            r.lat_seg_perm[:] = region_data["lat_seg_perm"]
+            r.l23_seg_indices[:] = region_data["l23_seg_indices"]
+            r.l23_seg_perm[:] = region_data["l23_seg_perm"]
+
+            if (
+                "apical_seg_indices" in region_data
+                and r.apical_seg_indices is not None
+            ):
+                r.apical_seg_indices[:] = region_data["apical_seg_indices"]
+                r.apical_seg_perm[:] = region_data["apical_seg_perm"]
+
+            if (
+                isinstance(r, MotorRegion)
+                and "_col_token_counts" in region_data
+            ):
+                r._col_token_counts = region_data["_col_token_counts"]
+                r._col_token_map[:] = region_data["_col_token_map"]
+
+            if (
+                s.basal_ganglia is not None
+                and "bg_go_weights" in region_data
+            ):
+                s.basal_ganglia.go_weights[:] = region_data[
+                    "bg_go_weights"
+                ]
+                s.basal_ganglia._trace[:] = region_data["bg_trace"]
+
+            if (
+                s.dendritic_decoder is not None
+                and "decoder_neurons" in region_data
+            ):
+                s.dendritic_decoder._neurons = region_data[
+                    "decoder_neurons"
+                ]
+
+        # Restore connection modulator state
+        for conn_data in state.get("connections", []):
+            for conn in self._connections:
+                if (
+                    conn.source == conn_data["source"]
+                    and conn.target == conn_data["target"]
+                    and conn.kind == conn_data["kind"]
+                ):
+                    if (
+                        conn.surprise_tracker is not None
+                        and "surprise_burst_ema" in conn_data
+                    ):
+                        conn.surprise_tracker._burst_ema = conn_data[
+                            "surprise_burst_ema"
+                        ]
+                        conn.surprise_tracker.baseline_burst_rate = conn_data[
+                            "surprise_baseline"
+                        ]
+                    if (
+                        conn.thalamic_gate is not None
+                        and "thalamic_burst_ema" in conn_data
+                    ):
+                        conn.thalamic_gate._burst_ema = conn_data[
+                            "thalamic_burst_ema"
+                        ]
+                    break
 
     # ------------------------------------------------------------------
     # Internals

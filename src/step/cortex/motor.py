@@ -53,6 +53,11 @@ class MotorRegion(SensoryRegion):
         # Cached best mapping: col → token_id (-1 = unassigned)
         self._col_token_map = np.full(n_columns, -1, dtype=np.int64)
 
+        # Last step output (set by topology run loop after BG gating)
+        self.last_output: tuple[int, float] = (-1, 0.0)
+        self.last_gate: float = 0.5
+        self.last_reward: float = 0.0
+
     def process(self, encoding: np.ndarray) -> np.ndarray:
         """Feedforward + compute L5 output scores."""
         active = super().process(encoding)

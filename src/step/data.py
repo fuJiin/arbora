@@ -14,6 +14,7 @@ DATASETS = {
     "tinystories": "roneneldan/TinyStories",
     "babylm": "nilq/babylm-10M",
     "tinydialogues": "styfeng/TinyDialogues",
+    "personachat": "AlekseyKorshuk/persona-chat",
 }
 
 
@@ -310,5 +311,106 @@ def prepare_tokens_tinydialogues(
     print(
         f"  {len(tokens):,} chars, {unique} unique, "
         f"{n_dialogues} dialogues, {boundaries} boundaries, {n_eom} EOM tokens"
+    )
+    return tokens
+
+
+def prepare_tokens_personachat(
+    max_tokens: int,
+    *,
+    speak_window: int = 10,
+    split: str = "train",
+) -> list[tuple[int, str]]:
+    """Load PersonaChat with alternating speaker turns.
+
+    Dialogues have two speakers alternating. Odd turns (index 1, 3, ...)
+    are treated as "our" responses (EOM phases for M1 to practice).
+
+    Turn structure:
+      Speaker A chars → EOM_TOKEN → [speak_window x last_char] →
+      Speaker B chars → ... → STORY_BOUNDARY (between dialogues)
+
+    Args:
+        max_tokens: Maximum characters to load.
+        speak_window: Steps of neutral input after each EOM.
+        split: Dataset split.
+
+    Returns:
+        List of (ord(char), char) pairs with EOM_TOKEN and STORY_BOUNDARY.
+    """
+    dataset_path = DATASETS["personachat"]
+    print(f"Loading {dataset_path} (char-level, persona chat)...")
+    ds = load_dataset(dataset_path, split=split)
+
+    tokens: list[tuple[int, str]] = []
+    t = 0
+    n_dialogues = 0
+    n_eom = 0
+
+    for ex in ds:
+        utterances = ex.get("utterances", [])
+        if not utterances:
+            continue
+
+        # Reconstruct full dialogue from the last utterance's history
+        # (it contains all previous turns) + the chosen response
+        last_turn = utterances[-1]
+        history = last_turn.get("history", [])
+        candidates = last_turn.get("candidates", [])
+        chosen = candidates[-1] if candidates else ""
+
+        # Full dialogue: history + chosen response
+        turns = list(history)
+        if chosen:
+            turns.append(chosen)
+
+        if len(turns) < 2:
+            continue
+
+        # Story boundary between dialogues
+        if n_dialogues > 0:
+            tokens.append((STORY_BOUNDARY, ""))
+            t += 1
+            if t >= max_tokens:
+                break
+
+        for turn_idx, utterance in enumerate(turns):
+            # Odd turns = "our" response → inject EOM before
+            if turn_idx > 0 and turn_idx % 2 == 1:
+                tokens.append((EOM_TOKEN, ""))
+                n_eom += 1
+                # Speak window: repeat last real char
+                last_real = (ord(" "), " ")
+                for tid_prev, ts_prev in reversed(tokens):
+                    if tid_prev >= 0:
+                        last_real = (tid_prev, ts_prev)
+                        break
+                for _ in range(speak_window):
+                    tokens.append(last_real)
+                    t += 1
+                    if t >= max_tokens:
+                        break
+                if t >= max_tokens:
+                    break
+
+            # Emit utterance characters
+            for ch in utterance:
+                tokens.append((ord(ch), ch))
+                t += 1
+                if t >= max_tokens:
+                    break
+            if t >= max_tokens:
+                break
+
+        n_dialogues += 1
+        if t >= max_tokens:
+            break
+
+    unique = len({tid for tid, _ in tokens if tid >= 0})
+    boundaries = sum(1 for tid, _ in tokens if tid == STORY_BOUNDARY)
+    print(
+        f"  {len(tokens):,} chars, {unique} unique, "
+        f"{n_dialogues} dialogues, {boundaries} boundaries, "
+        f"{n_eom} EOM tokens"
     )
     return tokens

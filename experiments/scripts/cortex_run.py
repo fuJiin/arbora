@@ -28,6 +28,7 @@ from step.data import (
     inject_eom_tokens,
     prepare_tokens,
     prepare_tokens_charlevel,
+    prepare_tokens_personachat,
     prepare_tokens_tinydialogues,
 )
 from step.encoders.charbit import CharbitEncoder
@@ -100,7 +101,7 @@ def main():
         "--dataset",
         type=str,
         default=None,
-        choices=["tinydialogues"],
+        choices=["tinydialogues", "personachat"],
         help="Use a specific dataset (implies --char-level --hierarchy --motor --eom)",
     )
     parser.add_argument(
@@ -111,8 +112,8 @@ def main():
     )
     args = parser.parse_args()
 
-    # Dataset presets: --dataset tinydialogues implies char-level hierarchy + motor
-    if args.dataset == "tinydialogues":
+    # Dataset presets: dialogue datasets imply char-level hierarchy + motor
+    if args.dataset in ("tinydialogues", "personachat"):
         args.char_level = True
         args.hierarchy = True
         args.motor = True
@@ -122,6 +123,15 @@ def main():
 
     if args.dataset == "tinydialogues":
         tokens = prepare_tokens_tinydialogues(
+            args.tokens, speak_window=args.speak_window,
+        )
+        alphabet = sorted({ch for _, ch in tokens if _ >= 0})
+        encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
+        input_dim = encoder.input_dim
+        encoding_width = encoder.encoding_width
+        cortex_cfg = _default_s1_config()
+    elif args.dataset == "personachat":
+        tokens = prepare_tokens_personachat(
             args.tokens, speak_window=args.speak_window,
         )
         alphabet = sorted({ch for _, ch in tokens if _ >= 0})
@@ -142,7 +152,7 @@ def main():
         input_dim = CHAR_LENGTH * CHAR_WIDTH
         encoding_width = CHAR_WIDTH
 
-    if args.eom and args.dataset != "tinydialogues":
+    if args.eom and args.dataset not in ("tinydialogues", "personachat"):
         tokens = inject_eom_tokens(tokens, segment_length=args.eom_segment)
 
     if args.hierarchy:
