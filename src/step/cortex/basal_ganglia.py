@@ -1,29 +1,32 @@
 """Basal ganglia: reward-modulated go/no-go gating on motor output.
 
 Models the cortico-basal ganglia-thalamic loop:
-  Cortex (S1 L2/3) → Striatum → GPi → Thalamus → gate on M1 output
+  Cortex (S1 precision) → Striatum → GPi → Thalamus → gate on M1 output
 
 The striatum learns a context→gate mapping via three-factor plasticity:
-  dw = learning_rate * reward * context * gate_error
+  dw = learning_rate * reward * eligibility_trace
 
 Direct pathway (D1): context predicts GO → open gate → allow speech
 Indirect pathway (D2): context predicts NO-GO → close gate → silence
 
 Dopamine (reward signal) biases the balance:
-  positive reward → strengthen active pathway (reinforce current decision)
-  negative reward → weaken active pathway (change behavior)
+  positive reward → strengthen D1 (go) → open gate
+  negative reward → strengthen D2 (no-go) → close gate
+
+Exploration noise (models tonic dopamine variability in striatum):
+  Gaussian noise on activation prevents gate collapse during early learning.
+  Decays as weights grow stronger (signal-to-noise improves with experience).
 """
 
 import numpy as np
 
 
 class BasalGanglia:
-    """Go/no-go gate learned from reward and sensory context.
+    """Go/no-go gate learned from reward and cortical precision context.
 
-    Receives S1's L2/3 firing rates as context (same signal M1 sees).
-    Learns which contexts should open (speak) vs close (silent) the gate.
-    Gate signal multiplies M1's output scores before the speak/silent
-    decision.
+    Receives per-column precision state (1 = predicted correctly, 0 = bursting)
+    plus overall precision fraction. During EOM repetition, precision is high
+    (dense 1s). During novel input, precision is low (sparse 1s).
 
     The gate is a scalar in [0, 1]:
       0.0 = fully closed (no-go dominates, M1 silenced)
@@ -36,12 +39,14 @@ class BasalGanglia:
         *,
         learning_rate: float = 0.01,
         eligibility_decay: float = 0.95,
+        exploration_noise: float = 0.5,
         seed: int = 0,
     ):
         self._rng = np.random.default_rng(seed)
         self.context_dim = context_dim
         self.learning_rate = learning_rate
         self.eligibility_decay = eligibility_decay
+        self.exploration_noise = exploration_noise
 
         # Corticostriatal weights: context → go signal
         # Small random init centered near 0 (gate starts neutral)
@@ -55,10 +60,10 @@ class BasalGanglia:
         self._last_context = np.zeros(context_dim)
 
     def step(self, context: np.ndarray) -> float:
-        """Compute gate value from sensory context.
+        """Compute gate value from cortical precision context.
 
         Args:
-            context: S1's L2/3 firing rates (same as M1's input).
+            context: Per-column precision state + precision fraction.
 
         Returns:
             Gate value in [0, 1]. Multiply with M1 output_scores.
@@ -68,8 +73,13 @@ class BasalGanglia:
         # Striatal activation: weighted sum of context
         activation = float(np.dot(self.go_weights, context))
 
+        # Exploration noise: prevents gate collapse during early learning.
+        # Models tonic dopamine variability in striatum.
+        noise = self._rng.normal(0, self.exploration_noise)
+        activation += noise
+
         # Sigmoid squash to [0, 1]
-        self.gate_value = 1.0 / (1.0 + np.exp(-activation))
+        self.gate_value = 1.0 / (1.0 + np.exp(-np.clip(activation, -10, 10)))
 
         # Update eligibility trace: decay + current context contribution
         self._trace *= self.eligibility_decay
