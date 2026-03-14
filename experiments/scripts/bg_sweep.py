@@ -17,11 +17,15 @@ import argparse
 import time
 
 import step.env  # noqa: F401
-from step.config import CortexConfig, _default_motor_config, _default_region2_config
+from step.config import (
+    CortexConfig,
+    _default_motor_config,
+    _default_region2_config,
+    make_motor_region,
+    make_sensory_region,
+)
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.motor import MotorRegion
-from step.cortex.sensory import SensoryRegion
 from step.cortex.topology import Topology
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
@@ -126,65 +130,16 @@ def run_config(cfg):
     encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
 
     cortex_cfg = CortexConfig(ltd_rate=0.05)
-    region1 = SensoryRegion(
-        input_dim=encoder.input_dim,
-        n_columns=cortex_cfg.n_columns,
-        n_l4=cortex_cfg.n_l4,
-        n_l23=cortex_cfg.n_l23,
-        k_columns=cortex_cfg.k_columns,
-        voltage_decay=cortex_cfg.voltage_decay,
-        eligibility_decay=cortex_cfg.eligibility_decay,
-        synapse_decay=cortex_cfg.synapse_decay,
-        learning_rate=cortex_cfg.learning_rate,
-        max_excitability=cortex_cfg.max_excitability,
-        fb_boost=cortex_cfg.fb_boost,
-        ltd_rate=cortex_cfg.ltd_rate,
-        encoding_width=encoder.encoding_width,
-        burst_learning_scale=cortex_cfg.burst_learning_scale,
-        n_fb_segments=cortex_cfg.n_fb_segments,
-        n_lat_segments=cortex_cfg.n_lat_segments,
-        n_synapses_per_segment=cortex_cfg.n_synapses_per_segment,
-        perm_threshold=cortex_cfg.perm_threshold,
-        perm_init=cortex_cfg.perm_init,
-        perm_increment=cortex_cfg.perm_increment,
-        perm_decrement=cortex_cfg.perm_decrement,
-        seg_activation_threshold=cortex_cfg.seg_activation_threshold,
-        prediction_gain=cortex_cfg.prediction_gain,
-        n_apical_segments=cortex_cfg.n_apical_segments,
-        seed=cortex_cfg.seed,
+    region1 = make_sensory_region(
+        cortex_cfg, encoder.input_dim, encoder.encoding_width,
     )
 
     r2_cfg = _default_region2_config()
     r2_input_dim = region1.n_l23_total * 4  # buffer_depth=4
-    region2 = SensoryRegion(
-        input_dim=r2_input_dim,
-        encoding_width=0,
-        n_columns=r2_cfg.n_columns,
-        n_l4=r2_cfg.n_l4,
-        n_l23=r2_cfg.n_l23,
-        k_columns=r2_cfg.k_columns,
-        voltage_decay=r2_cfg.voltage_decay,
-        eligibility_decay=r2_cfg.eligibility_decay,
-        synapse_decay=r2_cfg.synapse_decay,
-        learning_rate=r2_cfg.learning_rate,
-        ltd_rate=r2_cfg.ltd_rate,
-        seed=123,
-    )
+    region2 = make_sensory_region(r2_cfg, r2_input_dim, seed=123)
 
     m1_cfg = _default_motor_config()
-    motor = MotorRegion(
-        input_dim=region1.n_l23_total,
-        n_columns=m1_cfg.n_columns,
-        n_l4=m1_cfg.n_l4,
-        n_l23=m1_cfg.n_l23,
-        k_columns=m1_cfg.k_columns,
-        voltage_decay=m1_cfg.voltage_decay,
-        eligibility_decay=m1_cfg.eligibility_decay,
-        synapse_decay=m1_cfg.synapse_decay,
-        learning_rate=m1_cfg.learning_rate,
-        ltd_rate=m1_cfg.ltd_rate,
-        seed=456,
-    )
+    motor = make_motor_region(m1_cfg, region1.n_l23_total, seed=456)
 
     bg = BasalGanglia(
         context_dim=region1.n_columns + 1,  # per-col burst + overall burst frac

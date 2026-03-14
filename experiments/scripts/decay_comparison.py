@@ -16,11 +16,15 @@ import time
 import numpy as np
 
 import step.env  # noqa: F401
-from step.config import CortexConfig, _default_motor_config, _default_region2_config
+from step.config import (
+    CortexConfig,
+    _default_motor_config,
+    _default_region2_config,
+    make_motor_region,
+    make_sensory_region,
+)
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.motor import MotorRegion
-from step.cortex.sensory import SensoryRegion
 from step.cortex.topology import Topology
 from step.data import prepare_tokens_tinydialogues
 from step.encoders.positional import PositionalCharEncoder
@@ -34,62 +38,16 @@ def run_decay(synapse_decay, tokens, encoder):
         ltd_rate=0.05,
         synapse_decay=synapse_decay,
     )
-    region1 = SensoryRegion(
-        input_dim=encoder.input_dim,
-        n_columns=s1_cfg.n_columns,
-        n_l4=s1_cfg.n_l4,
-        n_l23=s1_cfg.n_l23,
-        k_columns=s1_cfg.k_columns,
-        voltage_decay=s1_cfg.voltage_decay,
-        eligibility_decay=s1_cfg.eligibility_decay,
-        synapse_decay=s1_cfg.synapse_decay,
-        learning_rate=s1_cfg.learning_rate,
-        ltd_rate=s1_cfg.ltd_rate,
-        encoding_width=encoder.encoding_width,
-        burst_learning_scale=s1_cfg.burst_learning_scale,
-        n_fb_segments=s1_cfg.n_fb_segments,
-        n_lat_segments=s1_cfg.n_lat_segments,
-        n_synapses_per_segment=s1_cfg.n_synapses_per_segment,
-        perm_threshold=s1_cfg.perm_threshold,
-        perm_init=s1_cfg.perm_init,
-        perm_increment=s1_cfg.perm_increment,
-        perm_decrement=s1_cfg.perm_decrement,
-        seg_activation_threshold=s1_cfg.seg_activation_threshold,
-        prediction_gain=s1_cfg.prediction_gain,
-        n_apical_segments=s1_cfg.n_apical_segments,
-        seed=s1_cfg.seed,
+    region1 = make_sensory_region(
+        s1_cfg, encoder.input_dim, encoder.encoding_width,
     )
 
     r2_cfg = _default_region2_config()
     r2_input_dim = region1.n_l23_total * 4
-    region2 = SensoryRegion(
-        input_dim=r2_input_dim,
-        encoding_width=0,
-        n_columns=r2_cfg.n_columns,
-        n_l4=r2_cfg.n_l4,
-        n_l23=r2_cfg.n_l23,
-        k_columns=r2_cfg.k_columns,
-        voltage_decay=r2_cfg.voltage_decay,
-        eligibility_decay=r2_cfg.eligibility_decay,
-        synapse_decay=r2_cfg.synapse_decay,
-        learning_rate=r2_cfg.learning_rate,
-        ltd_rate=r2_cfg.ltd_rate,
-        seed=123,
-    )
+    region2 = make_sensory_region(r2_cfg, r2_input_dim, seed=123)
 
-    m1_base = _default_motor_config()
-    motor = MotorRegion(
-        input_dim=region1.n_l23_total,
-        n_columns=m1_base.n_columns,
-        n_l4=m1_base.n_l4,
-        n_l23=m1_base.n_l23,
-        k_columns=1,
-        voltage_decay=m1_base.voltage_decay,
-        eligibility_decay=m1_base.eligibility_decay,
-        synapse_decay=m1_base.synapse_decay,
-        learning_rate=m1_base.learning_rate,
-        ltd_rate=m1_base.ltd_rate,
-        seed=456,
+    motor = make_motor_region(
+        _default_motor_config(), region1.n_l23_total, seed=456,
     )
 
     bg = BasalGanglia(

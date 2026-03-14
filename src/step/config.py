@@ -1,4 +1,11 @@
-from dataclasses import dataclass, field
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from step.cortex.motor import MotorRegion
+    from step.cortex.sensory import SensoryRegion
 
 
 @dataclass
@@ -31,7 +38,7 @@ class CortexConfig:
     seed: int = 0
 
 
-def _default_s1_config() -> "CortexConfig":
+def _default_s1_config() -> CortexConfig:
     """S1 defaults tuned for TinyDialogues char-level input.
 
     128 columns with k=8 gives ~6.25% activation fraction — the sweet
@@ -55,7 +62,7 @@ def _default_s1_config() -> "CortexConfig":
     )
 
 
-def _default_region2_config() -> "CortexConfig":
+def _default_region2_config() -> CortexConfig:
     """Region 2 defaults: slower temporal dynamics, moderate learning rate.
 
     Tuned for char-level S1 input (128-dim L2/3 firing rates).
@@ -102,7 +109,7 @@ class HierarchyConfig:
     enable_reward: bool = False
 
 
-def _default_motor_config() -> "CortexConfig":
+def _default_motor_config() -> CortexConfig:
     """Motor region defaults: responsive to current context, moderate learning.
 
     Receives S1's L2/3 firing rate (128-dim). 32 columns (one per char)
@@ -117,4 +124,55 @@ def _default_motor_config() -> "CortexConfig":
         synapse_decay=0.999,
         learning_rate=0.15,
         ltd_rate=0.15,
+    )
+
+
+def make_sensory_region(
+    cfg: CortexConfig,
+    input_dim: int,
+    encoding_width: int = 0,
+    seed: int | None = None,
+) -> SensoryRegion:
+    """Create a SensoryRegion from a CortexConfig.
+
+    Eliminates the 25-line boilerplate of unpacking every CortexConfig
+    field into SensoryRegion constructor kwargs.
+    """
+    from step.cortex.sensory import SensoryRegion
+
+    d = asdict(cfg)
+    s = d.pop("seed")
+    d.pop("ltd_rate")  # explicit kwarg on SensoryRegion
+    return SensoryRegion(
+        input_dim=input_dim,
+        encoding_width=encoding_width,
+        ltd_rate=cfg.ltd_rate,
+        seed=seed if seed is not None else s,
+        **d,
+    )
+
+
+def make_motor_region(
+    cfg: CortexConfig,
+    input_dim: int,
+    output_threshold: float = 0.3,
+    seed: int | None = None,
+) -> MotorRegion:
+    """Create a MotorRegion from a CortexConfig.
+
+    Motor regions use encoding_width=0 (no positional structure in input).
+    """
+    from step.cortex.motor import MotorRegion
+
+    d = asdict(cfg)
+    s = d.pop("seed")
+    d.pop("ltd_rate")
+    d.pop("n_columns")  # explicit kwarg on MotorRegion
+    return MotorRegion(
+        input_dim=input_dim,
+        n_columns=cfg.n_columns,
+        output_threshold=output_threshold,
+        ltd_rate=cfg.ltd_rate,
+        seed=seed if seed is not None else s,
+        **d,
     )
