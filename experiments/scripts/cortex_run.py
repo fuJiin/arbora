@@ -5,19 +5,31 @@ Usage:
     uv run experiments/scripts/cortex_run.py --tokens 5000 --char-level --hierarchy
     uv run experiments/scripts/cortex_run.py --tokens 20000 --char-level --hierarchy \
         --buffer-depth 4 --burst-gate --apical --name my-experiment
+    uv run experiments/scripts/cortex_run.py --dataset tinydialogues --tokens 50000 \
+        --buffer-depth 4 --burst-gate --apical --gate-feedback
 """
 
 import argparse
 import string
 
 import step.env  # noqa: F401
-from step.config import CortexConfig, _default_motor_config, _default_region2_config
+from step.config import (
+    CortexConfig,
+    _default_motor_config,
+    _default_region2_config,
+    _default_s1_config,
+)
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
 from step.cortex.topology import Topology
-from step.data import inject_eom_tokens, prepare_tokens, prepare_tokens_charlevel
+from step.data import (
+    inject_eom_tokens,
+    prepare_tokens,
+    prepare_tokens_charlevel,
+    prepare_tokens_tinydialogues,
+)
 from step.encoders.charbit import CharbitEncoder
 from step.encoders.positional import PositionalCharEncoder
 from step.runs import auto_name, auto_tags, save_run
@@ -84,11 +96,40 @@ def main():
         default=0,
         help="Synthetic turn boundary every N tokens (0=natural boundaries only)",
     )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        choices=["tinydialogues"],
+        help="Use a specific dataset (implies --char-level --hierarchy --motor --eom)",
+    )
+    parser.add_argument(
+        "--speak-window",
+        type=int,
+        default=10,
+        help="EOM speak window for TinyDialogues (default: 10)",
+    )
     args = parser.parse_args()
+
+    # Dataset presets: --dataset tinydialogues implies char-level hierarchy + motor
+    if args.dataset == "tinydialogues":
+        args.char_level = True
+        args.hierarchy = True
+        args.motor = True
+        args.eom = True
 
     cortex_cfg = CortexConfig()
 
-    if args.char_level:
+    if args.dataset == "tinydialogues":
+        tokens = prepare_tokens_tinydialogues(
+            args.tokens, speak_window=args.speak_window,
+        )
+        alphabet = sorted({ch for _, ch in tokens if _ >= 0})
+        encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
+        input_dim = encoder.input_dim
+        encoding_width = encoder.encoding_width
+        cortex_cfg = _default_s1_config()
+    elif args.char_level:
         tokens = prepare_tokens_charlevel(args.tokens)
         alphabet = sorted({ch for _, ch in tokens if _ != -1})
         encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
@@ -101,7 +142,7 @@ def main():
         input_dim = CHAR_LENGTH * CHAR_WIDTH
         encoding_width = CHAR_WIDTH
 
-    if args.eom:
+    if args.eom and args.dataset != "tinydialogues":
         tokens = inject_eom_tokens(tokens, segment_length=args.eom_segment)
 
     if args.hierarchy:
@@ -136,6 +177,7 @@ def main():
         apical=args.apical,
         gate_feedback=args.gate_feedback,
         motor=args.motor,
+        dataset=args.dataset,
     )
 
     tags = auto_tags(
@@ -146,6 +188,7 @@ def main():
         apical=args.apical,
         gate_feedback=args.gate_feedback,
         motor=args.motor,
+        dataset=args.dataset,
     )
 
     run_dir = save_run(
@@ -242,8 +285,10 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect("S1", "M1", "feedforward")
         cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
-        m1_gate = ThalamicGate() if args.gate_feedback else None
-        cortex.connect("M1", "S1", "apical", thalamic_gate=m1_gate)
+        # M1→S1 apical only if dimensions match S2→S1 (both send to same target)
+        if not args.apical or motor.n_l23_total == region2.n_l23_total:
+            m1_gate = ThalamicGate() if args.gate_feedback else None
+            cortex.connect("M1", "S1", "apical", thalamic_gate=m1_gate)
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
     result = cortex.run(tokens, log_interval=args.log_interval)

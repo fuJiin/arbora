@@ -612,6 +612,79 @@ def build_bpc_over_time(
     return fig
 
 
+def build_bpc_per_dialogue(
+    dialogue_bpcs: list[float],
+    boundary_bpcs: list[float],
+    steady_bpcs: list[float],
+    vocab_size: int = 0,
+) -> go.Figure:
+    """BPC breakdown per dialogue: boundary spike vs steady-state.
+
+    Shows whether the model is forgetting across dialogues or just
+    struggling at dialogue starts (expected context-reset cost).
+    """
+    import math
+
+    n = len(dialogue_bpcs)
+    xs = list(range(1, n + 1))
+
+    fig = go.Figure()
+
+    if boundary_bpcs:
+        fig.add_trace(
+            go.Scatter(
+                x=xs[: len(boundary_bpcs)],
+                y=boundary_bpcs,
+                mode="lines+markers",
+                name="Boundary (first 10 chars)",
+                marker=dict(color="#e94560", size=4),
+                line=dict(color="#e94560", width=1),
+            )
+        )
+
+    if steady_bpcs:
+        fig.add_trace(
+            go.Scatter(
+                x=xs[: len(steady_bpcs)],
+                y=steady_bpcs,
+                mode="lines+markers",
+                name="Steady-state",
+                marker=dict(color="#06d6a0", size=4),
+                line=dict(color="#06d6a0", width=1),
+            )
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=xs,
+            y=dialogue_bpcs,
+            mode="lines+markers",
+            name="Whole dialogue",
+            marker=dict(color="#118ab2", size=4),
+            line=dict(color="#118ab2", width=1, dash="dot"),
+        )
+    )
+
+    if vocab_size > 1:
+        random_bpc = math.log2(vocab_size)
+        fig.add_hline(
+            y=random_bpc,
+            line_dash="dash",
+            line_color="gray",
+            annotation_text=f"random ({random_bpc:.1f})",
+        )
+
+    fig.update_layout(
+        title="BPC Per Dialogue — Forgetting Diagnosis",
+        xaxis_title="Dialogue #",
+        yaxis_title="BPC (bits)",
+        height=400,
+        template="plotly_dark",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    return fig
+
+
 def build_bg_gate_over_time(
     gate_values: list[float],
     window: int = 50,

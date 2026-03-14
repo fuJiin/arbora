@@ -36,6 +36,7 @@ from step.viz import (
     build_apical_prediction_over_time,
     build_bg_gate_over_time,
     build_bpc_over_time,
+    build_bpc_per_dialogue,
     build_burst_rate_over_time,
     build_column_activation_heatmap,
     build_column_drive_histogram,
@@ -483,6 +484,21 @@ def _build_hierarchy_dashboard(
                         s1_metrics.bpc,
                         s1_metrics.bpc_recent,
                         len(s1_metrics.dendritic_accuracies),
+                        vocab_size=n_unique,
+                    ),
+                ),
+            )
+
+        # Per-dialogue BPC chart (forgetting diagnosis)
+        if s1_metrics and s1_metrics.bpc_per_dialogue:
+            tabs["Overview"].insert(
+                1,
+                (
+                    "BPC Per Dialogue",
+                    build_bpc_per_dialogue(
+                        s1_metrics.bpc_per_dialogue,
+                        s1_metrics.bpc_boundary,
+                        s1_metrics.bpc_steady,
                         vocab_size=n_unique,
                     ),
                 ),

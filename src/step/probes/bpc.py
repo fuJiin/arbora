@@ -21,13 +21,24 @@ from step.decoders.dendritic import DendriticDecoder
 class BPCProbe:
     """Accumulates bits-per-character from dendritic decoder scores."""
 
-    def __init__(self, temperature: float = 1.0):
+    def __init__(self, temperature: float = 1.0, boundary_window: int = 10):
         self._temperature = temperature
         self._total_bits: float = 0.0
         self._n_chars: int = 0
         # Rolling window for trend tracking
         self._recent_bits: list[float] = []
         self._window_size: int = 500
+        # Per-dialogue tracking
+        self._dialogue_bits: float = 0.0
+        self._dialogue_chars: int = 0
+        self._boundary_window = boundary_window
+        self._boundary_bits: float = 0.0
+        self._boundary_chars: int = 0
+        self._steady_bits: float = 0.0
+        self._steady_chars: int = 0
+        self._dialogue_bpcs: list[float] = []
+        self._boundary_bpcs: list[float] = []  # BPC of first N chars after reset
+        self._steady_bpcs: list[float] = []    # BPC after boundary window
 
     @property
     def bpc(self) -> float:
@@ -104,10 +115,69 @@ class BPCProbe:
         if len(self._recent_bits) > self._window_size:
             self._recent_bits.pop(0)
 
+        # Per-dialogue tracking
+        self._dialogue_bits += bits
+        self._dialogue_chars += 1
+        if self._dialogue_chars <= self._boundary_window:
+            self._boundary_bits += bits
+            self._boundary_chars += 1
+        else:
+            self._steady_bits += bits
+            self._steady_chars += 1
+
         return bits
+
+    def dialogue_boundary(self) -> None:
+        """Call at STORY_BOUNDARY to snapshot per-dialogue BPC.
+
+        Separates within-dialogue BPC into boundary spike (first N chars)
+        and steady-state. Does NOT reset the overall accumulators.
+        """
+        if self._dialogue_chars > 0:
+            self._dialogue_bpcs.append(
+                self._dialogue_bits / self._dialogue_chars
+            )
+        if self._boundary_chars > 0:
+            self._boundary_bpcs.append(
+                self._boundary_bits / self._boundary_chars
+            )
+        if self._steady_chars > 0:
+            self._steady_bpcs.append(
+                self._steady_bits / self._steady_chars
+            )
+        self._dialogue_bits = 0.0
+        self._dialogue_chars = 0
+        self._boundary_bits = 0.0
+        self._boundary_chars = 0
+        self._steady_bits = 0.0
+        self._steady_chars = 0
+
+    @property
+    def dialogue_bpcs(self) -> list[float]:
+        """BPC for each completed dialogue."""
+        return self._dialogue_bpcs
+
+    @property
+    def boundary_bpcs(self) -> list[float]:
+        """Mean BPC during first N chars of each dialogue (boundary spike)."""
+        return self._boundary_bpcs
+
+    @property
+    def steady_bpcs(self) -> list[float]:
+        """Mean BPC after boundary window settles (within-dialogue)."""
+        return self._steady_bpcs
 
     def reset(self) -> None:
         """Reset all accumulators (e.g., for held-out evaluation)."""
         self._total_bits = 0.0
         self._n_chars = 0
         self._recent_bits.clear()
+        self._dialogue_bits = 0.0
+        self._dialogue_chars = 0
+        self._boundary_bits = 0.0
+        self._boundary_chars = 0
+        self._steady_bits = 0.0
+        self._steady_chars = 0
+        self._dialogue_bpcs.clear()
+        self._boundary_bpcs.clear()
+        self._steady_bpcs.clear()

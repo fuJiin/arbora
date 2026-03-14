@@ -105,14 +105,17 @@ def auto_name(
     apical: bool = False,
     gate_feedback: bool = False,
     motor: bool = False,
+    dataset: str | None = None,
 ) -> str:
     """Derive a run name from parameters."""
     parts = []
-    if hierarchy:
+    if dataset:
+        parts.append(dataset)
+    elif hierarchy:
         parts.append("hierarchy")
     else:
         parts.append("single")
-    if char_level:
+    if char_level and not dataset:
         parts.append("char")
     if buffer_depth > 1:
         parts.append(f"buf{buffer_depth}")
@@ -122,7 +125,7 @@ def auto_name(
         parts.append("apical")
     if gate_feedback:
         parts.append("gated")
-    if motor:
+    if motor and not dataset:
         parts.append("motor")
     if n_tokens:
         if n_tokens >= 1000:
@@ -141,9 +144,12 @@ def auto_tags(
     apical: bool = False,
     gate_feedback: bool = False,
     motor: bool = False,
+    dataset: str | None = None,
 ) -> list[str]:
     """Derive tags from parameters."""
     tags = []
+    if dataset:
+        tags.append(dataset)
     if hierarchy:
         tags.append("hierarchy")
     if char_level:
