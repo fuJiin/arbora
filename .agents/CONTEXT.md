@@ -82,9 +82,18 @@ Sweep explored S1 cols (32/48/64/128), k (2/4/6/8/16), learning rates, M1 cols o
 - **S2 value**: S2 context discrimination 0.93 vs S1 0.77. Helps context, but does it help BPC? Need ablation.
 - **Structural plasticity**: Fixed capacity may become bottleneck. Growing columns/segments, sleep/replay for consolidation — defer until forgetting is diagnosed.
 
+## Code Audit — Completed Items
+- make_sensory_region/make_motor_region factories in config.py (~200 lines removed)
+- Per-dialogue BPC instrumentation (forgetting diagnosis)
+- synapse_decay=1.0 for S1 (no passive decay, LTD controls weight growth)
+
+## Code Audit — Remaining
+- Dashboard legacy inline mode (lines 559+) duplicates cortex_run.py — remove or deprecate
+- Test gaps: positional encoder, synaptic/index decoders, diagnostics, modulators
+- motor_sweep.py unused import, motor_sweep2.py line length violations
+- Many older sweep scripts still use direct SensoryRegion construction (not blocking)
+
 ## Next Steps (Active)
-- [ ] **P0**: Diagnose forgetting — instrument per-dialogue BPC, separate within-dialogue from cross-boundary surprise
-- [ ] **P1**: Code audit — DRY up region construction boilerplate, prune dead code, simplify topology wiring
-- [ ] **P2**: cortex_repl v0 — load model, type prompts, see replies (qualitative exploration)
+- [ ] cortex_repl v0 — load model, type prompts, see replies (qualitative exploration)
 - [ ] Evaluate BLiMP sensitivity with tuned config
 - [ ] Stage 2 coherence (BG exploratory bias + M1 consolidation)
