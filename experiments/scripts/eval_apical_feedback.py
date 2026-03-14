@@ -22,8 +22,8 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
+from step.cortex.modulators import SurpriseTracker
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
 from step.probes.diagnostics import CortexDiagnostics

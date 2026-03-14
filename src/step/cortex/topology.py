@@ -11,10 +11,11 @@ from typing import Protocol
 
 import numpy as np
 
+from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker, ThalamicGate
-from step.data import STORY_BOUNDARY
+from step.data import EOM_TOKEN, STORY_BOUNDARY
 from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
@@ -36,6 +37,17 @@ class RunMetrics:
     dendritic_accuracies: list[float] = field(default_factory=list)
     motor_accuracies: list[float] = field(default_factory=list)
     motor_confidences: list[float] = field(default_factory=list)
+    motor_rewards: list[float] = field(default_factory=list)
+    # Basal ganglia gate values (when BG is wired)
+    bg_gate_values: list[float] = field(default_factory=list)
+    # Turn-taking behavioral metrics (Stage 1 RL)
+    turn_interruptions: int = 0  # Spoke during input phase
+    turn_unresponsive: int = 0   # Silent during EOM phase
+    turn_correct_speak: int = 0  # Spoke during EOM phase
+    turn_correct_silent: int = 0  # Silent during input phase
+    turn_rambles: int = 0        # Spoke past max_speak_steps
+    turn_eom_steps: int = 0      # Total steps in EOM phase
+    turn_input_steps: int = 0    # Total steps in input phase
     elapsed_seconds: float = 0.0
     representation: dict = field(default_factory=dict)
 
@@ -50,6 +62,7 @@ class _RegionState:
     timeline: Timeline | None
     entry: bool = False
     motor: bool = False
+    basal_ganglia: BasalGanglia | None = None
     # Entry region only:
     decode_index: InvertedIndexDecoder | None = None
     syn_decoder: SynapticDecoder | None = None
@@ -60,8 +73,9 @@ class _RegionState:
 class Connection:
     source: str
     target: str
-    kind: str  # "feedforward" | "surprise" | "apical"
+    kind: str  # "feedforward" | "surprise" | "apical" | "reward"
     surprise_tracker: SurpriseTracker | None = None
+    reward_modulator: RewardModulator | None = None
     buffer_depth: int = 1
     burst_gate: bool = False
     thalamic_gate: ThalamicGate | None = None
@@ -74,6 +88,7 @@ class CortexResult:
     per_region: dict[str, RunMetrics] = field(default_factory=dict)
     surprise_modulators: dict[str, list[float]] = field(default_factory=dict)
     thalamic_readiness: dict[str, list[float]] = field(default_factory=dict)
+    reward_modulators: dict[str, list[float]] = field(default_factory=dict)
     elapsed_seconds: float = 0.0
 
 
@@ -105,6 +120,7 @@ class Topology:
         *,
         entry: bool = False,
         diagnostics: bool = True,
+        basal_ganglia: BasalGanglia | None = None,
     ) -> "Topology":
         """Register a region. Exactly one must have entry=True."""
         if name in self._regions:
@@ -130,6 +146,7 @@ class Topology:
             timeline=timeline,
             entry=entry,
             motor=isinstance(region, MotorRegion),
+            basal_ganglia=basal_ganglia,
         )
         if entry:
             state.decode_index = InvertedIndexDecoder()
@@ -150,6 +167,7 @@ class Topology:
         kind: str = "feedforward",
         *,
         surprise_tracker: SurpriseTracker | None = None,
+        reward_modulator: RewardModulator | None = None,
         buffer_depth: int = 1,
         burst_gate: bool = False,
         thalamic_gate: ThalamicGate | None = None,
@@ -158,7 +176,7 @@ class Topology:
         for name in (source, target):
             if name not in self._regions:
                 raise ValueError(f"Unknown region: {name!r}")
-        if kind not in ("feedforward", "surprise", "apical"):
+        if kind not in ("feedforward", "surprise", "apical", "reward"):
             raise ValueError(f"Unknown connection kind: {kind!r}")
 
         conn = Connection(
@@ -168,6 +186,8 @@ class Topology:
         )
         if kind == "surprise":
             conn.surprise_tracker = surprise_tracker or SurpriseTracker()
+        if kind == "reward":
+            conn.reward_modulator = reward_modulator or RewardModulator()
         if kind == "apical":
             src_region = self._regions[source].region
             tgt_region = self._regions[target].region
@@ -241,11 +261,19 @@ class Topology:
         # Per-surprise-connection modulator lists, keyed by target name
         surprise_modulators: dict[str, list[float]] = {}
         thalamic_readiness: dict[str, list[float]] = {}
+        reward_modulators: dict[str, list[float]] = {}
         for conn in self._connections:
             if conn.kind == "surprise":
                 surprise_modulators[conn.target] = []
             if conn.thalamic_gate is not None:
                 thalamic_readiness[f"{conn.source}->{conn.target}"] = []
+            if conn.kind == "reward":
+                reward_modulators[conn.target] = []
+
+        # Turn-taking state for motor RL (Stage 1)
+        _in_eom = False  # True after EOM_TOKEN, M1 should speak
+        _eom_steps = 0   # Steps since last EOM
+        _max_speak_steps = 20  # Anti-rambling: penalize after this many steps
 
         prediction_log: list[tuple[str, str, str, str]] = []
         start = time.monotonic()
@@ -256,6 +284,8 @@ class Topology:
                 for s in self._regions.values():
                     s.region.reset_working_memory()
                     s.rep_tracker.reset_context()
+                    if s.basal_ganglia is not None:
+                        s.basal_ganglia.reset()
                 for conn in self._connections:
                     if conn._buffer is not None:
                         conn._buffer[:] = 0.0
@@ -264,7 +294,25 @@ class Topology:
                         conn.thalamic_gate.reset()
                 if hasattr(self._encoder, "reset"):
                     self._encoder.reset()
+                _in_eom = False
+                _eom_steps = 0
+                for conn in self._connections:
+                    if conn.kind == "reward" and conn.reward_modulator is not None:
+                        conn.reward_modulator.reset()
                 continue
+
+            # -- EOM token: signal turn boundary for motor RL --
+            if token_id == EOM_TOKEN:
+                _in_eom = True
+                _eom_steps = 0
+                continue
+
+            # Track turn-taking state
+            if _in_eom:
+                _eom_steps += 1
+                # Auto-exit EOM phase after max speaking steps
+                if _eom_steps > _max_speak_steps:
+                    _in_eom = False
 
             # -- Entry prediction + decode --
             predicted_neurons = entry_region.get_prediction(k)
@@ -359,18 +407,69 @@ class Topology:
                         s.region.last_column_drive,
                     )
 
-            # -- Motor metrics --
+            # -- Motor metrics + reward --
             for _name, s in self._regions.items():
                 if s.motor:
                     motor_region = s.region
                     motor_region.observe_token(token_id)
                     if t > 0:
+                        # BG gating: step with S1 context, gate M1 output
+                        if s.basal_ganglia is not None:
+                            ctx = entry_region.firing_rate_l23
+                            gate = s.basal_ganglia.step(ctx)
+                            motor_region.output_scores *= gate
+                            metrics[_name].bg_gate_values.append(gate)
+
                         m_id, m_conf = motor_region.get_output()
                         metrics[_name].motor_confidences.append(m_conf)
                         if m_id >= 0:
                             metrics[_name].motor_accuracies.append(
                                 1.0 if m_id == token_id else 0.0
                             )
+
+                        # -- Stage 1 reward: turn-taking --
+                        spoke = m_id >= 0
+                        reward = self._compute_turn_reward(
+                            spoke, _in_eom, _eom_steps, _max_speak_steps,
+                        )
+                        metrics[_name].motor_rewards.append(reward)
+
+                        # Send reward to BG (learns when to gate)
+                        if s.basal_ganglia is not None:
+                            s.basal_ganglia.reward(reward)
+
+                        # -- Turn-taking behavioral counters --
+                        m = metrics[_name]
+                        if _in_eom:
+                            m.turn_eom_steps += 1
+                            if spoke:
+                                if _eom_steps > _max_speak_steps:
+                                    m.turn_rambles += 1
+                                else:
+                                    m.turn_correct_speak += 1
+                            else:
+                                m.turn_unresponsive += 1
+                        else:
+                            m.turn_input_steps += 1
+                            if spoke:
+                                m.turn_interruptions += 1
+                            else:
+                                m.turn_correct_silent += 1
+
+                        # Apply reward through reward connections
+                        # (cortical modulation — kept for backward compat)
+                        for conn in self._connections:
+                            if (
+                                conn.kind == "reward"
+                                and conn.source == _name
+                                and conn.reward_modulator is not None
+                            ):
+                                mod = conn.reward_modulator.update(reward)
+                                tgt = self._regions[conn.target].region
+                                tgt.reward_modulator = mod
+                                reward_modulators[conn.target].append(
+                                    mod
+                                )
 
             # -- Entry metrics --
             active_set = frozenset(
@@ -415,8 +514,8 @@ class Topology:
             ):
                 self._log_step(
                     t, start, entry_name, metrics, surprise_modulators,
-                    thalamic_readiness, rolling_window, show_predictions,
-                    prediction_log,
+                    thalamic_readiness, reward_modulators, rolling_window,
+                    show_predictions, prediction_log,
                 )
 
         elapsed = time.monotonic() - start
@@ -442,12 +541,38 @@ class Topology:
             per_region=metrics,
             surprise_modulators=surprise_modulators,
             thalamic_readiness=thalamic_readiness,
+            reward_modulators=reward_modulators,
             elapsed_seconds=elapsed,
         )
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_turn_reward(
+        spoke: bool,
+        in_eom: bool,
+        eom_steps: int,
+        max_speak_steps: int,
+    ) -> float:
+        """Stage 1 turn-taking reward.
+
+        Rewards:
+          +0.5  M1 speaks during EOM phase (correct turn-taking)
+          -0.5  M1 speaks during input (should be listening)
+          +0.2  M1 silent during input (correct listening)
+          -0.3  M1 silent during EOM (should be speaking)
+          -1.0  M1 speaks past max steps (rambling penalty)
+
+        Returns reward in [-1.0, +0.5] range.
+        """
+        if in_eom:
+            if eom_steps > max_speak_steps and spoke:
+                return -1.0  # Rambling
+            return 0.5 if spoke else -0.3
+        else:
+            return -0.5 if spoke else 0.2
 
     def _get_ff_signal(self, conn: Connection) -> np.ndarray:
         """Build the feedforward signal for a connection.
@@ -509,6 +634,7 @@ class Topology:
         metrics: dict[str, RunMetrics],
         surprise_modulators: dict[str, list[float]],
         thalamic_readiness: dict[str, list[float]],
+        reward_modulators: dict[str, list[float]],
         rolling_window: int,
         show_predictions: int,
         prediction_log: list[tuple[str, ...]],
@@ -555,6 +681,17 @@ class Topology:
                     tag = f"gate({key})" if multi else "gate"
                     gate_str += f" {tag}={avg_gate:.2f}"
 
+        # Reward modulator info
+        reward_str = ""
+        if reward_modulators:
+            multi = len(reward_modulators) > 1
+            for tgt, rews in reward_modulators.items():
+                if rews:
+                    tail_rew = rews[-rolling_window:]
+                    avg_rew = sum(tail_rew) / len(tail_rew)
+                    tag = f"rew({tgt})" if multi else "rew"
+                    reward_str += f" {tag}={avg_rew:.2f}"
+
         # Motor accuracy
         motor_str = ""
         for _name, s in self._regions.items():
@@ -567,6 +704,34 @@ class Topology:
                     tail_c = m.motor_confidences[-rolling_window:]
                     silence = sum(1 for c in tail_c if c == 0.0) / max(len(tail_c), 1)
                     motor_str += f" M1={roll_m:.4f} sil={silence:.0%}"
+                    # Average reward
+                    if m.motor_rewards:
+                        tail_r = m.motor_rewards[-rolling_window:]
+                        avg_r = sum(tail_r) / len(tail_r)
+                        motor_str += f" r={avg_r:+.3f}"
+                    # Turn-taking rates
+                    if m.turn_eom_steps > 0 or m.turn_input_steps > 0:
+                        eom_t = m.turn_eom_steps
+                        inp_t = m.turn_input_steps
+                        intr = (
+                            m.turn_interruptions / inp_t
+                            if inp_t > 0 else 0
+                        )
+                        unre = (
+                            m.turn_unresponsive / eom_t
+                            if eom_t > 0 else 0
+                        )
+                        motor_str += (
+                            f" int={intr:.0%}"
+                            f" unr={unre:.0%}"
+                        )
+                        if m.turn_rambles > 0:
+                            motor_str += f" ram={m.turn_rambles}"
+                    # BG gate value
+                    if m.bg_gate_values:
+                        tail_g = m.bg_gate_values[-rolling_window:]
+                        avg_g = sum(tail_g) / len(tail_g)
+                        motor_str += f" bg={avg_g:.2f}"
 
         print(
             f"  [{label}] t={t:,} "
@@ -574,7 +739,7 @@ class Topology:
             f"syn={roll_syn:.4f} "
             f"overlap={roll_o:.4f} "
             f"burst={burst_pct:.1%}"
-            f"{mod_str}{gate_str}{motor_str} "
+            f"{mod_str}{gate_str}{reward_str}{motor_str} "
             f"({elapsed:.1f}s)"
         )
 

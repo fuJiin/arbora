@@ -18,8 +18,8 @@ import time
 import numpy as np
 
 import step.env  # noqa: F401
+from step.cortex.modulators import SurpriseTracker
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker
 from step.data import prepare_tokens
 from step.encoders.charbit import CharbitEncoder
 from step.probes.diagnostics import CortexDiagnostics

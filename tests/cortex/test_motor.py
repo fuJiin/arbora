@@ -1,8 +1,8 @@
 import pytest
 
+from step.cortex.modulators import ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import ThalamicGate
 from step.cortex.topology import Topology
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder

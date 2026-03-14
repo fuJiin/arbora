@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker, ThalamicGate
 from step.cortex.topology import Encoder, RunMetrics, Topology
 from step.data import STORY_BOUNDARY  # noqa: F401 — re-exported for tests
 from step.probes.diagnostics import CortexDiagnostics

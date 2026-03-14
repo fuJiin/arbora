@@ -8,6 +8,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 STORY_BOUNDARY = -1
+EOM_TOKEN = -2  # End-of-message: signals turn boundary for motor RL
 
 DATASETS = {
     "tinystories": "roneneldan/TinyStories",
@@ -142,3 +143,53 @@ def prepare_tokens_charlevel(
     boundaries = sum(1 for tid, _ in tokens if tid == STORY_BOUNDARY)
     print(f"  {len(tokens):,} chars, {unique} unique, {boundaries + 1} documents")
     return tokens
+
+
+def inject_eom_tokens(
+    tokens: list[tuple[int, str]],
+    *,
+    segment_length: int = 0,
+    speak_window: int = 10,
+) -> list[tuple[int, str]]:
+    """Insert EOM_TOKEN to create turn boundaries with speaking windows.
+
+    After each EOM, M1 gets `speak_window` steps (repeating the last token
+    as neutral input) before STORY_BOUNDARY resets everything. This gives
+    the motor cortex time to practice speaking/staying silent.
+
+    Two modes:
+    1. Before each STORY_BOUNDARY (always): natural document endings.
+    2. Every `segment_length` tokens (if > 0): synthetic turn boundaries
+       within documents, so M1 gets frequent practice even in short runs.
+
+    Pattern: ...tokens... <EOM> [speak_window x last_token] <BOUNDARY>
+    """
+    result: list[tuple[int, str]] = []
+    since_last = 0
+    last_token = (0, " ")  # fallback
+
+    for tid, tstr in tokens:
+        if tid == STORY_BOUNDARY:
+            result.append((EOM_TOKEN, ""))
+            # Speak window: repeat last token as neutral input
+            for _ in range(speak_window):
+                result.append(last_token)
+            result.append((STORY_BOUNDARY, ""))
+            since_last = 0
+        else:
+            result.append((tid, tstr))
+            last_token = (tid, tstr)
+            since_last += 1
+            if segment_length > 0 and since_last >= segment_length:
+                result.append((EOM_TOKEN, ""))
+                for _ in range(speak_window):
+                    result.append(last_token)
+                result.append((STORY_BOUNDARY, ""))
+                since_last = 0
+
+    n_eom = sum(1 for tid, _ in result if tid == EOM_TOKEN)
+    print(
+        f"  Injected {n_eom} EOM tokens "
+        f"(segment={segment_length}, window={speak_window})"
+    )
+    return result
