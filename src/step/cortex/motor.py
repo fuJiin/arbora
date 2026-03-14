@@ -103,6 +103,56 @@ class MotorRegion(SensoryRegion):
 
         return (token_id, confidence)
 
+    def get_population_output(self) -> tuple[int, float]:
+        """Return (predicted_token_id, confidence) via population vote.
+
+        All active columns above threshold vote for their most-frequent
+        token. The token with the most votes wins. Models L5 population
+        coding: the motor command is encoded by the *pattern* of active
+        columns, not any single column.
+
+        Returns (-1, 0.0) if no column is above threshold or no votes.
+        """
+        above = self.output_scores >= self.output_threshold
+        if not above.any():
+            return (-1, 0.0)
+
+        # Tally votes from all above-threshold columns
+        votes: dict[int, float] = {}
+        for col in np.nonzero(above)[0]:
+            token_id = int(self._col_token_map[col])
+            if token_id < 0:
+                continue
+            # Weight vote by column's output score
+            votes[token_id] = (
+                votes.get(token_id, 0.0)
+                + float(self.output_scores[col])
+            )
+
+        if not votes:
+            return (-1, 0.0)
+
+        best_token = max(votes, key=votes.get)
+        confidence = float(self.output_scores[above].max())
+        return (best_token, confidence)
+
+    def get_decoded_output(self, decoder) -> tuple[int, float]:
+        """Return (predicted_token_id, confidence) using a dendritic decoder.
+
+        L5 readout + BG gating decides IF M1 speaks (output_scores >= threshold).
+        The decoder decides WHAT M1 says (replaces column→token frequency map).
+        """
+        above = self.output_scores >= self.output_threshold
+        if not above.any():
+            return (-1, 0.0)
+
+        predictions = decoder.decode(self.active_l23, k=1)
+        if not predictions:
+            return (-1, 0.0)
+
+        confidence = float(self.output_scores[above].max())
+        return (predictions[0], confidence)
+
     def get_output_distribution(self) -> np.ndarray:
         """Return per-column output scores (for visualization)."""
         return self.output_scores.copy()

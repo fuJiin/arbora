@@ -110,6 +110,12 @@ def main():
         default=10,
         help="EOM speak window for TinyDialogues (default: 10)",
     )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Save checkpoint after training (name or path)",
+    )
     args = parser.parse_args()
 
     # Dataset presets: dialogue datasets imply char-level hierarchy + motor
@@ -213,6 +219,17 @@ def main():
             "encoder": type(encoder).__name__,
         },
     )
+
+    # Save checkpoint if requested
+    if args.checkpoint:
+        import os
+        ckpt_dir = "experiments/checkpoints"
+        os.makedirs(ckpt_dir, exist_ok=True)
+        ckpt_path = args.checkpoint
+        if not ckpt_path.endswith(".ckpt"):
+            ckpt_path = os.path.join(ckpt_dir, f"{ckpt_path}.ckpt")
+        cortex.save_checkpoint(ckpt_path)
+        print(f"Saved checkpoint to {ckpt_path}")
 
     print(f"Run '{name}' saved to {run_dir}")
 

@@ -5,95 +5,70 @@ Research project exploring biologically-plausible learning for next-token predic
 
 ## Project Structure
 
-- **`src/step/config.py`** — `CortexConfig`, `HierarchyConfig`, `_default_s1_config()`, `_default_motor_config()`
-- **`src/step/cortex/`** — models: `region.py`, `sensory.py`, `motor.py`, `modulators.py`, `basal_ganglia.py`, `topology.py`
-- **`src/step/probes/`** — observation: `diagnostics.py`, `representation.py`, `timeline.py`, `bpc.py`
-- **`src/step/data.py`** — token loading + `EOM_TOKEN`, `inject_eom_tokens()`, `prepare_tokens_tinydialogues()`, `STORY_BOUNDARY`
-- **`src/step/runs.py`** — run serialization: `save_run`/`load_run`/`list_runs`/`auto_name`
-- **`src/step/viz/`** — dashboard chart builders (includes BPC + BG gate charts)
-- **`src/step/encoders/`** — `CharbitEncoder`, `OneHotCharEncoder`, `PositionalCharEncoder`
+- **`src/step/config.py`** — `CortexConfig`, factory functions `make_sensory_region()`, `make_motor_region()`
+- **`src/step/cortex/`** — `region.py`, `sensory.py`, `motor.py`, `modulators.py`, `basal_ganglia.py`, `topology.py`
+- **`src/step/probes/`** — `diagnostics.py`, `representation.py`, `timeline.py`, `bpc.py`
+- **`src/step/data.py`** — token loading: `prepare_tokens_tinydialogues()`, `prepare_tokens_personachat()`, `EOM_TOKEN`, `STORY_BOUNDARY`
 - **`src/step/decoders/`** — `InvertedIndexDecoder`, `SynapticDecoder`, `DendriticDecoder`
-- **`experiments/scripts/`** — `cortex_run.py` (main runner, `--dataset tinydialogues`), `td_sweep.py`, `bg_sweep.py`
+- **`experiments/scripts/`** — `cortex_run.py`, `cortex_repl.py`, `td_sweep.py`, `bg_sweep.py`
+- **`experiments/checkpoints/`** — saved model checkpoints (e.g., `personachat_100k.ckpt`)
 
 ## Architecture
 
-### S1 (Sensory) → S2 (Secondary) → M1 (Motor) + BasalGanglia
+### S1 → S2 → M1 + BasalGanglia
+- **S1**: 128 cols, k=8, ltd=0.05, synapse_decay=1.0, PositionalCharEncoder
+- **S2**: 32 cols, temporal buffer (depth=4) + burst gating, apical feedback to S1
+- **M1**: 32 cols k=4, L5 readout threshold 0.3, population vote output (L5 population coding), DendriticDecoder tracked as diagnostic
+- **BG**: Go/no-go gate, three-factor plasticity, supervised gate-error (Stage 1)
+- **Modulators**: SurpriseTracker, ThalamicGate (receiver-side feedback gating)
 
-- **S1**: Encoder → configurable cols (default 32, best 64-128), k=4-8, ltd=0.05, PositionalCharEncoder
-- **S2**: S1 L2/3 → 32 cols, temporal buffer + burst gating, apical feedback to S1
-- **M1**: S1 L2/3 → 32 cols k=1 (winner-take-all), L5 readout thresholded at 0.3
-- **BasalGanglia**: Go/no-go gate on M1 output, learned via three-factor plasticity
+### Topology features
+- Persistent `_in_eom`/`_eom_steps`/`_total_steps` across `run()` calls (supports single-token stepping)
+- `force_gate_open` flag for interactive use (bypasses BG gating)
+- `save_checkpoint()`/`load_checkpoint()` for full model persistence
 
-### BasalGanglia — Tuned & Working
-- **Context**: per-column precision state (1=predicted, 0=bursting) + precision fraction. Models L5/6 → striatum projection.
-- **Signal**: Gate-error (target_gate - actual_gate) every step. Supervised for Stage 1.
-- **Exploration**: Gaussian noise (σ=0.5) on activation prevents gate collapse.
+## cortex_repl — Interactive REPL
 
-### Modulators
-- **SurpriseTracker**: scales learning rate at downstream regions
-- **RewardModulator**: slow consolidation gate (NOT phasic RPE). Cortex learns Hebbian; reward only gates which traces persist.
-- **ThalamicGate**: receiver-side feedback suppression until receiver stabilizes
+Full S1→S2→M1+BG pipeline for qualitative exploration:
+- Input phase: per-char surprise, predictions, gate value, M1 interruptions
+- EOM injection → speak phase with forced-open BG gate
+- Autoregressive M1 generation until silence or ramble limit
+- Commands: `/help`, `/reset`, `/stats`, `/warmup N`, `/save`, `/load`
+- `--checkpoint name` for instant model loading
+- `--dataset personachat|tinydialogues` for vocab/warmup source
 
-### BPC Metric
-- `BPCProbe` in topology run loop, uses dendritic decoder overlap scores → softmax → -log₂(P)
-- Tracks overall + rolling 500-char window. Shows `bpc=X.XX` in log lines.
-- Random baseline: log₂(V) ≈ 6.0 for 65 chars. Good: <5.0.
+## Datasets
+- **PersonaChat** (`AlekseyKorshuk/persona-chat`): 17.8k human-written dialogues, ~43 unique chars. Now default for REPL.
+- **TinyDialogues** (`styfeng/TinyDialogues`): GPT-generated, ~65 chars, 110k dialogues. Used for original BG/BPC work.
+- DailyDialog was preferred but broken on HuggingFace (old loading script format).
 
-## Stage 1 Turn-Taking — COMPLETE
+## Training Results
 
-Validated on TinyDialogues with real speaker-alternation turns:
-- 0.9-1.1% interruptions, 69-90% speak rate, 52-57% M1 acc (S1=128col k=8)
-- BG gating transfers cleanly from synthetic to real turn boundaries
+### 100k TinyDialogues (synapse_decay=1.0)
+- BPC floor: **4.38** at 50k (random baseline 6.0)
+- Oscillates 4.38-4.98 — dialogue diversity, not catastrophic forgetting
+- S2 context discrimination 0.91, S1 0.76
 
-## TinyDialogues Param Sweep — Key Results
+### 100k PersonaChat
+- BPC floor: **4.81** at 100k (random baseline 5.43 for 43 chars)
+- Higher burst rate (34% vs 25%) — more diverse patterns
+- Better column selectivity (0.317 vs 0.466)
+- Checkpoint saved: `experiments/checkpoints/personachat_100k.ckpt` (9.3 MB, k=1 — incompatible with current k=4)
 
-Sweep explored S1 cols (32/48/64/128), k (2/4/6/8/16), learning rates, M1 cols on 10-50k chars.
-
-**Optimal activation fraction ≈ 5-6%:**
-- 64col k=4 (6.25%): BPC 4.72, best at 30k chars
-- 128col k=8 (6.25%): BPC 4.89, den=21.8%, M1=57.0%, best for scale
-
-**Capacity scales with data:**
-- 10k chars: S1=64 wins (BPC 4.88 vs 5.22 baseline)
-- 30k chars: S1=64 degrades to 4.72, S1=128 k=8 better at 4.89
-- 50k chars: S1=128 k=4 gets BPC 5.14 — k too sparse, k=8 needed
-
-**M1 expansion alone hurts** — bottleneck is S1 representation quality, not M1 capacity.
+### M1 output comparison (100k PersonaChat, k=4)
+- **Population vote: 33%** accuracy at 100k, steadily improving
+- **Dendritic decoder: 13%** accuracy at 100k, erratic — insufficient capacity for M1 L2/3 patterns
+- Population vote is biologically grounded (L5 population coding) and empirically superior
+- Old k=1 was degenerate (1 active column can't distinguish 43 chars with 32 cols)
 
 ## Key Decisions
-- **k=1 for M1**: robust across params, architecture > tuning
-- **Precision context for BG**: burst/precise columns are the discriminative signal
-- **Gate-error signal (supervised Stage 1)**: Stage 2/3 will use RL
-- **Coherence training deferred**: current char-level model wouldn't produce useful chatbot
-- **Switch to TinyDialogues** (`styfeng/TinyDialogues`): real speaker-alternation turns. 110k train dialogues, ~65 unique chars, ~15.8 turns/dialogue.
-- **BPC metric**: formalizes prediction quality. Trend shows learning.
-- **Activation fraction ~6%**: 64col/k=4 or 128col/k=8 both optimal
-
-## 50k Training Run Results (S1=128/k=8, full hierarchy)
-- BPC floor: **4.64** at 30k (random baseline 6.0) — real learning confirmed
-- BPC oscillates 4.64-5.10, not monotonic — learning-forgetting cycles
-- Burst rate climbs 21.5% → 25.2% — context diversity challenging
-- S2 context discrimination 0.93 (vs S1=0.77) — hierarchy adds value
-- M1 accuracy ~40%, stable but not improving — bounded by S1 quality
-
-## Open Questions
-- **Forgetting**: BPC oscillates 4.64-5.10. Is it real forgetting or dialogue-boundary measurement artifact? Three decay mechanisms (synapse_decay, LTD, segment overwriting) all actively forget.
-- **TinyDialogues utility**: Currently used for BG gating + BPC. Is passive observation of synthetic dialogues the right training signal for language learning?
-- **S2 value**: S2 context discrimination 0.93 vs S1 0.77. Helps context, but does it help BPC? Need ablation.
-- **Structural plasticity**: Fixed capacity may become bottleneck. Growing columns/segments, sleep/replay for consolidation — defer until forgetting is diagnosed.
-
-## Code Audit — Completed Items
-- make_sensory_region/make_motor_region factories in config.py (~200 lines removed)
-- Per-dialogue BPC instrumentation (forgetting diagnosis)
-- synapse_decay=1.0 for S1 (no passive decay, LTD controls weight growth)
-
-## Code Audit — Remaining
-- Dashboard legacy inline mode (lines 559+) duplicates cortex_run.py — remove or deprecate
-- Test gaps: positional encoder, synaptic/index decoders, diagnostics, modulators
-- motor_sweep.py unused import, motor_sweep2.py line length violations
-- Many older sweep scripts still use direct SensoryRegion construction (not blocking)
+- **synapse_decay=1.0**: No passive decay. Sparse encoding prevents catastrophic forgetting; decay was the real culprit.
+- **Forced BG gate in REPL**: BG is for turn-taking (when to speak), not content (what to say). REPL controls turns.
+- **PersonaChat over TinyDialogues**: Human-written > GPT-generated for natural language patterns.
+- **S2 value unconfirmed**: Context discrimination 0.91 but no BPC ablation yet.
 
 ## Next Steps (Active)
-- [ ] cortex_repl v0 — load model, type prompts, see replies (qualitative exploration)
+- [ ] **Save new checkpoint + test REPL** — population vote output with k=4 confirmed superior, need fresh checkpoint and qualitative testing
+- [ ] **Optimize S2 + apical feedback** — make top-down signals more useful for S1 prediction
 - [ ] Evaluate BLiMP sensitivity with tuned config
-- [ ] Stage 2 coherence (BG exploratory bias + M1 consolidation)
+- [ ] Stage 2 coherence (content-based reward for M1)
