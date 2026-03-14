@@ -25,8 +25,8 @@ from pathlib import Path
 
 import step.env  # noqa: F401
 from step.config import CortexConfig, _default_region2_config
+from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker, ThalamicGate
 from step.cortex.topology import Topology
 from step.data import prepare_tokens, prepare_tokens_charlevel
 from step.encoders.charbit import CharbitEncoder

@@ -7,8 +7,8 @@ import numpy as np
 
 import step.env  # noqa: F401
 from step.config import CortexConfig
+from step.cortex.modulators import SurpriseTracker
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker
 from step.data import STORY_BOUNDARY, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
 from step.probes.representation import RepresentationTracker

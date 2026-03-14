@@ -214,8 +214,9 @@ class SensoryRegion(CorticalRegion):
                 if active_in_col.any():
                     active_neurons_f[l4_start + active_in_col.argmax()] = 1.0
 
-        # LTP: active input x winning neurons (modulated by surprise)
-        ltp_rate = self.learning_rate * self.surprise_modulator
+        # LTP: active input x winning neurons (modulated by neuromodulators)
+        neuromod = self.surprise_modulator * self.reward_modulator
+        ltp_rate = self.learning_rate * neuromod
         self.ff_weights += (
             ltp_rate
             * flat_input[:, np.newaxis]
@@ -223,7 +224,7 @@ class SensoryRegion(CorticalRegion):
         )
 
         # LTD: inactive input x winning neurons, local sparsity scaling
-        ltd_rate = self.ltd_rate * self.surprise_modulator
+        ltd_rate = self.ltd_rate * neuromod
         inactive_input = 1.0 - flat_input
         for neuron_idx in np.nonzero(active_neurons_f)[0]:
             col = neuron_idx // self.n_l4

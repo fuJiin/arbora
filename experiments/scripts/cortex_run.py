@@ -12,11 +12,12 @@ import string
 
 import step.env  # noqa: F401
 from step.config import CortexConfig, _default_motor_config, _default_region2_config
+from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.surprise import SurpriseTracker, ThalamicGate
 from step.cortex.topology import Topology
-from step.data import prepare_tokens, prepare_tokens_charlevel
+from step.data import inject_eom_tokens, prepare_tokens, prepare_tokens_charlevel
 from step.encoders.charbit import CharbitEncoder
 from step.encoders.positional import PositionalCharEncoder
 from step.runs import auto_name, auto_tags, save_run
@@ -67,6 +68,22 @@ def main():
         action="store_true",
         help="Add M1 motor region: S1→M1 feedforward, M1→S1 apical feedback",
     )
+    parser.add_argument(
+        "--reward",
+        action="store_true",
+        help="Enable reward modulation: M1→S1 dopaminergic turn-taking reward",
+    )
+    parser.add_argument(
+        "--eom",
+        action="store_true",
+        help="Inject EOM tokens at story boundaries for turn-taking training",
+    )
+    parser.add_argument(
+        "--eom-segment",
+        type=int,
+        default=0,
+        help="Synthetic turn boundary every N tokens (0=natural boundaries only)",
+    )
     args = parser.parse_args()
 
     cortex_cfg = CortexConfig()
@@ -83,6 +100,9 @@ def main():
         encoder = CharbitEncoder(length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS)
         input_dim = CHAR_LENGTH * CHAR_WIDTH
         encoding_width = CHAR_WIDTH
+
+    if args.eom:
+        tokens = inject_eom_tokens(tokens, segment_length=args.eom_segment)
 
     if args.hierarchy:
         cortex, result = _run_hierarchy(
@@ -215,7 +235,11 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
             ltd_rate=m1_cfg.ltd_rate,
             seed=456,
         )
-        cortex.add_region("M1", motor)
+        bg = BasalGanglia(
+            context_dim=region1.n_l23_total,
+            seed=789,
+        ) if args.reward else None
+        cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect("S1", "M1", "feedforward")
         cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
         m1_gate = ThalamicGate() if args.gate_feedback else None

@@ -87,11 +87,13 @@ class CorticalRegion:
         self.l23_prediction_boost = l23_prediction_boost
         self._rng = np.random.default_rng(seed)
 
-        # Third-factor neuromodulatory signal (set externally each step).
-        # Scales learning rates: 1.0 = normal, >1 = surprise boosts learning.
+        # Third-factor neuromodulatory signals (set externally each step).
+        # Scales learning rates: 1.0 = normal, >1 = boosts learning.
         self.surprise_modulator: float = 1.0
+        # Dopaminergic reward signal: gates eligibility consolidation.
+        self.reward_modulator: float = 1.0
 
-        self.n_l4_total = n_columns * n_l4
+        self.n_l4_total: int = n_columns * n_l4
         self.n_l23_total = n_columns * n_l23
 
         # Per-neuron state
@@ -516,7 +518,8 @@ class CorticalRegion:
         L4 prediction is handled entirely by L4 dendritic segments.
         """
         active_l23_f = self.active_l23.astype(np.float64)
-        lr_l23 = np.full(self.n_l23_total, self.learning_rate * self.surprise_modulator)
+        neuromod = self.surprise_modulator * self.reward_modulator
+        lr_l23 = np.full(self.n_l23_total, self.learning_rate * neuromod)
         for col in np.nonzero(self.bursting_columns)[0]:
             l23_start = col * self.n_l23
             lr_l23[l23_start : l23_start + self.n_l23] *= self.burst_learning_scale
@@ -598,9 +601,10 @@ class CorticalRegion:
         perm = seg_perm[neuron, best_seg_idx].copy()
         syn_active = ctx[idx]
 
-        # Strengthen active synapses, weaken inactive (modulated by surprise)
-        inc = self.perm_increment * self.surprise_modulator
-        dec = self.perm_decrement * self.surprise_modulator
+        # Strengthen active synapses, weaken inactive (modulated by neuromodulators)
+        neuromod = self.surprise_modulator * self.reward_modulator
+        inc = self.perm_increment * neuromod
+        dec = self.perm_decrement * neuromod
         perm[syn_active] = np.minimum(perm[syn_active] + inc, 1.0)
         perm[~syn_active] = np.maximum(perm[~syn_active] - dec, 0.0)
 
@@ -645,8 +649,9 @@ class CorticalRegion:
             count = (syn_active & connected).sum()
 
             if count >= self.seg_activation_threshold:
-                inc = self.perm_increment * self.surprise_modulator
-                dec = self.perm_decrement * self.surprise_modulator
+                neuromod = self.surprise_modulator * self.reward_modulator
+                inc = self.perm_increment * neuromod
+                dec = self.perm_decrement * neuromod
                 if reinforce:
                     perm[syn_active] = np.minimum(perm[syn_active] + inc, 1.0)
                     perm[~syn_active] = np.maximum(perm[~syn_active] - dec, 0.0)

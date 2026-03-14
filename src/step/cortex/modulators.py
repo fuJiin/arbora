@@ -42,6 +42,60 @@ class SurpriseTracker:
         return min(surprise, 2.0)
 
 
+class RewardModulator:
+    """Dopaminergic reward signal: third factor in three-factor learning rule.
+
+    Models VTA/SNc dopamine projections to cortex. Reward gates eligibility
+    trace consolidation: dw ~ pre x post x reward.
+
+    Tracks reward relative to a slowly-adapting baseline (like SurpriseTracker).
+    Positive surprise → modulator > 1 (reinforce). Negative → modulator < 1
+    (weaken). Clipped to [0, 2] range.
+
+    Unlike surprise (which is always-on from burst rates), reward is an
+    externally-provided signal computed from task performance.
+    """
+
+    def __init__(
+        self,
+        baseline_decay: float = 0.99,
+        ema_decay: float = 0.95,
+    ):
+        self.baseline_decay = baseline_decay
+        self._ema_decay = ema_decay
+        self._reward_ema: float = 0.0
+        self._baseline: float = 0.0
+
+    def update(self, reward: float) -> float:
+        """Update with current reward, return modulator (0-2 range).
+
+        reward > 0: positive outcome (reinforce recent learning)
+        reward < 0: negative outcome (weaken recent learning)
+        reward = 0: neutral (modulator ≈ 1.0)
+        """
+        self._reward_ema = (
+            self._ema_decay * self._reward_ema
+            + (1.0 - self._ema_decay) * reward
+        )
+        self._baseline = (
+            self.baseline_decay * self._baseline
+            + (1.0 - self.baseline_decay) * reward
+        )
+        # Modulator centered at 1.0: positive reward → >1, negative → <1
+        modulator = 1.0 + (self._reward_ema - self._baseline)
+        return max(0.0, min(modulator, 2.0))
+
+    def reset(self) -> None:
+        self._reward_ema = 0.0
+        self._baseline = 0.0
+
+    @property
+    def value(self) -> float:
+        """Current modulator value without updating."""
+        mod = 1.0 + (self._reward_ema - self._baseline)
+        return max(0.0, min(mod, 2.0))
+
+
 class ThalamicGate:
     """Receiver-side gating: suppresses feedback when receiver is still learning.
 

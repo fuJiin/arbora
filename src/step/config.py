@@ -74,6 +74,8 @@ class HierarchyConfig:
     gate_feedback: bool = False
     # Motor cortex: M1 receives S1 L2/3, predicts next token, feeds back.
     enable_motor: bool = False
+    # Reward modulation: M1→S1 dopaminergic signal from turn-taking reward.
+    enable_reward: bool = False
 
 
 def _default_motor_config() -> "CortexConfig":
