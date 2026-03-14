@@ -13,6 +13,7 @@ EOM_TOKEN = -2  # End-of-message: signals turn boundary for motor RL
 DATASETS = {
     "tinystories": "roneneldan/TinyStories",
     "babylm": "nilq/babylm-10M",
+    "tinydialogues": "styfeng/TinyDialogues",
 }
 
 
@@ -193,3 +194,121 @@ def inject_eom_tokens(
         f"(segment={segment_length}, window={speak_window})"
     )
     return result
+
+
+def prepare_tokens_tinydialogues(
+    max_tokens: int,
+    *,
+    speak_window: int = 10,
+    split: str = "train",
+) -> list[tuple[int, str]]:
+    """Load TinyDialogues with real speaker-alternation turn boundaries.
+
+    Each dialogue has turns marked by **SpeakerName**: prefix.
+    Child turns become EOM phases (M1 should speak), adult turns are input.
+
+    Turn structure:
+      Adult utterance chars → EOM_TOKEN → [speak_window x last_char] →
+      Child utterance chars → STORY_BOUNDARY (between dialogues)
+
+    Args:
+        max_tokens: Maximum characters to load.
+        speak_window: Steps of neutral input after each EOM for M1 practice.
+        split: Dataset split ("train" or "validation").
+
+    Returns:
+        List of (ord(char), char) pairs with EOM_TOKEN and STORY_BOUNDARY.
+    """
+    import re
+
+    dataset_path = DATASETS["tinydialogues"]
+    print(f"Loading {dataset_path} (char-level, speaker turns)...")
+    ds = load_dataset(dataset_path, split=split)
+
+    # Pattern: **SpeakerName**: utterance
+    turn_re = re.compile(r"\*\*([^*]+)\*\*:\s*")
+
+    tokens: list[tuple[int, str]] = []
+    t = 0
+    n_dialogues = 0
+    n_eom = 0
+
+    for ex in ds:
+        text = ex.get("text", "")
+        # Remove end-of-text marker
+        text = text.replace("<|endoftext|>", "").strip()
+        if not text:
+            continue
+
+        # Split into turns
+        parts = turn_re.split(text)
+        # parts = [pre, speaker1, utterance1, speaker2, utterance2, ...]
+        # Skip any pre-speaker text (usually empty)
+        turns: list[tuple[str, str]] = []
+        i = 1  # skip parts[0] (text before first speaker)
+        while i + 1 < len(parts):
+            speaker = parts[i].strip()
+            utterance = parts[i + 1].strip()
+            # Unescape literal \n\n used as line breaks in the dataset
+            utterance = utterance.replace("\\n\\n", "\n\n")
+            if utterance:
+                turns.append((speaker, utterance))
+            i += 2
+
+        if not turns:
+            continue
+
+        # Add story boundary between dialogues
+        if n_dialogues > 0:
+            tokens.append((STORY_BOUNDARY, ""))
+            t += 1
+            if t >= max_tokens:
+                break
+
+        # Detect child speaker (heuristic: "Child" in name)
+        child_names = {
+            s for s, _ in turns if "child" in s.lower() or "kid" in s.lower()
+        }
+
+        for speaker, utterance in turns:
+            is_child = speaker in child_names
+
+            if is_child:
+                # Before child turn: insert EOM (M1's turn to speak)
+                tokens.append((EOM_TOKEN, ""))
+                n_eom += 1
+                # Speak window: repeat last real char as neutral input
+                if tokens:
+                    last_real = (ord(" "), " ")
+                    for tid_prev, ts_prev in reversed(tokens):
+                        if tid_prev >= 0:
+                            last_real = (tid_prev, ts_prev)
+                            break
+                    for _ in range(speak_window):
+                        tokens.append(last_real)
+                        t += 1
+                        if t >= max_tokens:
+                            break
+                if t >= max_tokens:
+                    break
+
+            # Emit utterance characters
+            for ch in utterance:
+                tokens.append((ord(ch), ch))
+                t += 1
+                if t >= max_tokens:
+                    break
+            if t >= max_tokens:
+                break
+
+        n_dialogues += 1
+        if t >= max_tokens:
+            break
+
+    unique = len({tid for tid, _ in tokens if tid >= 0})
+    boundaries = sum(1 for tid, _ in tokens if tid == STORY_BOUNDARY)
+    print(
+        f"  {len(tokens):,} chars, {unique} unique, "
+        f"{n_dialogues} dialogues, {boundaries} boundaries, {n_eom} EOM tokens"
+    )
+    return tokens

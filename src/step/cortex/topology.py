@@ -48,6 +48,9 @@ class RunMetrics:
     turn_rambles: int = 0        # Spoke past max_speak_steps
     turn_eom_steps: int = 0      # Total steps in EOM phase
     turn_input_steps: int = 0    # Total steps in input phase
+    # Bits-per-character (entry region only, uses dendritic decoder)
+    bpc: float = 0.0
+    bpc_recent: float = 0.0
     elapsed_seconds: float = 0.0
     representation: dict = field(default_factory=dict)
 
@@ -258,6 +261,11 @@ class Topology:
         metrics: dict[str, RunMetrics] = {
             name: RunMetrics() for name in self._regions
         }
+        # BPC probe (entry region only, uses dendritic decoder)
+        bpc_probe = None
+        if entry_state.dendritic_decoder:
+            from step.probes.bpc import BPCProbe
+            bpc_probe = BPCProbe()
         # Per-surprise-connection modulator lists, keyed by target name
         surprise_modulators: dict[str, list[float]] = {}
         thalamic_readiness: dict[str, list[float]] = {}
@@ -347,6 +355,13 @@ class Topology:
                     if tid == den_id:
                         den_str = entry_state.syn_decoder._token_strs[i]
                         break
+
+            # BPC: measure prediction quality before processing this token
+            if bpc_probe is not None and t > 0:
+                bpc_probe.step(
+                    token_id, entry_region.active_l23,
+                    entry_state.dendritic_decoder,
+                )
 
             # Snapshot L2/3 binary state before processing (for dendritic decoder)
             prev_l23 = entry_region.active_l23.copy()
@@ -534,7 +549,7 @@ class Topology:
                 self._log_step(
                     t, start, entry_name, metrics, surprise_modulators,
                     thalamic_readiness, reward_modulators, rolling_window,
-                    show_predictions, prediction_log,
+                    show_predictions, prediction_log, bpc_probe,
                 )
 
         elapsed = time.monotonic() - start
@@ -547,6 +562,12 @@ class Topology:
             sel = s.rep_tracker.column_selectivity()
             rep_summ["column_selectivity_per_col"] = sel["per_column"]
             m.representation = rep_summ
+
+        # Store BPC in entry metrics
+        if bpc_probe is not None:
+            entry_m = metrics[entry_name]
+            entry_m.bpc = bpc_probe.bpc
+            entry_m.bpc_recent = bpc_probe.recent_bpc
 
         # Print representation reports
         if len(self._regions) == 1:
@@ -657,6 +678,7 @@ class Topology:
         rolling_window: int,
         show_predictions: int,
         prediction_log: list[tuple[str, ...]],
+        bpc_probe: object = None,
     ):
         entry_metrics = metrics[entry_name]
         entry_diag = self._regions[entry_name].diagnostics
@@ -752,13 +774,18 @@ class Topology:
                         avg_g = sum(tail_g) / len(tail_g)
                         motor_str += f" bg={avg_g:.2f}"
 
+        # BPC info
+        bpc_str = ""
+        if bpc_probe is not None and bpc_probe.bpc < float("inf"):
+            bpc_str = f" bpc={bpc_probe.recent_bpc:.2f}"
+
         print(
             f"  [{label}] t={t:,} "
             f"den={roll_den:.4f} "
             f"syn={roll_syn:.4f} "
             f"overlap={roll_o:.4f} "
             f"burst={burst_pct:.1%}"
-            f"{mod_str}{gate_str}{reward_str}{motor_str} "
+            f"{bpc_str}{mod_str}{gate_str}{reward_str}{motor_str} "
             f"({elapsed:.1f}s)"
         )
 
