@@ -107,7 +107,7 @@ class TestBasalGangliaUnit:
 class TestBasalGangliaIntegration:
     def test_bg_runs_in_topology(self, region1, motor, encoder):
         """BG wired to M1 runs without error."""
-        bg = BasalGanglia(context_dim=region1.n_l23_total)
+        bg = BasalGanglia(context_dim=region1.n_columns + 1)
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
@@ -120,7 +120,7 @@ class TestBasalGangliaIntegration:
 
     def test_bg_with_eom_tokens(self, region1, motor, encoder):
         """BG gate values are tracked through EOM phases."""
-        bg = BasalGanglia(context_dim=region1.n_l23_total)
+        bg = BasalGanglia(context_dim=region1.n_columns + 1)
         tokens = [
             (0, "a"), (1, "b"), (2, "c"),
             (EOM_TOKEN, ""),
@@ -137,7 +137,7 @@ class TestBasalGangliaIntegration:
 
     def test_bg_resets_at_boundary(self, region1, motor, encoder):
         """Story boundary resets BG transient state."""
-        bg = BasalGanglia(context_dim=region1.n_l23_total)
+        bg = BasalGanglia(context_dim=region1.n_columns + 1)
         tokens = [
             (0, "a"), (1, "b"),
             (STORY_BOUNDARY, ""),

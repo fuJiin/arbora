@@ -236,7 +236,7 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
             seed=456,
         )
         bg = BasalGanglia(
-            context_dim=region1.n_l23_total,
+            context_dim=region1.n_columns + 1,  # per-col burst + overall burst frac
             seed=789,
         ) if args.reward else None
         cortex.add_region("M1", motor, basal_ganglia=bg)

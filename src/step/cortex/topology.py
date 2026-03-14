@@ -415,7 +415,19 @@ class Topology:
                     if t > 0:
                         # BG gating: step with S1 context, gate M1 output
                         if s.basal_ganglia is not None:
-                            ctx = entry_region.firing_rate_l23
+                            # BG context: per-column precision state (inverted
+                            # burst). Precise = 1 means column predicted
+                            # correctly (EOM/familiar), burst = 0 means novel.
+                            # During EOM: dense 1s → strong context signal.
+                            # During input: sparse 1s → weak signal.
+                            # Models L5/6 → striatum precision projection.
+                            precision = (
+                                ~entry_region.bursting_columns
+                            ).astype(np.float64)
+                            prec_frac = precision.sum() / max(
+                                entry_region.n_columns, 1,
+                            )
+                            ctx = np.append(precision, prec_frac)
                             gate = s.basal_ganglia.step(ctx)
                             motor_region.output_scores *= gate
                             metrics[_name].bg_gate_values.append(gate)
@@ -434,9 +446,16 @@ class Topology:
                         )
                         metrics[_name].motor_rewards.append(reward)
 
-                        # Send reward to BG (learns when to gate)
+                        # Send gate error signal to BG every step.
+                        # Stage 1 is supervised (phase labels known):
+                        #   EOM phase: target=1 → signal = 1-gate (push open)
+                        #   Input phase: target=0 → signal = -gate (push closed)
+                        # Provides gradient from both phases, avoids
+                        # sparse-reward collapse. Stage 2/3 will switch to RL.
                         if s.basal_ganglia is not None:
-                            s.basal_ganglia.reward(reward)
+                            gate_target = 1.0 if _in_eom else 0.0
+                            gate_error = gate_target - s.basal_ganglia.gate_value
+                            s.basal_ganglia.reward(gate_error)
 
                         # -- Turn-taking behavioral counters --
                         m = metrics[_name]
