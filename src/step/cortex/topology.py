@@ -36,6 +36,8 @@ class RunMetrics:
     column_accuracies: list[float] = field(default_factory=list)
     dendritic_accuracies: list[float] = field(default_factory=list)
     motor_accuracies: list[float] = field(default_factory=list)
+    motor_decoder_accuracies: list[float] = field(default_factory=list)
+    motor_population_accuracies: list[float] = field(default_factory=list)
     motor_confidences: list[float] = field(default_factory=list)
     motor_rewards: list[float] = field(default_factory=list)
     # Basal ganglia gate values (when BG is wired)
@@ -74,6 +76,8 @@ class _RegionState:
     decode_index: InvertedIndexDecoder | None = None
     syn_decoder: SynapticDecoder | None = None
     dendritic_decoder: DendriticDecoder | None = None
+    # Motor region decoder (maps M1 L2/3 → token predictions):
+    motor_decoder: DendriticDecoder | None = None
 
 
 @dataclass
@@ -167,6 +171,13 @@ class Topology:
             state.decode_index = InvertedIndexDecoder()
             state.syn_decoder = SynapticDecoder()
             state.dendritic_decoder = DendriticDecoder(
+                source_dim=region.n_l23_total,
+                n_segments=16,
+                n_synapses=48,
+            )
+
+        if state.motor:
+            state.motor_decoder = DendriticDecoder(
                 source_dim=region.n_l23_total,
                 n_segments=16,
                 n_synapses=48,
@@ -379,6 +390,12 @@ class Topology:
             # Snapshot L2/3 binary state before processing (for dendritic decoder)
             prev_l23 = entry_region.active_l23.copy()
 
+            # Snapshot motor L2/3 before processing (for motor decoder training)
+            prev_motor_l23: dict[str, np.ndarray] = {}
+            for _mn, _ms in self._regions.items():
+                if _ms.motor and _ms.motor_decoder is not None:
+                    prev_motor_l23[_mn] = _ms.region.active_l23.copy()
+
             # -- Process in topo order --
             for name in topo_order:
                 s = self._regions[name]
@@ -462,11 +479,35 @@ class Topology:
                             motor_region.output_scores *= gate
                             metrics[_name].bg_gate_values.append(gate)
 
-                        m_id, m_conf = motor_region.get_output()
+                        # Compute output from both methods for comparison
+                        pop_id, pop_conf = motor_region.get_population_output()
+                        if s.motor_decoder is not None:
+                            dec_id, dec_conf = (
+                                motor_region.get_decoded_output(
+                                    s.motor_decoder,
+                                )
+                            )
+                        else:
+                            dec_id, dec_conf = (-1, 0.0)
+
+                        # Population vote is primary: biologically grounded
+                        # (L5 population coding) and empirically better.
+                        # Decoder tracked for diagnostic comparison only.
+                        m_id, m_conf = pop_id, pop_conf
+
                         metrics[_name].motor_confidences.append(m_conf)
                         if m_id >= 0:
                             metrics[_name].motor_accuracies.append(
                                 1.0 if m_id == token_id else 0.0
+                            )
+                        # Track both methods independently
+                        if pop_id >= 0:
+                            metrics[_name].motor_population_accuracies.append(
+                                1.0 if pop_id == token_id else 0.0,
+                            )
+                        if dec_id >= 0:
+                            metrics[_name].motor_decoder_accuracies.append(
+                                1.0 if dec_id == token_id else 0.0,
                             )
 
                         # -- Stage 1 reward: turn-taking --
@@ -528,6 +569,15 @@ class Topology:
                                 reward_modulators[conn.target].append(
                                     mod
                                 )
+
+                        # Train motor decoder: previous M1 L2/3 → current token
+                        if (
+                            s.motor_decoder is not None
+                            and _name in prev_motor_l23
+                        ):
+                            s.motor_decoder.observe(
+                                token_id, prev_motor_l23[_name],
+                            )
 
             # -- Entry metrics --
             active_set = frozenset(
@@ -658,6 +708,9 @@ class Topology:
             if s.dendritic_decoder is not None:
                 region_data["decoder_neurons"] = s.dendritic_decoder._neurons
 
+            if s.motor_decoder is not None:
+                region_data["motor_decoder_neurons"] = s.motor_decoder._neurons
+
             state["regions"][name] = region_data
 
         # Connection modulator state
@@ -738,6 +791,14 @@ class Topology:
             ):
                 s.dendritic_decoder._neurons = region_data[
                     "decoder_neurons"
+                ]
+
+            if (
+                s.motor_decoder is not None
+                and "motor_decoder_neurons" in region_data
+            ):
+                s.motor_decoder._neurons = region_data[
+                    "motor_decoder_neurons"
                 ]
 
         # Restore connection modulator state
@@ -925,8 +986,24 @@ class Topology:
                     roll_m = sum(tail_m) / len(tail_m)
                     # Silence rate: steps with confidence 0 / total steps
                     tail_c = m.motor_confidences[-rolling_window:]
-                    silence = sum(1 for c in tail_c if c == 0.0) / max(len(tail_c), 1)
+                    silence = (
+                        sum(1 for c in tail_c if c == 0.0)
+                        / max(len(tail_c), 1)
+                    )
                     motor_str += f" M1={roll_m:.4f} sil={silence:.0%}"
+                    # Compare decoder vs population accuracy
+                    if m.motor_decoder_accuracies:
+                        tail_dec = m.motor_decoder_accuracies[
+                            -rolling_window:
+                        ]
+                        roll_dec = sum(tail_dec) / len(tail_dec)
+                        motor_str += f" dec={roll_dec:.4f}"
+                    if m.motor_population_accuracies:
+                        tail_pop = m.motor_population_accuracies[
+                            -rolling_window:
+                        ]
+                        roll_pop = sum(tail_pop) / len(tail_pop)
+                        motor_str += f" pop={roll_pop:.4f}"
                     # Average reward
                     if m.motor_rewards:
                         tail_r = m.motor_rewards[-rolling_window:]

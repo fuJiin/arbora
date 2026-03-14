@@ -112,13 +112,15 @@ class HierarchyConfig:
 def _default_motor_config() -> CortexConfig:
     """Motor region defaults: responsive to current context, moderate learning.
 
-    Receives S1's L2/3 firing rate (128-dim). 32 columns (one per char)
-    with k=4 competitive selection. Lower voltage_decay than S2 for
-    crisper output decisions. Moderate LTD for column specialization.
+    Receives S1's L2/3 firing rate (128-dim). 32 columns with k=4
+    competitive selection gives 16 active L2/3 neurons — enough signal
+    for DendriticDecoder to map M1 state → tokens (replaces degenerate
+    k=1 column→token frequency mapping). Lower voltage_decay than S2
+    for crisper output decisions. Moderate LTD for column specialization.
     """
     return CortexConfig(
         n_columns=32,
-        k_columns=1,
+        k_columns=4,
         voltage_decay=0.5,
         eligibility_decay=0.95,
         synapse_decay=0.999,
