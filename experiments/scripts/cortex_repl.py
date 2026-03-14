@@ -3,7 +3,11 @@
 
 Trains a model on TinyDialogues, then enters interactive mode where
 you type text and see the model's predictions, surprise, and internal
-state in real time. The model continues learning from your input.
+state in real time. Uses the full S1→S2→M1+BG architecture:
+
+- Input phase: each char processed through hierarchy, M1 interruptions shown
+- EOM injection: after your input, M1 gets a chance to speak
+- Speaking phase: M1 output fed back as input until EOM or ramble limit
 
 Usage:
     uv run experiments/scripts/cortex_repl.py
@@ -12,6 +16,8 @@ Usage:
 """
 
 import argparse
+import contextlib
+import io
 import math
 import sys
 
@@ -28,7 +34,11 @@ from step.config import (
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.topology import Topology
-from step.data import prepare_tokens_tinydialogues
+from step.data import (
+    EOM_TOKEN,
+    prepare_tokens_personachat,
+    prepare_tokens_tinydialogues,
+)
 from step.decoders.dendritic import DendriticDecoder  # for type hints
 from step.encoders.positional import PositionalCharEncoder
 
@@ -41,6 +51,10 @@ YELLOW = "\033[33m"
 CYAN = "\033[36m"
 BOLD = "\033[1m"
 MAGENTA = "\033[35m"
+
+# Thresholds for speaking phase
+MAX_SPEAK_STEPS = 200   # max chars M1 can generate per turn
+MAX_SILENT_STEPS = 10   # give up waiting for M1 after this many silent steps
 
 
 def surprise_color(bits: float, vocab_size: int = 65) -> str:
@@ -89,8 +103,6 @@ def build_model(alphabet: str):
     if motor.n_l23_total == region2.n_l23_total:
         cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
 
-    # The topology creates its own DendriticDecoder for the entry region
-    # during add_region(). We'll grab the reference after construction.
     entry_state = cortex._regions["S1"]
     decoder = entry_state.dendritic_decoder
 
@@ -101,10 +113,7 @@ def warmup(cortex, tokens, log_interval=2000):
     """Train the model on TinyDialogues tokens."""
     n = len(tokens)
     print(f"{DIM}Warming up on {n:,} chars...{RESET}")
-    import contextlib
-    import io
 
-    # Suppress verbose representation reports during warmup
     f = io.StringIO()
     with contextlib.redirect_stdout(f):
         result = cortex.run(tokens, log_interval=log_interval)
@@ -118,6 +127,12 @@ def warmup(cortex, tokens, log_interval=2000):
     return result
 
 
+def step_token(cortex, token_id, token_str):
+    """Process one token through the full hierarchy, return motor output."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        cortex.run([(token_id, token_str)], log_interval=0)
+
+
 def decode_prediction(
     l23_state: np.ndarray,
     decoder: DendriticDecoder,
@@ -129,7 +144,6 @@ def decode_prediction(
     if not scores:
         return []
 
-    # Softmax over scores
     raw = np.array(list(scores.values()), dtype=np.float64)
     keys = list(scores.keys())
     raw -= raw.max()
@@ -140,7 +154,6 @@ def decode_prediction(
     for i in np.argsort(exp_scores)[::-1][:k]:
         token_id = keys[i]
         prob = exp_scores[i] / total
-        # Map token_id (ord) back to char
         ch = chr(token_id) if 32 <= token_id < 127 else f"<{token_id}>"
         predictions.append((ch, prob))
 
@@ -187,11 +200,70 @@ def format_predictions(preds: list[tuple[str, float]]) -> str:
     return " ".join(parts)
 
 
-def interactive_loop(cortex, encoder, region1, motor, decoder):
-    """Main REPL loop: type text, see predictions + surprise."""
+def token_to_char(token_id: int) -> str | None:
+    """Convert token_id back to printable char, or None."""
+    if 32 <= token_id < 127:
+        return chr(token_id)
+    return None
+
+
+CHECKPOINT_DIR = "experiments/checkpoints"
+
+
+def print_help():
+    """Print available commands."""
+    print(f"{DIM}Commands:{RESET}")
+    print(f"{DIM}  /help            Show this help{RESET}")
+    print(f"{DIM}  /reset           Clear working memory{RESET}")
+    print(f"{DIM}  /stats           Show BPC statistics{RESET}")
+    print(
+        f"{DIM}  /warmup [N]      "
+        f"Train on N more TinyDialogues chars (default 5000){RESET}"
+    )
+    print(
+        f"{DIM}  /save [name]     "
+        f"Save checkpoint (default: repl_default){RESET}"
+    )
+    print(
+        f"{DIM}  /load [name]     "
+        f"Load checkpoint (default: repl_default){RESET}"
+    )
+    print(f"{DIM}  /quit, /q        Exit{RESET}")
+    print()
+    print(f"{DIM}Type text to feed it through S1→S2→M1+BG.{RESET}")
+    print(
+        f"{DIM}After your input, EOM is injected "
+        f"and M1 gets a turn to speak.{RESET}"
+    )
+    print(
+        f"{DIM}M1 interruptions during input "
+        f"are shown inline.{RESET}"
+    )
+
+
+def reset_state(cortex, encoder):
+    """Reset working memory across all regions (story boundary)."""
+    for s in cortex._regions.values():
+        s.region.reset_working_memory()
+        if s.basal_ganglia is not None:
+            s.basal_ganglia.reset()
+    for conn in cortex._connections:
+        if conn._buffer is not None:
+            conn._buffer[:] = 0.0
+            conn._buffer_pos = 0
+        if conn.thalamic_gate is not None:
+            conn.thalamic_gate.reset()
+    cortex._in_eom = False
+    cortex._eom_steps = 0
+    if hasattr(encoder, "reset"):
+        encoder.reset()
+
+
+def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
+    """Main REPL loop with full M1+BG turn-taking."""
     print(f"{BOLD}=== STEP Cortex REPL ==={RESET}")
-    print(f"{DIM}Type text to see model predictions and surprise.")
-    print(f"Commands: /reset (clear memory), /stats, /quit{RESET}\n")
+    print_help()
+    print()
 
     total_bits = 0.0
     n_chars = 0
@@ -209,14 +281,15 @@ def interactive_loop(cortex, encoder, region1, motor, decoder):
 
         # Commands
         if line.startswith("/"):
-            cmd = line.strip().lower()
-            if cmd == "/quit" or cmd == "/q":
+            parts = line.strip().split()
+            cmd = parts[0].lower()
+            if cmd in ("/quit", "/q"):
                 break
+            elif cmd == "/help":
+                print_help()
+                continue
             elif cmd == "/reset":
-                for s in cortex._regions.values():
-                    s.region.reset_working_memory()
-                if hasattr(encoder, "reset"):
-                    encoder.reset()
+                reset_state(cortex, encoder)
                 total_bits = 0.0
                 n_chars = 0
                 recent_bits.clear()
@@ -235,67 +308,187 @@ def interactive_loop(cortex, encoder, region1, motor, decoder):
                     f"Decoder tokens: {decoder.n_tokens}{RESET}"
                 )
                 continue
+            elif cmd == "/warmup":
+                n = int(parts[1]) if len(parts) > 1 else 5000
+                tokens = load_fn(n, speak_window=10)
+                warmup(cortex, tokens)
+                continue
+            elif cmd == "/save":
+                name = parts[1] if len(parts) > 1 else "repl_default"
+                import os
+                os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+                path = os.path.join(CHECKPOINT_DIR, f"{name}.ckpt")
+                cortex.save_checkpoint(path)
+                print(f"{DIM}Saved checkpoint: {path}{RESET}")
+                continue
+            elif cmd == "/load":
+                name = parts[1] if len(parts) > 1 else "repl_default"
+                import os
+                path = os.path.join(CHECKPOINT_DIR, f"{name}.ckpt")
+                if not os.path.exists(path):
+                    print(f"{RED}Checkpoint not found: {path}{RESET}")
+                else:
+                    cortex.load_checkpoint(path)
+                    print(f"{DIM}Loaded checkpoint: {path}{RESET}")
+                continue
             else:
-                print(f"{DIM}Unknown command: {cmd}{RESET}")
+                print(f"{DIM}Unknown command: {cmd} (try /help){RESET}")
                 continue
 
-        # Process each character
+        # ── INPUT PHASE ──
+        # Process each character through full hierarchy.
+        # M1 is active but BG should keep gate closed (input phase).
+        # Any M1 output = interruption.
         print()
+        interruptions = 0
+        line_correct = 0
+        line_total = 0
+        line_bits = []
+        last_token = (ord(" "), " ")
+
         for ch in line:
             token_id = ord(ch)
+            last_token = (token_id, ch)
 
-            # Get prediction BEFORE processing (using previous L2/3 state)
+            # S1 prediction BEFORE processing
             preds = decode_prediction(
                 region1.active_l23, decoder, encoder,
             )
             bits = compute_bits(token_id, region1.active_l23, decoder)
 
-            # Update decoder with current state -> token mapping
+            # Train decoder on current state → token
             decoder.observe(token_id, region1.active_l23)
 
-            # Process the character through the full hierarchy
-            import contextlib
-            import io
+            # Step through full hierarchy
+            step_token(cortex, token_id, ch)
 
-            with contextlib.redirect_stdout(io.StringIO()):
-                cortex.run([(token_id, ch)], log_interval=0)
+            # Check M1 output (after BG gating)
+            m_id, m_conf = motor.last_output
+            gate = motor.last_gate
 
-            # Accumulate stats
+            # Track prediction accuracy (did top-1 match?)
+            line_total += 1
+            if preds and preds[0][0] == ch:
+                line_correct += 1
+            line_bits.append(bits)
+
+            # Accumulate global stats
             total_bits += bits
             n_chars += 1
             recent_bits.append(bits)
             if len(recent_bits) > 100:
                 recent_bits.pop(0)
 
-            # Display
+            # Display input char with aligned columns
             color = surprise_color(bits)
             pred_str = format_predictions(preds)
-
-            # Show character with surprise coloring
             display_ch = repr(ch) if ch == " " else ch
+
+            m1_info = ""
+            if m_id >= 0:
+                interruptions += 1
+                m1_ch = token_to_char(m_id)
+                m1_display = m1_ch if m1_ch else f"<{m_id}>"
+                m1_info = (
+                    f"  {RED}!! M1: '{m1_display}'{RESET}"
+                )
+
+            # Aligned columns: char | bits | gate | predictions
             sys.stdout.write(
-                f"  {color}{display_ch}{RESET} "
-                f"{DIM}{bits:.1f}b{RESET}  "
-                f"{DIM}pred: {pred_str}{RESET}\n"
+                f"  {color}{display_ch:<4s}{RESET}"
+                f" {DIM}{bits:5.1f} bits{RESET}"
+                f"  {DIM}gate {gate:.2f}{RESET}"
+                f"  {DIM}{pred_str}{RESET}"
+                f"{m1_info}\n"
             )
 
-        # Show summary for the line
+        # ── EOM INJECTION ──
+        # Signal turn boundary: M1's turn to speak.
+        # Feed EOM token, then neutral input (repeat last char) as speak window.
+        step_token(cortex, EOM_TOKEN, "")
+
+        # Show transition with summary stats
         if n_chars > 0:
             recent_bpc = (
                 sum(recent_bits) / len(recent_bits)
                 if recent_bits else 0
             )
-            print(
-                f"\n{DIM}  BPC: {total_bits / n_chars:.2f} "
-                f"(recent: {recent_bpc:.2f}){RESET}\n"
+            line_bpc = (
+                sum(line_bits) / len(line_bits)
+                if line_bits else 0
             )
+            line_acc = (
+                line_correct / line_total
+                if line_total > 0 else 0
+            )
+            burst_pct = (
+                float(region1.bursting_columns.sum())
+                / max(region1.n_columns, 1)
+            )
+            print(
+                f"\n{DIM}  line: {line_bpc:.2f} bpc, "
+                f"{line_acc:.0%} acc, "
+                f"{burst_pct:.0%} burst  |  "
+                f"overall: {total_bits / n_chars:.2f} bpc "
+                f"(recent: {recent_bpc:.2f})  "
+                f"interruptions: {interruptions}{RESET}"
+            )
+        print(f"\n{DIM}  [EOM → M1's turn]{RESET}")
 
-        # Insert story boundary between lines to reset context
-        # (simulates new dialogue)
-        for s in cortex._regions.values():
-            s.region.reset_working_memory()
-        if hasattr(encoder, "reset"):
-            encoder.reset()
+        # ── SPEAKING PHASE ──
+        # Force BG gate open — we know it's M1's turn. BG gating
+        # is for learned turn-taking; in the REPL we control turns.
+        # M1 still processes normally, we just bypass the gate filter.
+        cortex.force_gate_open = True
+        spoken_chars = []
+        silent_steps = 0
+
+        for _ in range(MAX_SPEAK_STEPS + MAX_SILENT_STEPS):
+            # Feed neutral input (last char repeated, like TinyDialogues pattern)
+            step_token(cortex, last_token[0], last_token[1])
+
+            m_id, m_conf = motor.last_output
+            gate = motor.last_gate
+
+            if m_id >= 0:
+                # M1 is speaking
+                ch = token_to_char(m_id)
+                if ch:
+                    spoken_chars.append(ch)
+                    color = GREEN if m_conf > 0.5 else YELLOW
+                    sys.stdout.write(f"{color}{ch}{RESET}")
+                    sys.stdout.flush()
+                    # Feed M1's output as the next input (autoregressive)
+                    last_token = (m_id, ch)
+                silent_steps = 0
+
+                # Ramble check
+                if len(spoken_chars) >= MAX_SPEAK_STEPS:
+                    sys.stdout.write(
+                        f"\n{DIM}  [ramble limit: {MAX_SPEAK_STEPS} chars]{RESET}"
+                    )
+                    break
+            else:
+                silent_steps += 1
+                if spoken_chars:
+                    # Was speaking, now stopped → natural end
+                    break
+                if silent_steps >= MAX_SILENT_STEPS:
+                    sys.stdout.write(
+                        f"{DIM}  (M1 silent — gate={gate:.2f}){RESET}"
+                    )
+                    break
+
+        cortex.force_gate_open = False
+
+        if spoken_chars:
+            sys.stdout.write(
+                f"\n{DIM}  M1 spoke {len(spoken_chars)} chars{RESET}"
+            )
+        print("\n")
+
+        # Reset working memory for next exchange
+        reset_state(cortex, encoder)
 
 
 def main():
@@ -313,11 +506,30 @@ def main():
         action="store_true",
         help="Skip warmup, start with fresh model",
     )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Load checkpoint (name or path) instead of warmup",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="personachat",
+        choices=["personachat", "tinydialogues"],
+        help="Dataset for vocab and warmup (default: personachat)",
+    )
     args = parser.parse_args()
 
-    # Build alphabet from TinyDialogues (need consistent vocab)
-    print(f"{DIM}Loading vocabulary...{RESET}")
-    sample = prepare_tokens_tinydialogues(1000, speak_window=5)
+    # Load tokens for vocab (and warmup)
+    load_fn = (
+        prepare_tokens_personachat
+        if args.dataset == "personachat"
+        else prepare_tokens_tinydialogues
+    )
+
+    print(f"{DIM}Loading vocabulary from {args.dataset}...{RESET}")
+    sample = load_fn(1000, speak_window=5)
     alphabet = sorted({ch for _, ch in sample if _ >= 0})
     alphabet_str = "".join(alphabet)
     print(f"{DIM}Vocab: {len(alphabet)} chars{RESET}")
@@ -326,15 +538,24 @@ def main():
     print(f"{DIM}Building model (S1=128/k=8, S2, M1+BG)...{RESET}")
     cortex, encoder, region1, motor, decoder = build_model(alphabet_str)
 
-    # Warmup
-    if not args.no_warmup and args.warmup > 0:
-        tokens = prepare_tokens_tinydialogues(
-            args.warmup, speak_window=10,
-        )
+    # Load checkpoint or warmup
+    if args.checkpoint:
+        import os
+        path = args.checkpoint
+        if not os.path.exists(path):
+            path = os.path.join(CHECKPOINT_DIR, f"{args.checkpoint}.ckpt")
+        if os.path.exists(path):
+            cortex.load_checkpoint(path)
+            print(f"{DIM}Loaded checkpoint: {path}{RESET}\n")
+        else:
+            print(f"{RED}Checkpoint not found: {path}{RESET}")
+            sys.exit(1)
+    elif not args.no_warmup and args.warmup > 0:
+        tokens = load_fn(args.warmup, speak_window=10)
         warmup(cortex, tokens)
 
     # Enter interactive mode
-    interactive_loop(cortex, encoder, region1, motor, decoder)
+    interactive_loop(cortex, encoder, region1, motor, decoder, load_fn)
     print(f"{DIM}Goodbye!{RESET}")
 
 
