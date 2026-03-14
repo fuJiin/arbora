@@ -5,7 +5,7 @@ Research project exploring biologically-plausible learning for next-token predic
 
 ## Project Structure
 
-- **`src/step/config.py`** — `CortexConfig`, `HierarchyConfig`, `_default_motor_config()`
+- **`src/step/config.py`** — `CortexConfig`, `HierarchyConfig`, `_default_s1_config()`, `_default_motor_config()`
 - **`src/step/cortex/`** — models: `region.py`, `sensory.py`, `motor.py`, `modulators.py`, `basal_ganglia.py`, `topology.py`
 - **`src/step/probes/`** — observation: `diagnostics.py`, `representation.py`, `timeline.py`, `bpc.py`
 - **`src/step/data.py`** — token loading + `EOM_TOKEN`, `inject_eom_tokens()`, `prepare_tokens_tinydialogues()`, `STORY_BOUNDARY`
@@ -13,7 +13,7 @@ Research project exploring biologically-plausible learning for next-token predic
 - **`src/step/viz/`** — dashboard chart builders (includes BPC + BG gate charts)
 - **`src/step/encoders/`** — `CharbitEncoder`, `OneHotCharEncoder`, `PositionalCharEncoder`
 - **`src/step/decoders/`** — `InvertedIndexDecoder`, `SynapticDecoder`, `DendriticDecoder`
-- **`experiments/scripts/`** — `bg_sweep.py`, `td_sweep.py` (TinyDialogues param sweep)
+- **`experiments/scripts/`** — `cortex_run.py` (main runner, `--dataset tinydialogues`), `td_sweep.py`, `bg_sweep.py`
 
 ## Architecture
 
@@ -69,9 +69,22 @@ Sweep explored S1 cols (32/48/64/128), k (2/4/6/8/16), learning rates, M1 cols o
 - **BPC metric**: formalizes prediction quality. Trend shows learning.
 - **Activation fraction ~6%**: 64col/k=4 or 128col/k=8 both optimal
 
+## 50k Training Run Results (S1=128/k=8, full hierarchy)
+- BPC floor: **4.64** at 30k (random baseline 6.0) — real learning confirmed
+- BPC oscillates 4.64-5.10, not monotonic — learning-forgetting cycles
+- Burst rate climbs 21.5% → 25.2% — context diversity challenging
+- S2 context discrimination 0.93 (vs S1=0.77) — hierarchy adds value
+- M1 accuracy ~40%, stable but not improving — bounded by S1 quality
+
+## Open Questions
+- **Forgetting**: BPC oscillates 4.64-5.10. Is it real forgetting or dialogue-boundary measurement artifact? Three decay mechanisms (synapse_decay, LTD, segment overwriting) all actively forget.
+- **TinyDialogues utility**: Currently used for BG gating + BPC. Is passive observation of synthetic dialogues the right training signal for language learning?
+- **S2 value**: S2 context discrimination 0.93 vs S1 0.77. Helps context, but does it help BPC? Need ablation.
+- **Structural plasticity**: Fixed capacity may become bottleneck. Growing columns/segments, sleep/replay for consolidation — defer until forgetting is diagnosed.
+
 ## Next Steps (Active)
-- [ ] Update default S1 config to 128col k=8 (or 64col k=4 for speed)
-- [ ] Longer training runs (50-100k) to confirm BPC trend improves
+- [ ] **P0**: Diagnose forgetting — instrument per-dialogue BPC, separate within-dialogue from cross-boundary surprise
+- [ ] **P1**: Code audit — DRY up region construction boilerplate, prune dead code, simplify topology wiring
+- [ ] **P2**: cortex_repl v0 — load model, type prompts, see replies (qualitative exploration)
 - [ ] Evaluate BLiMP sensitivity with tuned config
-- [ ] Freeze canonical training regime based on BPC convergence
-- [ ] Then: Stage 2 coherence (BG exploratory bias + M1 consolidation)
+- [ ] Stage 2 coherence (BG exploratory bias + M1 consolidation)

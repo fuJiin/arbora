@@ -31,6 +31,30 @@ class CortexConfig:
     seed: int = 0
 
 
+def _default_s1_config() -> "CortexConfig":
+    """S1 defaults tuned for TinyDialogues char-level input.
+
+    128 columns with k=8 gives ~6.25% activation fraction — the sweet
+    spot for dendritic segment learning. Sweep results (30k chars):
+      128/k=8: BPC 4.89, den=21.8%, M1=57.0%
+      64/k=4:  BPC 4.72, den=17.9%, M1=22.0% (faster but less M1 capacity)
+      32/k=4:  BPC 5.22, den=8.2%,  M1=6.8%  (undersized for 65-char vocab)
+
+    synapse_decay=1.0: no passive weight decay. Sparse encoding prevents
+    catastrophic forgetting; LTD alone controls weight growth. Decay
+    comparison (30k chars) showed decay=1.0 gives best recent BPC (4.72)
+    and strongest learning trend across dialogues.
+
+    Use ltd_rate=0.05 for char-level data (default 0.2 is for GPT-2 tokens).
+    """
+    return CortexConfig(
+        n_columns=128,
+        k_columns=8,
+        ltd_rate=0.05,
+        synapse_decay=1.0,
+    )
+
+
 def _default_region2_config() -> "CortexConfig":
     """Region 2 defaults: slower temporal dynamics, moderate learning rate.
 

@@ -51,6 +51,10 @@ class RunMetrics:
     # Bits-per-character (entry region only, uses dendritic decoder)
     bpc: float = 0.0
     bpc_recent: float = 0.0
+    # Per-dialogue BPC breakdown (forgetting diagnosis)
+    bpc_per_dialogue: list[float] = field(default_factory=list)
+    bpc_boundary: list[float] = field(default_factory=list)
+    bpc_steady: list[float] = field(default_factory=list)
     elapsed_seconds: float = 0.0
     representation: dict = field(default_factory=dict)
 
@@ -289,6 +293,8 @@ class Topology:
         for t, (token_id, token_str) in enumerate(tokens):
             # -- Story boundary --
             if token_id == STORY_BOUNDARY:
+                if bpc_probe is not None:
+                    bpc_probe.dialogue_boundary()
                 for s in self._regions.values():
                     s.region.reset_working_memory()
                     s.rep_tracker.reset_context()
@@ -565,9 +571,14 @@ class Topology:
 
         # Store BPC in entry metrics
         if bpc_probe is not None:
+            # Flush last dialogue
+            bpc_probe.dialogue_boundary()
             entry_m = metrics[entry_name]
             entry_m.bpc = bpc_probe.bpc
             entry_m.bpc_recent = bpc_probe.recent_bpc
+            entry_m.bpc_per_dialogue = bpc_probe.dialogue_bpcs
+            entry_m.bpc_boundary = bpc_probe.boundary_bpcs
+            entry_m.bpc_steady = bpc_probe.steady_bpcs
 
         # Print representation reports
         if len(self._regions) == 1:
@@ -778,6 +789,13 @@ class Topology:
         bpc_str = ""
         if bpc_probe is not None and bpc_probe.bpc < float("inf"):
             bpc_str = f" bpc={bpc_probe.recent_bpc:.2f}"
+            # Show boundary vs steady-state BPC (last 5 dialogues)
+            bdry = bpc_probe.boundary_bpcs[-5:]
+            stdy = bpc_probe.steady_bpcs[-5:]
+            if bdry and stdy:
+                avg_b = sum(bdry) / len(bdry)
+                avg_s = sum(stdy) / len(stdy)
+                bpc_str += f" bdry={avg_b:.2f} stdy={avg_s:.2f}"
 
         print(
             f"  [{label}] t={t:,} "
