@@ -11,78 +11,58 @@ Research project exploring biologically-plausible learning for next-token predic
 - **`src/step/runner.py`** — thin wrappers `run_cortex()`, `run_hierarchy()` delegating to `Topology`
 - **`src/step/data.py`** — token loading + `EOM_TOKEN`, `inject_eom_tokens()`, `STORY_BOUNDARY`
 - **`src/step/runs.py`** — run serialization: `save_run`/`load_run`/`list_runs`/`auto_name`
-- **`src/step/viz/`** — dashboard chart builders (`cards.py`, `charts.py`, `layout.py`, `build_index_html`)
+- **`src/step/viz/`** — dashboard chart builders
 - **`src/step/encoders/`** — `CharbitEncoder`, `OneHotCharEncoder`, `PositionalCharEncoder`
 - **`src/step/decoders/`** — `InvertedIndexDecoder`, `SynapticDecoder`, `DendriticDecoder`
+- **`experiments/scripts/bg_sweep.py`** — BG parameter sweep tool
 
-## Three-Region Architecture
+## Architecture
 
-### S1 (Sensory)
-- Encoder -> 32 cols, k=4, ltd=0.05 (char-level with PositionalCharEncoder, 256-dim)
+### S1 (Sensory) → S2 (Secondary) → M1 (Motor) + BasalGanglia
 
-### S2 (Secondary Sensory)
-- S1's L2/3 firing rate -> 32 cols, sliding window receptive fields
-- Feedforward: `firing_rate_l23` EMA signal S1->S2, with temporal buffer + burst gating
-- Feedback: S2->S1 apical segments (precision-weighted + thalamic-gated)
-- Surprise modulation: S1 burst rate -> SurpriseTracker -> scales S2 learning
+- **S1**: Encoder → 32 cols, k=4, ltd=0.05, PositionalCharEncoder
+- **S2**: S1 L2/3 → 32 cols, temporal buffer + burst gating, apical feedback to S1
+- **M1**: S1 L2/3 → 32 cols k=1 (winner-take-all), L5 readout thresholded at 0.3
+- **BasalGanglia**: Go/no-go gate on M1 output, learned via three-factor plasticity
 
-### M1 (Motor Cortex)
-- **`MotorRegion`** subclasses `SensoryRegion` (encoding_width=0), adds L5 output gating
-- Receives S1's L2/3, learns context->token mapping via same Hebbian/dendritic algorithm
-- **L5 readout**: per-column mean L2/3 firing rate, thresholded (default 0.3) for output
-- **k=1 (winner-take-all)**: k=1 -> 60% accuracy, k=4 -> 26%. Architecture dominates tuning.
-- Wiring: S1->M1 feedforward, S1->M1 surprise, M1->S1 apical (thalamic-gated)
+### BasalGanglia — Tuned & Working
+- **Context**: per-column precision state (1=predicted, 0=bursting) + precision fraction. NOT L2/3 firing rates (cosine=0.91 between EOM/input, indistinguishable).
+- **Signal**: Gate-error (target_gate - actual_gate) every step. Supervised for Stage 1. Avoids sparse-reward collapse from 90/10 input/EOM imbalance.
+- **Exploration**: Gaussian noise on activation (default 0.5) prevents gate collapse during early learning.
+- **Key insight**: L2/3 rates don't distinguish phases. Burst rate does (0.22 EOM vs 0.40 input). Precision columns are the right BG context — models L5/6 → striatum projection.
 
-### BasalGanglia (Go/No-Go Gating) — NEW
-- **Go/no-go gate** on M1 output, learned via dopamine (three-factor: `dw = lr * reward * eligibility_trace`)
-- Receives S1's L2/3 firing rates as context (same signal M1 sees)
-- D1/D2 pathway model: positive reward -> open gate (go), negative reward -> close gate (no-go)
-- Gate is scalar [0, 1] that multiplies M1's output_scores before speak/silent decision
-- Eligibility trace with decay=0.95 tracks which context features were active
-- Resets at story boundaries
+### Modulators
+- **SurpriseTracker**: scales learning rate at downstream regions
+- **RewardModulator**: slow consolidation gate (NOT phasic RPE). Cortex learns Hebbian; reward only gates which traces persist.
+- **ThalamicGate**: receiver-side feedback suppression until receiver stabilizes
 
-### ThalamicGate
-- **Receiver-side gating** on feedback connections (S2->S1, M1->S1)
-- `readiness = 1.0 - smoothed_burst_rate` (EMA, decay=0.95, starts closed)
-- `effective_feedback = signal * sender_confidence * receiver_readiness`
+## Motor RL Results — Stage 1 Turn-Taking
 
-### RewardModulator
-- **Dopaminergic signal** for cortical consolidation gating (NOT phasic RPE)
-- Smoothed EMA of reward, modulates Hebbian learning rate: `effective_lr = base_lr * surprise_mod * reward_mod`
-- Range [0, 2], baseline 1.0. Slow consolidation gate, not fast teaching signal.
+### BG Gating Performance
+| Dataset | Tokens | Int% | Speak% | Unr% | M1 Acc |
+|---------|--------|------|--------|------|--------|
+| TinyStories 15 stories | 10k | 0.6% | **82%** | **18%** | 74% |
+| TinyStories 31 stories | 20k | 0.6% | 74% | 26% | **81%** |
+| TinyStories 69 stories | 50k | 0.5% | 66% | 34% | 54% |
+| BabyLM synthetic | 20k | 4.0% | 71% | 29% | 73% |
 
-## Motor RL System (Active — uncommitted on main)
-
-### Turn-Taking (Stage 1) — IMPLEMENTED
-- `EOM_TOKEN = -2` injected before story boundaries + every `segment_length` tokens
-- `speak_window` pads EOM with repeated tokens so M1 has time to practice
-- Reward function: speak during EOM (+0.5), silent during input (+0.2), speak during input (-0.5), silent during EOM (-0.3), rambling past max steps (-1.0)
-- Turn-taking counters: interruptions, unresponsive, correct_speak, correct_silent, rambles
-- BasalGanglia receives reward signal directly; cortical RewardModulator is slow consolidation gate
-- CLI flags: `--reward`, `--eom`, `--eom-segment`
-
-### First BG Run Results (5k chars, segment=100, window=10)
-- BG gate oscillates 0.40-0.63, centering ~0.5 — not yet decisive
-- Interruptions ~28% (stable), unresponsive ~68% (down from 100% initial)
-- Learning rate 0.01 may be too conservative for 5k tokens
-- S1 L2/3 may not distinguish "post-EOM" from "normal input" strongly enough
+### Key Findings
+- Natural boundaries (TinyStories) >> synthetic (BabyLM): 0.6% vs 4% interruptions
+- **Sweet spot: 10-20k TinyStories** (15-31 stories). 50k degrades — 64 chars overwhelms 32 columns.
+- BG gating works immediately (71% speak even at 1k tokens)
+- ~29% unresponsive floor is M1 capacity (gate opens but output_scores < threshold), not BG
+- speak_window=20 gives 79% speak (vs 60% at win=5); M1 needs ramp-up time
+- Reward routing validated by neuroscience: phasic RPE → BG only, smoothed dopamine → cortex consolidation gate
 
 ## Key Decisions
-- **k=1 for M1**: robust to other params (lr, ltd, voltage_decay all give 58-61%)
-- **BG for gating, not reward-modulated cortical learning**: RewardModulator was scaling Hebbian weights (wrong target). BG provides learnable go/no-go gate on the actual speak decision.
-- **Reward routing (from neuroscience research)**: Phasic RPE -> BG only (fast, per-trial). Smoothed dopamine -> M1 consolidation gate (slow). Cortex learns Hebbian; reward only decides which patterns persist. Validated by songbird vocal learning: lesion Area X (BG) in juveniles -> never learn to sing.
-- **Direction 1 (RL) before Direction 2 (Chat Interface)**: M1 at 60% char accuracy, chat interface premature
-- **`surprise.py` renamed to `modulators.py`**: contains SurpriseTracker, RewardModulator, ThalamicGate
-
-## Current Work (uncommitted on main)
-- ~20 files modified/added: modulators rename, RewardModulator, EOM injection, turn-taking metrics, BasalGanglia, BG integration in topology
-- All 186 tests passing, lint clean
-- New files: `basal_ganglia.py`, `modulators.py`, `test_basal_ganglia.py`, `test_reward.py`
+- **k=1 for M1**: sweep of k={1,2,4}, k=1 gives 60% accuracy, robust to other params
+- **Precision context for BG**: L2/3 rates indistinguishable between phases; burst/precise columns are the discriminative signal
+- **Gate-error signal (supervised Stage 1)**: pure RL collapsed to "never speak" due to 90/10 imbalance. Gate-error provides gradient from both phases. Stage 2/3 will use RL.
+- **Direction 1 (RL) before Direction 2 (Chat Interface)**
 
 ## Next Steps
-- [ ] Commit current BG + reward work
-- [ ] Tune BG learning rate (try 0.05-0.1) and/or longer runs (20k+)
-- [ ] Investigate if S1 L2/3 representations differentiate EOM vs input contexts
+- [ ] Investigate 29% unresponsive floor (M1 output threshold / capacity)
+- [ ] Scale M1 columns for larger vocabularies (TinyStories 64+ chars)
 - [ ] Stage 2: coherent speech reward (BG exploratory bias + M1 consolidation)
 - [ ] Interactive REPL for debugging turn-taking
 - [ ] PFC / reasoning region (receives S2, plans multi-step)
