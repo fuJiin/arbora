@@ -156,7 +156,10 @@ class CorticalRegion:
 
         # Efference copy: predicted sensory consequence of motor output.
         # Set by set_efference_copy(), consumed (cleared) in process().
+        # Gain controls suppression strength: 1.0 = full cancellation,
+        # <1 = partial, >1 = overcompensation (amplifies mismatch).
         self._efference_copy: np.ndarray | None = None
+        self.efference_gain: float = 1.0
 
         # Column drive from last process() call (for diagnostics)
         self.last_column_drive = np.zeros(n_columns)
@@ -200,7 +203,7 @@ class CorticalRegion:
         if self._efference_copy is not None:
             ef_flat = self._efference_copy.flatten().astype(np.float64)
             predicted_drive = ef_flat @ self.ff_weights
-            neuron_drive -= predicted_drive
+            neuron_drive -= self.efference_gain * predicted_drive
             self._efference_copy = None
 
         self.last_column_drive = neuron_drive.reshape(
