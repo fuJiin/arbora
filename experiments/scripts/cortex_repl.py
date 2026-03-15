@@ -440,6 +440,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
         # is for learned turn-taking; in the REPL we control turns.
         # M1 still processes normally, we just bypass the gate filter.
         cortex.force_gate_open = True
+        motor.generating = True
         spoken_chars = []
         silent_steps = 0
 
@@ -480,6 +481,8 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                     break
 
         cortex.force_gate_open = False
+        motor.generating = False
+        motor._adaptation[:] = 0.0
 
         if spoken_chars:
             sys.stdout.write(

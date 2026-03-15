@@ -11,13 +11,13 @@ Research project exploring biologically-plausible learning for next-token predic
 - **`src/step/data.py`** — token loading: `prepare_tokens_tinydialogues()`, `prepare_tokens_personachat()`, `EOM_TOKEN`, `STORY_BOUNDARY`
 - **`src/step/decoders/`** — `InvertedIndexDecoder`, `SynapticDecoder`, `DendriticDecoder`
 - **`experiments/scripts/`** — `cortex_run.py`, `cortex_repl.py`, `td_sweep.py`, `bg_sweep.py`
-- **`experiments/checkpoints/`** — saved model checkpoints (e.g., `personachat_100k.ckpt`)
+- **`experiments/checkpoints/`** — saved model checkpoints (gitignored)
 
 ## Architecture
 
 ### S1 → S2 → M1 + BasalGanglia
 - **S1**: 128 cols, k=8, ltd=0.05, synapse_decay=1.0, PositionalCharEncoder
-- **S2**: 32 cols, temporal buffer (depth=4) + burst gating, apical feedback to S1
+- **S2**: 32 cols k=4, temporal buffer (depth=4) + burst gating, apical feedback to S1, thalamic gating
 - **M1**: 32 cols k=4, L5 readout threshold 0.3, population vote output (L5 population coding), DendriticDecoder tracked as diagnostic
 - **BG**: Go/no-go gate, three-factor plasticity, supervised gate-error (Stage 1)
 - **Modulators**: SurpriseTracker, ThalamicGate (receiver-side feedback gating)
@@ -26,6 +26,8 @@ Research project exploring biologically-plausible learning for next-token predic
 - Persistent `_in_eom`/`_eom_steps`/`_total_steps` across `run()` calls (supports single-token stepping)
 - `force_gate_open` flag for interactive use (bypasses BG gating)
 - `save_checkpoint()`/`load_checkpoint()` for full model persistence
+- `--checkpoint` flag on `cortex_run.py` for saving checkpoints after training
+- Dataset presets (`--dataset personachat`) auto-set buffer_depth=4, burst_gate, apical, gate_feedback
 
 ## cortex_repl — Interactive REPL
 
@@ -36,39 +38,35 @@ Full S1→S2→M1+BG pipeline for qualitative exploration:
 - Commands: `/help`, `/reset`, `/stats`, `/warmup N`, `/save`, `/load`
 - `--checkpoint name` for instant model loading
 - `--dataset personachat|tinydialogues` for vocab/warmup source
-
-## Datasets
-- **PersonaChat** (`AlekseyKorshuk/persona-chat`): 17.8k human-written dialogues, ~43 unique chars. Now default for REPL.
-- **TinyDialogues** (`styfeng/TinyDialogues`): GPT-generated, ~65 chars, 110k dialogues. Used for original BG/BPC work.
-- DailyDialog was preferred but broken on HuggingFace (old loading script format).
+- Vocab sample uses 100k chars when loading checkpoint (rare chars need many dialogues)
 
 ## Training Results
 
-### 100k TinyDialogues (synapse_decay=1.0)
-- BPC floor: **4.38** at 50k (random baseline 6.0)
-- Oscillates 4.38-4.98 — dialogue diversity, not catastrophic forgetting
-- S2 context discrimination 0.91, S1 0.76
+### 100k PersonaChat (k=4, full architecture)
+- S1 BPC: **5.27** (steady-state 5.38, random baseline 5.43)
+- S1 dendritic decoder: 15% accuracy
+- M1 population vote: **33%** training accuracy (steadily improving)
+- M1 dendritic decoder: 13% (insufficient capacity for M1 L2/3 patterns)
+- M1 representation: NON-TRIVIAL, context discrimination 0.942
 
-### 100k PersonaChat
-- BPC floor: **4.81** at 100k (random baseline 5.43 for 43 chars)
-- Higher burst rate (34% vs 25%) — more diverse patterns
-- Better column selectivity (0.317 vs 0.466)
-- Checkpoint saved: `experiments/checkpoints/personachat_100k.ckpt` (9.3 MB, k=1 — incompatible with current k=4)
+### M1 generation quality (REPL testing)
+- Outputs degenerate `eeeee` loops regardless of voting mechanism
+- Tested: raw frequency vote (33% train), full selectivity (13%), tempered sqrt (32%) — all produce same fixed-point at generation time
+- **Root cause**: autoregressive loop creates fixed point. Feeding M1 output back through S1 → S1 L2/3 stabilizes → M1 always sees same pattern → same output
+- M1 lacks recurrent dynamics for sequence generation
 
-### M1 output comparison (100k PersonaChat, k=4)
-- **Population vote: 33%** accuracy at 100k, steadily improving
-- **Dendritic decoder: 13%** accuracy at 100k, erratic — insufficient capacity for M1 L2/3 patterns
-- Population vote is biologically grounded (L5 population coding) and empirically superior
-- Old k=1 was degenerate (1 active column can't distinguish 43 chars with 32 cols)
+### Background: 1M PersonaChat training in progress
+- Running `personachat-k4-1m` to test if more data improves S1 representations
 
 ## Key Decisions
-- **synapse_decay=1.0**: No passive decay. Sparse encoding prevents catastrophic forgetting; decay was the real culprit.
-- **Forced BG gate in REPL**: BG is for turn-taking (when to speak), not content (what to say). REPL controls turns.
+- **synapse_decay=1.0**: No passive decay. Sparse encoding prevents catastrophic forgetting.
+- **Forced BG gate in REPL**: BG is for turn-taking (when to speak), not content. REPL controls turns.
 - **PersonaChat over TinyDialogues**: Human-written > GPT-generated for natural language patterns.
-- **S2 value unconfirmed**: Context discrimination 0.91 but no BPC ablation yet.
+- **Population vote over DendriticDecoder for M1 output**: Biologically grounded (L5 population coding) and empirically better (33% vs 13%).
+- **Selectivity normalization doesn't help generation**: The bottleneck is the autoregressive loop, not the voting mechanism.
 
 ## Next Steps (Active)
-- [ ] **Save new checkpoint + test REPL** — population vote output with k=4 confirmed superior, need fresh checkpoint and qualitative testing
+- [ ] **M1 recurrent sequence generation** — make M1's L2/3 lateral connections drive sequential state evolution so M1 produces varied output from a single "go" signal (EOM), rather than echoing S1's fixed-point input. Core architectural gap.
 - [ ] **Optimize S2 + apical feedback** — make top-down signals more useful for S1 prediction
-- [ ] Evaluate BLiMP sensitivity with tuned config
+- [ ] **Efference copy** — M1→S1 signal distinguishing self-generated from external input
 - [ ] Stage 2 coherence (content-based reward for M1)
