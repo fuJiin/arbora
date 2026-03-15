@@ -8,17 +8,17 @@ from step.cortex.sensory import SensoryRegion
 
 class TestL23SegmentInit:
     def test_segment_arrays_created(self):
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         n_syn = r.n_synapses_per_segment
         assert r.l23_seg_indices.shape == (8, 4, n_syn)
         assert r.l23_seg_perm.shape == (8, 4, n_syn)
 
     def test_segments_start_disconnected(self):
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         assert r.l23_seg_perm.max() == 0.0
 
     def test_predicted_l23_starts_empty(self):
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         assert r.predicted_l23.sum() == 0
 
     def test_sensory_region_local_connectivity(self):
@@ -37,14 +37,14 @@ class TestL23SegmentInit:
 
 class TestL23Prediction:
     def test_no_predictions_initially(self):
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.active_l23[0] = True
         pred = r._predict_l23_from_segments()
         assert pred.sum() == 0
 
     def test_prediction_with_active_segment(self):
         """Manually wire a segment and verify prediction fires."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         # Wire L2/3 neuron 0's segment 0: all synapses point to neuron 2
         r.l23_seg_indices[0, 0, :] = 2
         r.l23_seg_perm[0, 0, :] = 1.0
@@ -56,7 +56,7 @@ class TestL23Prediction:
     def test_prediction_requires_threshold(self):
         """Segment needs enough active connected synapses to fire."""
         r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            8, n_columns=4, n_l4=2, n_l23=2, k_columns=1,
             seg_activation_threshold=3,
         )
         # Wire segment: 2 synapses to neuron 2, rest to neuron 4
@@ -73,7 +73,7 @@ class TestL23Prediction:
 class TestL23SegmentLearning:
     def test_segments_grow_on_burst(self):
         """L2/3 segments should grow when column bursts."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=2)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=2)
         # Set up context: some L2/3 neurons were active
         r._pred_context_l23[0] = True
         r._pred_context_l23[2] = True
@@ -92,7 +92,7 @@ class TestL23SegmentLearning:
 
     def test_segments_reinforce_on_precise(self):
         """Correctly predicted L2/3 neurons should have segments reinforced."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=2)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=2)
         # Wire neuron 0's segment to activate from neuron 2
         r.l23_seg_indices[0, 0, :] = 2
         r.l23_seg_perm[0, 0, :] = 0.6  # above threshold
@@ -113,7 +113,7 @@ class TestL23SegmentLearning:
 
     def test_false_predictions_punished(self):
         """Predicted but inactive L2/3 neurons should have segments weakened."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=2)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=2)
         # Wire neuron 0's segment
         r.l23_seg_indices[0, 0, :] = 2
         r.l23_seg_perm[0, 0, :] = 0.6
@@ -133,7 +133,7 @@ class TestL23SegmentLearning:
 class TestL23SegmentIntegration:
     def test_predicted_l23_gets_voltage_boost(self):
         """Predicted L2/3 neurons should have higher voltage after activation."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=2)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=2)
         # Wire segment: neuron 0 predicted from neuron 2
         r.l23_seg_indices[0, 0, :] = 2
         r.l23_seg_perm[0, 0, :] = 1.0
@@ -158,7 +158,7 @@ class TestL23SegmentIntegration:
         assert r.l23_seg_perm.max() >= 0.0
 
     def test_reset_clears_predicted_l23(self):
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.predicted_l23[0] = True
         r.reset_working_memory()
         assert r.predicted_l23.sum() == 0

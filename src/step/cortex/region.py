@@ -26,6 +26,11 @@ Activation uses burst/precise distinction:
    If none predicted → burst (all neurons fire, best-match gets trace).
 4. Burst = surprise signal → grow new segment connections.
    Precise = expected → reinforce segment connections.
+
+Feedforward weights map input dimensions to L4 neuron drive. Each column
+has a structural receptive field mask; neurons in the same column share
+the mask but learn different weight patterns. Hebbian LTP/LTD on the
+feedforward synapses.
 """
 
 import numpy as np
@@ -34,11 +39,13 @@ import numpy as np
 class CorticalRegion:
     def __init__(
         self,
+        input_dim: int,
         n_columns: int,
         n_l4: int,
         n_l23: int,
         k_columns: int,
         *,
+        ltd_rate: float = 0.01,
         voltage_decay: float = 0.5,
         eligibility_decay: float = 0.95,
         synapse_decay: float = 0.999,
@@ -61,10 +68,12 @@ class CorticalRegion:
         l23_prediction_boost: float = 0.0,
         seed: int = 0,
     ):
+        self.input_dim = input_dim
         self.n_columns = n_columns
         self.n_l4 = n_l4
         self.n_l23 = n_l23
         self.k_columns = k_columns
+        self.ltd_rate = ltd_rate
         self.voltage_decay = voltage_decay
         self.eligibility_decay = eligibility_decay
         self.synapse_decay = synapse_decay
@@ -136,8 +145,156 @@ class CorticalRegion:
         self._pred_apical_context = np.zeros(0, dtype=np.float64)
         self.apical_predicted_cols = np.zeros(self.n_columns, dtype=np.bool_)
 
+        # --- Feedforward weights ---
+        col_mask = self._build_ff_mask(input_dim)
+        self.ff_mask = np.repeat(col_mask, self.n_l4, axis=1)
+        self.ff_weights = np.zeros((input_dim, self.n_l4_total))
+        self.ff_weights[self.ff_mask] = self._rng.uniform(
+            0.1, 0.5, int(self.ff_mask.sum())
+        )
+        self._col_mask = col_mask
+
+        # Efference copy: predicted sensory consequence of motor output.
+        # Set by set_efference_copy(), consumed (cleared) in process().
+        self._efference_copy: np.ndarray | None = None
+
+        # Column drive from last process() call (for diagnostics)
+        self.last_column_drive = np.zeros(n_columns)
+
         # Initialize dendritic segments
         self._init_segments()
+
+    def _build_ff_mask(self, input_dim: int) -> np.ndarray:
+        """Build structural connectivity mask: (input_dim, n_columns).
+
+        Default: full connectivity (every column sees every input dim).
+        Subclasses override for encoding-specific receptive fields.
+        """
+        return np.ones((input_dim, self.n_columns), dtype=np.bool_)
+
+    # ------------------------------------------------------------------
+    # Feedforward processing and learning
+    # ------------------------------------------------------------------
+
+    def set_efference_copy(self, encoding: np.ndarray | None) -> None:
+        """Set efference copy signal from motor output.
+
+        When set, the next process() call subtracts the predicted sensory
+        consequence from L4 drive — converting the response from "what is
+        this input?" to "what's unexpected about it?". This breaks the
+        autoregressive fixed point: the expected motor-generated input is
+        suppressed, letting residual activity drive downstream regions
+        to a new state.
+
+        Models corollary discharge in biological sensorimotor loops.
+        """
+        self._efference_copy = encoding
+
+    def process(self, encoding: np.ndarray) -> np.ndarray:
+        """Feedforward an encoding through L4 → L2/3 pipeline."""
+        flat = encoding.flatten().astype(np.float64)
+
+        neuron_drive = flat @ self.ff_weights
+
+        # Efference copy: suppress expected sensory consequence
+        if self._efference_copy is not None:
+            ef_flat = self._efference_copy.flatten().astype(np.float64)
+            predicted_drive = ef_flat @ self.ff_weights
+            neuron_drive -= predicted_drive
+            self._efference_copy = None
+
+        self.last_column_drive = neuron_drive.reshape(
+            self.n_columns, self.n_l4
+        ).max(axis=1)
+        active = self.step(neuron_drive)
+
+        self._learn_ff(flat)
+        return active
+
+    def reconstruct(
+        self,
+        columns: np.ndarray | None = None,
+        neurons: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Reconstruct encoding from active columns/neurons via ff_weights."""
+        if neurons is not None and len(neurons) > 0:
+            return self.ff_weights[:, neurons].sum(axis=1)
+
+        if columns is None:
+            columns = np.nonzero(self.active_columns)[0]
+        if len(columns) == 0:
+            return np.zeros(self.input_dim)
+
+        neuron_indices = []
+        for col in columns:
+            neuron_indices.extend(range(col * self.n_l4, (col + 1) * self.n_l4))
+        return self.ff_weights[:, neuron_indices].sum(axis=1)
+
+    def _learn_ff(self, flat_input: np.ndarray):
+        """Per-neuron Hebbian ff learning with LTD.
+
+        LTP on active neurons (the winning neuron in each active column).
+        LTD on active neurons' inactive input connections.
+        Subthreshold LTP on all neurons in inactive columns.
+        """
+        # Build active neuron mask (only winners, not all burst neurons)
+        # For learning, we want the neuron that gets the trace
+        active_neurons_f = np.zeros(self.n_l4_total)
+        for col in np.nonzero(self.active_columns)[0]:
+            l4_start = col * self.n_l4
+            l4_end = l4_start + self.n_l4
+            if self.bursting_columns[col]:
+                # Burst: trace goes to highest-voltage neuron
+                best = np.argmax(self.voltage_l4[l4_start:l4_end])
+                active_neurons_f[l4_start + best] = 1.0
+            else:
+                # Precise: the single active neuron
+                active_in_col = self.active_l4[l4_start:l4_end]
+                if active_in_col.any():
+                    active_neurons_f[l4_start + active_in_col.argmax()] = 1.0
+
+        # LTP: active input x winning neurons (modulated by neuromodulators)
+        neuromod = self.surprise_modulator * self.reward_modulator
+        ltp_rate = self.learning_rate * neuromod
+        self.ff_weights += (
+            ltp_rate
+            * flat_input[:, np.newaxis]
+            * active_neurons_f[np.newaxis, :]
+        )
+
+        # LTD: inactive input x winning neurons, local sparsity scaling
+        ltd_rate = self.ltd_rate * neuromod
+        inactive_input = 1.0 - flat_input
+        for neuron_idx in np.nonzero(active_neurons_f)[0]:
+            col = neuron_idx // self.n_l4
+            neuron_mask = self.ff_mask[:, neuron_idx]
+            # Use column mask for sparsity calculation
+            col_mask_vec = self._col_mask[:, col]
+            local_on = max(flat_input[col_mask_vec].sum(), 1.0)
+            local_off = max(inactive_input[col_mask_vec].sum(), 1.0)
+            local_scale = local_on / local_off
+            self.ff_weights[:, neuron_idx] -= (
+                ltd_rate * local_scale * inactive_input * neuron_mask
+            )
+
+        # Subthreshold: weak LTP on neurons in inactive columns
+        inactive_neurons_f = np.zeros(self.n_l4_total)
+        for col in np.nonzero(~self.active_columns)[0]:
+            l4_start = col * self.n_l4
+            inactive_neurons_f[l4_start: l4_start + self.n_l4] = 1.0
+
+        self.ff_weights += (
+            ltp_rate * 0.1
+            * flat_input[:, np.newaxis]
+            * inactive_neurons_f[np.newaxis, :]
+        )
+
+        self.ff_weights[~self.ff_mask] = 0.0
+        np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
+
+    # ------------------------------------------------------------------
+    # Dendritic segments
+    # ------------------------------------------------------------------
 
     def _init_segments(self):
         """Initialize dendritic segment arrays with random connectivity."""
@@ -255,6 +412,7 @@ class CorticalRegion:
         self._pred_context_l23[:] = False
         self._pred_context_l4[:] = False
         self.apical_predicted_cols[:] = False
+        self._efference_copy = None
         if self.has_apical:
             self._apical_context[:] = 0.0
             self._pred_apical_context[:] = 0.0

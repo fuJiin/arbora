@@ -337,10 +337,6 @@ class Topology:
             if token_id == EOM_TOKEN:
                 self._in_eom = True
                 self._eom_steps = 0
-                # Switch motor regions to generation mode
-                for _s in self._regions.values():
-                    if _s.motor:
-                        _s.region.generating = True
                 continue
 
             # Track turn-taking state
@@ -349,9 +345,6 @@ class Topology:
                 # Auto-exit EOM phase after max speaking steps
                 if self._eom_steps > _max_speak_steps:
                     self._in_eom = False
-                    for _s in self._regions.values():
-                        if _s.motor:
-                            _s.region.generating = False
 
             # -- Entry prediction + decode --
             predicted_neurons = entry_region.get_prediction(k)
@@ -576,6 +569,18 @@ class Topology:
                                 reward_modulators[conn.target].append(
                                     mod
                                 )
+
+                        # Efference copy: when M1 output is fed back as
+                        # the next input (autoregressive generation), tell
+                        # S1 what to expect so it can suppress the predicted
+                        # sensory consequence. Only when gate is forced open
+                        # (interactive generation) — during training, the
+                        # next input comes from the corpus, not M1.
+                        if m_id >= 0 and self.force_gate_open:
+                            ef_encoding = self._encoder.encode(
+                                chr(m_id) if m_id < 128 else "",
+                            )
+                            entry_region.set_efference_copy(ef_encoding)
 
                         # Train motor decoder: previous M1 L2/3 → current token
                         if (
