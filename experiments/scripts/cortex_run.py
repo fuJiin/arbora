@@ -118,12 +118,22 @@ def main():
     )
     args = parser.parse_args()
 
-    # Dataset presets: dialogue datasets imply char-level hierarchy + motor
+    # Dataset presets: dialogue datasets imply full architecture
+    # (must match REPL's build_model() for checkpoint compatibility)
     if args.dataset in ("tinydialogues", "personachat"):
         args.char_level = True
         args.hierarchy = True
         args.motor = True
         args.eom = True
+        # Only set S2 flags if user hasn't overridden them
+        if args.buffer_depth == 1:
+            args.buffer_depth = 4
+        if not args.burst_gate:
+            args.burst_gate = True
+        if not args.apical:
+            args.apical = True
+        if not args.gate_feedback:
+            args.gate_feedback = True
 
     cortex_cfg = CortexConfig()
 
