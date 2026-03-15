@@ -15,14 +15,14 @@ from step.runner import run_hierarchy
 class TestApicalInit:
     def test_no_apical_by_default(self):
         """Regions start without apical segments."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         assert not r.has_apical
         assert r.apical_seg_indices is None
 
     def test_init_apical_segments(self):
         """init_apical_segments creates arrays with correct shape."""
         r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            8, n_columns=4, n_l4=2, n_l23=2, k_columns=1,
             n_apical_segments=3, n_synapses_per_segment=8,
         )
         r.init_apical_segments(source_dim=16)
@@ -33,14 +33,14 @@ class TestApicalInit:
 
     def test_apical_indices_in_range(self):
         """All apical synapse indices should be within source_dim."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.init_apical_segments(source_dim=10)
         assert r.apical_seg_indices.max() < 10
         assert r.apical_seg_indices.min() >= 0
 
     def test_apical_perm_starts_zero(self):
         """Apical permanences start at zero (disconnected)."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.init_apical_segments(source_dim=10)
         assert r.apical_seg_perm.sum() == 0.0
 
@@ -53,14 +53,14 @@ class TestApicalInit:
 class TestApicalPrediction:
     def test_no_prediction_without_context(self):
         """No apical predictions when context is all zero."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.init_apical_segments(source_dim=8)
         r._predict_apical_columns()
         assert not r.apical_predicted_cols.any()
 
     def test_no_prediction_without_connected_synapses(self):
         """No predictions when permanences are below threshold."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.init_apical_segments(source_dim=8)
         r._apical_context[:] = 1.0  # all active
         r._predict_apical_columns()
@@ -69,7 +69,7 @@ class TestApicalPrediction:
     def test_prediction_with_active_segment(self):
         """Column predicted when apical segment has enough active connected synapses."""
         r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            8, n_columns=4, n_l4=2, n_l23=2, k_columns=1,
             seg_activation_threshold=2,
         )
         r.init_apical_segments(source_dim=8)
@@ -94,7 +94,7 @@ class TestPredictionGain:
     def test_gain_boosts_predicted_columns(self):
         """prediction_gain > 1 should amplify voltage in apical-predicted columns."""
         r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=2,
+            8, n_columns=4, n_l4=2, n_l23=2, k_columns=2,
             prediction_gain=2.0,
         )
         r.init_apical_segments(source_dim=8)
@@ -114,7 +114,7 @@ class TestPredictionGain:
     def test_no_gain_without_apical(self):
         """prediction_gain has no effect without apical segments."""
         r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=2,
+            8, n_columns=4, n_l4=2, n_l23=2, k_columns=2,
             prediction_gain=2.0,
         )
         # No init_apical_segments called
@@ -133,7 +133,7 @@ class TestApicalLearning:
     def test_grow_on_burst(self):
         """Apical segments should grow when a column bursts."""
         r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            8, n_columns=4, n_l4=2, n_l23=2, k_columns=1,
             perm_init=0.6,
         )
         r.init_apical_segments(source_dim=8)
@@ -153,7 +153,7 @@ class TestApicalLearning:
     def test_reinforce_on_precise(self):
         """Active apical segments should be reinforced on precise activation."""
         r = CorticalRegion(
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            8, n_columns=4, n_l4=2, n_l23=2, k_columns=1,
             seg_activation_threshold=2,
         )
         r.init_apical_segments(source_dim=8)
@@ -188,7 +188,7 @@ class TestApicalLearning:
 class TestApicalReset:
     def test_reset_clears_apical(self):
         """reset_working_memory clears apical context and predictions."""
-        r = CorticalRegion(n_columns=4, n_l4=2, n_l23=2, k_columns=1)
+        r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         r.init_apical_segments(source_dim=8)
         r._apical_context[:] = 1.0
         r.apical_predicted_cols[:] = True
