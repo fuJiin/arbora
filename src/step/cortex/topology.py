@@ -700,7 +700,6 @@ class Topology:
             if isinstance(r, MotorRegion):
                 region_data["_col_token_counts"] = r._col_token_counts
                 region_data["_col_token_map"] = r._col_token_map
-                region_data["_token_freq"] = r._token_freq
 
             if s.basal_ganglia is not None:
                 region_data["bg_go_weights"] = s.basal_ganglia.go_weights
@@ -776,8 +775,6 @@ class Topology:
             ):
                 r._col_token_counts = region_data["_col_token_counts"]
                 r._col_token_map[:] = region_data["_col_token_map"]
-                if "_token_freq" in region_data:
-                    r._token_freq = region_data["_token_freq"]
 
             if (
                 s.basal_ganglia is not None
