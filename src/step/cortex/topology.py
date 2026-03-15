@@ -482,13 +482,13 @@ class Topology:
                         # Compute output from both methods for comparison
                         pop_id, pop_conf = motor_region.get_population_output()
                         if s.motor_decoder is not None:
-                            dec_id, dec_conf = (
+                            dec_id, _dec_conf = (
                                 motor_region.get_decoded_output(
                                     s.motor_decoder,
                                 )
                             )
                         else:
-                            dec_id, dec_conf = (-1, 0.0)
+                            dec_id = -1
 
                         # Population vote is primary: biologically grounded
                         # (L5 population coding) and empirically better.
@@ -700,6 +700,7 @@ class Topology:
             if isinstance(r, MotorRegion):
                 region_data["_col_token_counts"] = r._col_token_counts
                 region_data["_col_token_map"] = r._col_token_map
+                region_data["_token_freq"] = r._token_freq
 
             if s.basal_ganglia is not None:
                 region_data["bg_go_weights"] = s.basal_ganglia.go_weights
@@ -775,6 +776,8 @@ class Topology:
             ):
                 r._col_token_counts = region_data["_col_token_counts"]
                 r._col_token_map[:] = region_data["_col_token_map"]
+                if "_token_freq" in region_data:
+                    r._token_freq = region_data["_token_freq"]
 
             if (
                 s.basal_ganglia is not None

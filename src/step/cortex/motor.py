@@ -50,6 +50,8 @@ class MotorRegion(SensoryRegion):
         self._col_token_counts: list[dict[int, int]] = [
             {} for _ in range(n_columns)
         ]
+        # Global token frequencies (for selectivity normalization)
+        self._token_freq: dict[int, int] = {}
         # Cached best mapping: col → token_id (-1 = unassigned)
         self._col_token_map = np.full(n_columns, -1, dtype=np.int64)
 
@@ -73,12 +75,21 @@ class MotorRegion(SensoryRegion):
 
         Called each step with the actual token_id. Active columns
         accumulate counts for this token, building the motor map.
+
+        The cached map uses selectivity (count / global_freq) rather
+        than raw frequency, so columns specialize for tokens they're
+        *distinctive* for, not just the most common corpus token.
         """
+        self._token_freq[token_id] = self._token_freq.get(token_id, 0) + 1
         for col in np.nonzero(self.active_columns)[0]:
             counts = self._col_token_counts[col]
             counts[token_id] = counts.get(token_id, 0) + 1
-            # Update cached map for this column
-            self._col_token_map[col] = max(counts, key=counts.get)
+            # Selectivity: which token does this column fire for
+            # disproportionately often relative to corpus frequency?
+            self._col_token_map[col] = max(
+                counts,
+                key=lambda tid: counts[tid] / max(self._token_freq.get(tid, 1), 1),
+            )
 
     def get_output(self) -> tuple[int, float]:
         """Return (predicted_token_id, confidence).
@@ -104,12 +115,15 @@ class MotorRegion(SensoryRegion):
         return (token_id, confidence)
 
     def get_population_output(self) -> tuple[int, float]:
-        """Return (predicted_token_id, confidence) via population vote.
+        """Return (predicted_token_id, confidence) via selectivity vote.
 
-        All active columns above threshold vote for their most-frequent
-        token. The token with the most votes wins. Models L5 population
-        coding: the motor command is encoded by the *pattern* of active
-        columns, not any single column.
+        All active columns above threshold vote for their most-selective
+        token (highest count/global_freq ratio). Votes are weighted by
+        column output score x selectivity, so columns that are strong
+        *and* distinctive for a token dominate the vote.
+
+        Models L5 population coding with column specialization: motor
+        neurons vote based on what they're tuned for, not corpus frequency.
 
         Returns (-1, 0.0) if no column is above threshold or no votes.
         """
@@ -117,16 +131,20 @@ class MotorRegion(SensoryRegion):
         if not above.any():
             return (-1, 0.0)
 
-        # Tally votes from all above-threshold columns
+        # Tally selectivity-weighted votes from active columns
         votes: dict[int, float] = {}
         for col in np.nonzero(above)[0]:
             token_id = int(self._col_token_map[col])
             if token_id < 0:
                 continue
-            # Weight vote by column's output score
+            counts = self._col_token_counts[col]
+            col_count = counts.get(token_id, 0)
+            global_freq = max(self._token_freq.get(token_id, 1), 1)
+            selectivity = col_count / global_freq
+            # Weight: output score * selectivity
             votes[token_id] = (
                 votes.get(token_id, 0.0)
-                + float(self.output_scores[col])
+                + float(self.output_scores[col]) * selectivity
             )
 
         if not votes:
