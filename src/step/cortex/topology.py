@@ -337,6 +337,10 @@ class Topology:
             if token_id == EOM_TOKEN:
                 self._in_eom = True
                 self._eom_steps = 0
+                # Switch motor regions to generation mode
+                for _s in self._regions.values():
+                    if _s.motor:
+                        _s.region.generating = True
                 continue
 
             # Track turn-taking state
@@ -345,6 +349,9 @@ class Topology:
                 # Auto-exit EOM phase after max speaking steps
                 if self._eom_steps > _max_speak_steps:
                     self._in_eom = False
+                    for _s in self._regions.values():
+                        if _s.motor:
+                            _s.region.generating = False
 
             # -- Entry prediction + decode --
             predicted_neurons = entry_region.get_prediction(k)
