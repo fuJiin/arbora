@@ -528,8 +528,12 @@ def main():
         else prepare_tokens_tinydialogues
     )
 
+    # Need enough chars to discover full alphabet (rare chars like digits
+    # only appear after many dialogues). 100k when loading checkpoint,
+    # smaller sample otherwise since warmup will cover it.
+    vocab_size = 100000 if args.checkpoint else 10000
     print(f"{DIM}Loading vocabulary from {args.dataset}...{RESET}")
-    sample = load_fn(1000, speak_window=5)
+    sample = load_fn(vocab_size, speak_window=5)
     alphabet = sorted({ch for _, ch in sample if _ >= 0})
     alphabet_str = "".join(alphabet)
     print(f"{DIM}Vocab: {len(alphabet)} chars{RESET}")
