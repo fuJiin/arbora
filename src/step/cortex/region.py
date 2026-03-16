@@ -112,6 +112,10 @@ class CorticalRegion:
         # Dopaminergic reward signal: gates eligibility consolidation.
         self.reward_modulator: float = 1.0
 
+        # Learning gate: set False to freeze all plasticity (ff, segments, apical).
+        # Forward pass still runs — region processes input but doesn't learn.
+        self.learning_enabled: bool = True
+
         self.n_l4_total: int = n_columns * n_l4
         self.n_l23_total = n_columns * n_l23
 
@@ -220,7 +224,8 @@ class CorticalRegion:
         )
         active = self.step(neuron_drive)
 
-        self._learn_ff(flat)
+        if self.learning_enabled:
+            self._learn_ff(flat)
         return active
 
     def reconstruct(
@@ -526,13 +531,14 @@ class CorticalRegion:
         self._activate_l23(top_cols)
 
         # 8. Learn (dendritic segment permanence updates)
-        self._learn()
+        if self.learning_enabled:
+            self._learn()
 
-        # 8b. Apical gain learning: slow Hebbian on gain weights.
-        #     Strengthen connections from active context → active neurons.
-        #     10x slower than feedforward to prevent sender disruption.
-        if self.has_apical and self._apical_context.any():
-            self._learn_apical_gain()
+            # 8b. Apical gain learning: slow Hebbian on gain weights.
+            #     Strengthen connections from active context → active neurons.
+            #     10x slower than feedforward to prevent sender disruption.
+            if self.has_apical and self._apical_context.any():
+                self._learn_apical_gain()
 
         # 9. Update eligibility traces for newly active neurons
         self._update_traces()

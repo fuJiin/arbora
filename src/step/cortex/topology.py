@@ -57,6 +57,9 @@ class RunMetrics:
     bpc_per_dialogue: list[float] = field(default_factory=list)
     bpc_boundary: list[float] = field(default_factory=list)
     bpc_steady: list[float] = field(default_factory=list)
+    # Centroid-based BPC (non-learned, for comparison)
+    centroid_bpc: float = 0.0
+    centroid_bpc_recent: float = 0.0
     elapsed_seconds: float = 0.0
     representation: dict = field(default_factory=dict)
 
@@ -90,6 +93,7 @@ class Connection:
     buffer_depth: int = 1
     burst_gate: bool = False
     thalamic_gate: ThalamicGate | None = None
+    enabled: bool = True
     _buffer: np.ndarray | None = field(default=None, repr=False)
     _buffer_pos: int = 0
 
@@ -111,11 +115,15 @@ class Topology:
         encoder: Encoder,
         *,
         enable_timeline: bool = False,
+        timeline_interval: int = 1,
         diagnostics_interval: int = 100,
+        decoder_perm_decay: float = 0.9999,
     ):
         self._encoder = encoder
         self._enable_timeline = enable_timeline
+        self._timeline_interval = max(1, timeline_interval)
         self._diagnostics_interval = diagnostics_interval
+        self._decoder_perm_decay = decoder_perm_decay
         self._regions: dict[str, _RegionState] = {}
         self._connections: list[Connection] = []
         self._entry_name: str | None = None
@@ -127,6 +135,34 @@ class Topology:
         self.force_gate_open = False
         # Tracks total steps across run() calls (BG skips t=0 globally)
         self._total_steps = 0
+
+    # ------------------------------------------------------------------
+    # Stage configuration API
+    # ------------------------------------------------------------------
+
+    def freeze_region(self, name: str) -> None:
+        """Disable all learning in a region (forward pass still runs)."""
+        self._regions[name].region.learning_enabled = False
+
+    def unfreeze_region(self, name: str) -> None:
+        """Re-enable learning in a region."""
+        self._regions[name].region.learning_enabled = True
+
+    def disable_connection(self, source: str, target: str, kind: str) -> None:
+        """Disable a specific connection (signal stops flowing)."""
+        for conn in self._connections:
+            if conn.source == source and conn.target == target and conn.kind == kind:
+                conn.enabled = False
+                return
+        raise ValueError(f"No {kind} connection {source}->{target}")
+
+    def enable_connection(self, source: str, target: str, kind: str) -> None:
+        """Re-enable a specific connection."""
+        for conn in self._connections:
+            if conn.source == source and conn.target == target and conn.kind == kind:
+                conn.enabled = True
+                return
+        raise ValueError(f"No {kind} connection {source}->{target}")
 
     # ------------------------------------------------------------------
     # Builder API
@@ -174,6 +210,7 @@ class Topology:
                 source_dim=region.n_l23_total,
                 n_segments=16,
                 n_synapses=48,
+                perm_decay=self._decoder_perm_decay,
             )
 
         if state.motor:
@@ -181,6 +218,7 @@ class Topology:
                 source_dim=region.n_l23_total,
                 n_segments=16,
                 n_synapses=48,
+                perm_decay=self._decoder_perm_decay,
             )
 
         self._regions[name] = state
@@ -449,11 +487,13 @@ class Topology:
         metrics: dict[str, RunMetrics] = {
             name: RunMetrics() for name in self._regions
         }
-        # BPC probe (entry region only, uses dendritic decoder)
+        # BPC probes (entry region only)
         bpc_probe = None
         if entry_state.dendritic_decoder:
             from step.probes.bpc import BPCProbe
             bpc_probe = BPCProbe()
+        from step.probes.centroid_bpc import CentroidBPCProbe
+        centroid_probe = CentroidBPCProbe(source_dim=entry_region.n_l23_total)
         # Per-surprise-connection modulator lists, keyed by target name
         surprise_modulators: dict[str, list[float]] = {}
         thalamic_readiness: dict[str, list[float]] = {}
@@ -478,6 +518,7 @@ class Topology:
             if token_id == STORY_BOUNDARY:
                 if bpc_probe is not None:
                     bpc_probe.dialogue_boundary()
+                centroid_probe.dialogue_boundary()
                 for s in self._regions.values():
                     s.region.reset_working_memory()
                     s.rep_tracker.reset_context()
@@ -537,12 +578,15 @@ class Topology:
                 else:
                     # Find feedforward source
                     for conn in self._connections:
-                        if conn.target == name and conn.kind == "feedforward":
+                        if (conn.target == name and conn.kind == "feedforward"
+                                and conn.enabled):
                             s.region.process(self._get_ff_signal(conn))
                             break
 
             # -- Inter-region signals (after all regions processed) --
             for conn in self._connections:
+                if not conn.enabled:
+                    continue
                 src = self._regions[conn.source].region
                 tgt = self._regions[conn.target].region
 
@@ -579,7 +623,7 @@ class Topology:
                     )
                 if s.diagnostics is not None and is_metric_step:
                     s.diagnostics.step(t, s.region)
-                if s.timeline is not None:
+                if s.timeline is not None and t % self._timeline_interval == 0:
                     s.timeline.capture(
                         len(s.timeline.frames),
                         s.region,
@@ -774,6 +818,9 @@ class Topology:
                     token_id, entry_region.active_l23,
                     entry_state.dendritic_decoder,
                 )
+            if is_metric_step and t > 0:
+                centroid_probe.step(token_id, prev_l23)
+            centroid_probe.observe(token_id, prev_l23)
 
             # -- Decoder training (every step — cheap, drives learning) --
             if token_id not in entry_state.decode_index._token_id_to_idx:
@@ -798,6 +845,7 @@ class Topology:
                     t, start, entry_name, metrics, surprise_modulators,
                     thalamic_readiness, reward_modulators, rolling_window,
                     show_predictions, prediction_log, bpc_probe,
+                    centroid_probe,
                 )
 
         elapsed = time.monotonic() - start
@@ -821,6 +869,12 @@ class Topology:
             entry_m.bpc_per_dialogue = bpc_probe.dialogue_bpcs
             entry_m.bpc_boundary = bpc_probe.boundary_bpcs
             entry_m.bpc_steady = bpc_probe.steady_bpcs
+
+        # Store centroid BPC
+        centroid_probe.dialogue_boundary()
+        entry_m = metrics[entry_name]
+        entry_m.centroid_bpc = centroid_probe.bpc
+        entry_m.centroid_bpc_recent = centroid_probe.recent_bpc
 
         # Print representation reports
         if len(self._regions) == 1:
@@ -1092,6 +1146,7 @@ class Topology:
         show_predictions: int,
         prediction_log: list[tuple[str, ...]],
         bpc_probe: object = None,
+        centroid_probe: object = None,
     ):
         entry_metrics = metrics[entry_name]
         entry_diag = self._regions[entry_name].diagnostics
@@ -1214,6 +1269,8 @@ class Topology:
                 avg_b = sum(bdry) / len(bdry)
                 avg_s = sum(stdy) / len(stdy)
                 bpc_str += f" bdry={avg_b:.2f} stdy={avg_s:.2f}"
+        if centroid_probe.n_tokens > 1 and centroid_probe.bpc < float("inf"):
+            bpc_str += f" cbpc={centroid_probe.recent_bpc:.2f}"
 
         print(
             f"  [{label}] t={t:,} "

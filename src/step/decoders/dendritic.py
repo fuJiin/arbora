@@ -30,6 +30,7 @@ class DendriticDecoder:
         perm_init: float = 0.6,
         perm_increment: float = 0.2,
         perm_decrement: float = 0.05,
+        perm_decay: float = 0.9999,
         seed: int = 0,
     ):
         self.source_dim = source_dim
@@ -40,6 +41,7 @@ class DendriticDecoder:
         self.perm_init = perm_init
         self.perm_increment = perm_increment
         self.perm_decrement = perm_decrement
+        self.perm_decay = perm_decay
         self._rng = np.random.default_rng(seed)
         self._source_pool = np.arange(source_dim)
 
@@ -80,6 +82,12 @@ class DendriticDecoder:
 
         indices, perm = self._neurons[token_id]
         self._grow_best_segment(indices, perm, ctx)
+
+        # Passive decay on ALL neurons: permanences drift toward zero so
+        # stale segments (including for unobserved tokens) free up capacity.
+        if self.perm_decay < 1.0:
+            for _, (_, p) in self._neurons.items():
+                p *= self.perm_decay
 
     def decode(self, l23_state: np.ndarray, k: int = 5) -> list[int]:
         """Return top-k token predictions given current L2/3 state."""
