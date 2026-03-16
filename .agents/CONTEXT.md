@@ -46,29 +46,32 @@ Research project exploring biologically-plausible learning for next-token predic
 - 79 words with 50+ occurrences in 100k — much better repetition than PersonaChat
 - Child-directed speech: simple vocab, avg word length 4.1 (matches S2 buffer_depth=4)
 
+### S2 architecture sweep results (BabyLM 100k, 6 configs)
+- **32c/k4/buf4/burst is the best** — only config where S2 beats S1 at char prediction (5.57 vs 5.90 BPC)
+- More columns hurts: 64c→6.2, 128c→7.2 BPC. Larger ff_weights needs more data than 100k.
+- No burst gating (64c/k8) has most consistent words (276) but worse BPC — overwhelmed by redundant S1 signal
+- Deeper buffer (buf8) doesn't help — avg word length 4.1 matches buf4
+- **Zero selective columns in all configs** — word representation is fundamentally distributed
+- **Conclusion**: 32c/k4 is the sweet spot. Don't scale columns — build S3 on top.
+
 ### M1 token map collapse (diagnosed 2026-03-16)
 - Column→token mapping collapsed to ~7 high-frequency chars
 - **Tabled**: needs babbling phases, waiting for S2/S3
 
+### Performance (optimized 2026-03-16)
+- **340 tok/s** with Numba JIT kernels (was 247). 100k chars in ~5 min.
+- Numba `@njit` on: `predict_segments`, `grow_segment`, `adapt_segments_batch`
+- Graceful fallback to NumPy if numba not installed
+
 ## Key Decisions
-- **BabyLM for S2 tuning**: Better word repetition profile than PersonaChat (79 words with 50+ occ vs handful)
-- **Architecture before scale**: Get S2↔S3 interface right at 100k, then scale to 1M+. Avoid over-investing in S2 config that doesn't compose with S3.
+- **BabyLM for S2 tuning**: Better word repetition profile than PersonaChat
+- **32c/k4 S2 is the sweet spot**: More columns doesn't help at 100k scale. Distributed co-activation is the right abstraction.
+- **Architecture before scale**: Get S2↔S3 interface right at 100k, then scale to 1M+.
 - **S2/S3 before M1 babbling**: Higher-level representations are the blocker for useful M1 generation.
 - **Efference copy over neural adaptation**: Architecturally consistent, no special-case behavior.
-- **ff machinery in CorticalRegion**: All regions process input via ff_weights.
-
-## In Progress
-- **S2 architecture sweep running** (`s2_sweep.py`): 6 configs on BabyLM 100k
-  - S2 columns: 32 (baseline), 64, 128
-  - S2 k: 4, 8, 16 (proportional)
-  - Buffer depth: 4, 8
-  - Burst gating: on/off
-  - Note: M1→S1 apical skipped when S2/M1 dims differ (single apical source limitation)
 
 ## Next Steps (Priority Order)
-- [ ] **Analyze S2 sweep results** — determine if more columns improve selectivity or if distributed co-activation is the right abstraction level
-- [ ] **Build minimal S3** — higher-level region on top of winning S2 config. Tests what S3 needs from S2.
+- [ ] **Build minimal S3** — higher-level region on top of S2's 32c/k4 distributed word patterns. What abstraction does S3 learn?
 - [ ] **Scale BabyLM training** — 1M+ chars once S2↔S3 architecture is validated
 - [ ] **M1 babbling phases** — staged motor exploration once S2/S3 provide useful representations
 - [ ] **Feedback gating** — adaptive S2→S1 once S2 is demonstrably useful
-- [ ] **Performance (Numba)** — `@njit` on segment hot loops when needed
