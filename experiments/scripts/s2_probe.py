@@ -79,17 +79,17 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load data — use 100k sample for vocab to match checkpoint alphabet
-    print("Loading vocabulary (PersonaChat 100k for checkpoint compat)...")
-    vocab_tokens = prepare_tokens_personachat(100000, speak_window=5)
-    alphabet = sorted({ch for _, ch in vocab_tokens if _ >= 0})
-
+    # Load data — vocab must match checkpoint's training dataset
     if args.dataset == "babylm":
         from step.data import prepare_tokens_charlevel
-        print(f"Loading BabyLM probe data ({args.chars} chars)...")
+        print("Loading BabyLM vocabulary + probe data...")
+        vocab_tokens = prepare_tokens_charlevel(100000, dataset="babylm")
+        alphabet = sorted({ch for _, ch in vocab_tokens if _ >= 0})
         tokens = prepare_tokens_charlevel(args.chars, dataset="babylm")
     else:
-        print(f"Loading PersonaChat probe data ({args.chars} chars)...")
+        print("Loading PersonaChat vocabulary + probe data...")
+        vocab_tokens = prepare_tokens_personachat(100000, speak_window=5)
+        alphabet = sorted({ch for _, ch in vocab_tokens if _ >= 0})
         tokens = prepare_tokens_personachat(args.chars, speak_window=5)
 
     # Build model and load checkpoint
