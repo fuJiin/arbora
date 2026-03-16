@@ -54,6 +54,9 @@ class TrainingStage:
     # Force M1 active every step (not just EOM phase)
     force_motor_active: bool = False
 
+    # Reward source: "turn_taking" (default) or "word" (S2 recognition)
+    reward_source: str = "turn_taking"
+
     def configure(self, topology) -> None:
         """Apply this stage's configuration to a Topology."""
         # Freeze/unfreeze regions
@@ -69,6 +72,19 @@ class TrainingStage:
             if state.motor:
                 state.region.babbling_noise = self.babbling_noise
         topology.force_gate_open = self.force_motor_active
+
+        # Reward source configuration
+        if self.reward_source == "word":
+            # Find S2 to get column count
+            s2_cols = 32  # default
+            for name, state in topology._regions.items():
+                if name == "S2":
+                    s2_cols = state.region.n_columns
+                    break
+            from step.cortex.reward import WordReward
+            topology.set_reward_source(WordReward(s2_cols))
+        else:
+            topology.set_reward_source(None)  # default turn-taking
 
         # Enable/disable connections
         for sc in self.connections:
@@ -170,4 +186,7 @@ GUIDED_BABBLING_STAGE = TrainingStage(
     connections=_guided_connections(),
     load_checkpoint="stage2_babbling",
     save_checkpoint="stage3_guided",
+    babbling_noise=0.5,  # 50% random exploration, 50% learned
+    force_motor_active=True,
+    reward_source="word",
 )

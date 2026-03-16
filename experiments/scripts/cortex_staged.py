@@ -106,10 +106,23 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
 
 
 def load_data(n_tokens):
-    """Load BabyLM dataset with EOM injection."""
-    tokens = prepare_tokens_charlevel(n_tokens, dataset="babylm")
-    alphabet = sorted({ch for _, ch in tokens if _ >= 0})
+    """Load BabyLM dataset with EOM injection.
+
+    Always samples at least 100k chars to discover the full alphabet,
+    ensuring consistent encoder dimensions across stages/checkpoints.
+    """
+    # Discover full alphabet from a large sample — need enough to find
+    # all chars (rare chars only appear after many documents)
+    vocab_sample = max(n_tokens, 1_000_000)
+    all_tokens = prepare_tokens_charlevel(vocab_sample, dataset="babylm")
+    alphabet = sorted({ch for _, ch in all_tokens if _ >= 0})
     encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
+
+    # Use only the requested amount for training
+    if n_tokens < vocab_sample:
+        tokens = all_tokens[:n_tokens]
+    else:
+        tokens = all_tokens
     tokens = inject_eom_tokens(tokens, segment_length=200)
     return tokens, encoder
 
