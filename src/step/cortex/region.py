@@ -152,7 +152,7 @@ class CorticalRegion:
         self.apical_seg_indices: np.ndarray | None = None
         self.apical_seg_perm: np.ndarray | None = None
         self._apical_context = np.zeros(0, dtype=np.float64)
-        self._pred_apical_context = np.zeros(0, dtype=np.float64)
+        # _pred_apical_context removed — apical is now pure gain modulation
         self.apical_predicted_cols = np.zeros(self.n_columns, dtype=np.bool_)
 
         # --- Feedforward weights ---
@@ -359,37 +359,30 @@ class CorticalRegion:
                     l23_pool, n_syn, replace=len(l23_pool) < n_syn
                 )
 
-    def init_apical_segments(self, source_dim: int):
-        """Initialize apical segments sourcing from a higher region's L2/3.
+    def init_apical_context(self, source_dim: int):
+        """Initialize apical context for gain modulation from a higher region.
 
         Called after the higher region is created, since its size isn't
-        known at construction time. Each L4 neuron gets n_apical_segments
-        segments with synapses sampling from the source population.
+        known at construction time. Sets up the context buffer for
+        receiving continuous firing rate signals.
+
+        No dendritic segments — apical feedback is pure gain modulation,
+        not pattern-matched prediction. This prevents the instructive
+        feedback loop where segment learning creates sender-receiver
+        dependency that disrupts the sender's representations.
         """
         self._apical_source_dim = source_dim
-        n = self.n_l4_total
-        n_syn = self.n_synapses_per_segment
-
-        self.apical_seg_indices = np.zeros(
-            (n, self.n_apical_segments, n_syn), dtype=np.int32
-        )
-        self.apical_seg_perm = np.zeros((n, self.n_apical_segments, n_syn))
-
-        pool = np.arange(source_dim)
-        for i in range(n):
-            for s in range(self.n_apical_segments):
-                self.apical_seg_indices[i, s] = self._rng.choice(
-                    pool, n_syn, replace=source_dim < n_syn
-                )
-
         self._apical_context = np.zeros(source_dim, dtype=np.float64)
-        self._pred_apical_context = np.zeros(source_dim, dtype=np.float64)
-        self.apical_predicted_cols[:] = False
+
+    # Keep old name as alias for backward compat (topology.connect uses it)
+    def init_apical_segments(self, source_dim: int):
+        """Backward-compatible alias for init_apical_context."""
+        self.init_apical_context(source_dim)
 
     @property
     def has_apical(self) -> bool:
-        """Whether apical segments have been initialized."""
-        return self.apical_seg_indices is not None
+        """Whether apical context has been initialized."""
+        return self._apical_source_dim > 0
 
     def predict_neuron(self, l4_idx: int, source_idx: int, segment_type: str = "fb"):
         """Set up a dendritic segment that fires when source_idx is active.
@@ -432,7 +425,6 @@ class CorticalRegion:
         self._efference_copy = None
         if self.has_apical:
             self._apical_context[:] = 0.0
-            self._pred_apical_context[:] = 0.0
 
     def _predict_from_segments(self) -> np.ndarray:
         """Check which L4 neurons have active dendritic segments.
@@ -498,18 +490,22 @@ class CorticalRegion:
         #    (current active state is from the previous step)
         self._pred_context_l23[:] = self.active_l23
         self._pred_context_l4[:] = self.active_l4
-        if self.has_apical:
-            self._pred_apical_context[:] = self._apical_context
+        # Apical context used directly as gain in step 5a — no pred snapshot needed.
 
         # 4. Feedforward drive to L4 neurons
         self.voltage_l4 += drive
 
-        # 5a. Apical gating: amplify drive for columns with top-down predictions.
-        #     Models cortico-cortical feedback via apical dendrites — higher
-        #     region context biases column competition toward expected columns.
-        if self.prediction_gain > 1.0 and self.apical_predicted_cols.any():
-            gain_mask = np.repeat(self.apical_predicted_cols, self.n_l4)
-            self.voltage_l4[gain_mask] *= self.prediction_gain
+        # 5a. Apical gating: precision modulation from top-down context.
+        #     Higher region's activity level scales how sharply this region
+        #     discriminates between columns. Pure gain control — amplifies
+        #     existing drive differences without selecting specific winners.
+        #     Models cortical feedback as precision weighting (predictive coding).
+        if self.has_apical and self._apical_context.any():
+            # Scalar precision: how active is the higher region? [0, 1]
+            ctx_strength = float(np.mean(self._apical_context))
+            # Scale drive contrast: gain > 1 sharpens competition
+            gain = 1.0 + (self.prediction_gain - 1.0) * ctx_strength
+            self.voltage_l4 *= gain
 
         # 5b. Predicted neurons get a voltage boost (they're primed)
         self.voltage_l4[self.predicted_l4] += self.fb_boost
@@ -607,7 +603,8 @@ class CorticalRegion:
         """Determine which neurons are in predictive state via segments."""
         self.predicted_l4 = self._predict_from_segments()
         self.predicted_l23 = self._predict_l23_from_segments()
-        self._predict_apical_columns()
+        # Apical context is now used as continuous gain modulation in step(),
+        # not through segment-based column prediction.
 
     def _select_columns(self, scores: np.ndarray) -> np.ndarray:
         """Select top-k columns by max neuron score."""
@@ -803,8 +800,7 @@ class CorticalRegion:
                 reinforce=False,
             )
 
-        # Apical segment learning (same pattern: grow/reinforce/punish)
-        self._learn_apical_segments()
+        # Apical feedback is now pure gain modulation — no segment learning.
 
     # ------------------------------------------------------------------
     # Generic segment operations (shared by L4 and L2/3 segments)
