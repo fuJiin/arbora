@@ -37,23 +37,32 @@ Research project exploring biologically-plausible learning for next-token predic
 
 ## Current State
 
+### S3 built and probed (babylm_s3_100k checkpoint)
+- S3: 32c/k4, buf=8 on S2 L2/3, burst gating, apical feedback to S2
+- **S3 BPC: 5.52** — almost matches S1 (5.47), better than S2 (5.75)
+- **S3 consistent words: 223** (vs S2's 109). 2x improvement with same column count.
+- S3's top words are topic-specific: "mosquitoes", "tickling", "microphone", "catherine's"
+- S2's top words are phonetically distinctive: "yummy", "chomp", "vroom"
+- **Hierarchy is working**: each level extracts increasingly abstract features
+- S3→S2 thalamic gate at 0.35-0.47 after 100k — still slowly opening
+
 ### S2 settled (sweep complete)
 - 32c/k4/buf4/burst is the sweet spot — only config where S2 beats S1 at BPC
-- More columns hurts (needs more data). Word representation is fundamentally distributed.
-- BabyLM (child-directed speech, 53.5M chars) is the right training dataset.
+- Word representation is fundamentally distributed (no selective columns in any config)
 
 ### M1 tabled
-- Token map collapsed to ~7 frequent chars. Needs babbling phases.
-- Waiting for S2/S3 to provide useful intent signals.
+- Token map collapsed to ~7 frequent chars. Needs babbling phases after sensory hierarchy is scaled.
 
 ## Key Decisions
-- **BabyLM for training**: Better word repetition than PersonaChat for S2+ regions
-- **32c/k4 S2**: Distributed co-activation, not individual word detectors
-- **PFC ≠ M2**: Broca's handles sequencing, PFC handles intent/reasoning. Different connectivity.
-- **Architecture before scale**: Validate S2↔S3 at 100k, then scale to 1M+
+- **BabyLM for training**: Child-directed speech, 53.5M chars, better word repetition than PersonaChat
+- **32c/k4 for S2 and S3**: Distributed co-activation works well at this scale
+- **S3 buf=8**: Spans ~8 words (one phrase). Captures topic-level patterns.
+- **PFC ≠ M2**: Broca's handles sequencing, PFC handles intent/reasoning
+- **Architecture before scale**: Validate hierarchy at 100k, then scale to 1M+
 
 ## Next Steps
-- [ ] **Build S3** — association region on S2's word patterns. Temporal buffer of S2 L2/3, similar architecture. Probe for topic/theme consistency.
-- [ ] **Probe S3** — what abstractions does it learn? Informs PFC vs M2 decision.
-- [ ] **Scale BabyLM** — 1M+ chars once S2↔S3 validated
-- [ ] **M1 babbling** — after S3 provides useful representations
+- [ ] **Scale BabyLM training** — 1M+ chars with S1→S2→S3. Sensory hierarchy validated, needs more data for S3 to mature.
+- [ ] **Dashboard updates** — add S3 panels, 3-region hierarchy comparison, word selectivity viz
+- [ ] **S3→S2 apical feedback tuning** — gate is barely open at 100k. May need more training or lower threshold.
+- [ ] **M1 babbling** — staged motor exploration once sensory hierarchy is scaled
+- [ ] **PFC/M2 planning** — design intent→sequencing→output pipeline
