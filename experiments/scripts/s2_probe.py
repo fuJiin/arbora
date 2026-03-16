@@ -72,13 +72,25 @@ def main():
         "--chars", type=int, default=20000,
         help="Number of corpus chars to run through",
     )
+    parser.add_argument(
+        "--dataset", default="personachat",
+        choices=["personachat", "babylm"],
+        help="Dataset to probe with",
+    )
     args = parser.parse_args()
 
     # Load data — use 100k sample for vocab to match checkpoint alphabet
-    print("Loading PersonaChat...")
+    print("Loading vocabulary (PersonaChat 100k for checkpoint compat)...")
     vocab_tokens = prepare_tokens_personachat(100000, speak_window=5)
     alphabet = sorted({ch for _, ch in vocab_tokens if _ >= 0})
-    tokens = prepare_tokens_personachat(args.chars, speak_window=5)
+
+    if args.dataset == "babylm":
+        from step.data import prepare_tokens_charlevel
+        print(f"Loading BabyLM probe data ({args.chars} chars)...")
+        tokens = prepare_tokens_charlevel(args.chars, dataset="babylm")
+    else:
+        print(f"Loading PersonaChat probe data ({args.chars} chars)...")
+        tokens = prepare_tokens_personachat(args.chars, speak_window=5)
 
     # Build model and load checkpoint
     cortex, encoder, s1, s2, m1 = build_model(alphabet)

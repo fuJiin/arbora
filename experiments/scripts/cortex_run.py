@@ -101,7 +101,7 @@ def main():
         "--dataset",
         type=str,
         default=None,
-        choices=["tinydialogues", "personachat"],
+        choices=["tinydialogues", "personachat", "babylm"],
         help="Use a specific dataset (implies --char-level --hierarchy --motor --eom)",
     )
     parser.add_argument(
@@ -120,7 +120,7 @@ def main():
 
     # Dataset presets: dialogue datasets imply full architecture
     # (must match REPL's build_model() for checkpoint compatibility)
-    if args.dataset in ("tinydialogues", "personachat"):
+    if args.dataset in ("tinydialogues", "personachat", "babylm"):
         args.char_level = True
         args.hierarchy = True
         args.motor = True
@@ -155,6 +155,13 @@ def main():
         input_dim = encoder.input_dim
         encoding_width = encoder.encoding_width
         cortex_cfg = _default_s1_config()
+    elif args.dataset == "babylm":
+        tokens = prepare_tokens_charlevel(args.tokens, dataset="babylm")
+        alphabet = sorted({ch for _, ch in tokens if _ >= 0})
+        encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
+        input_dim = encoder.input_dim
+        encoding_width = encoder.encoding_width
+        cortex_cfg = _default_s1_config()
     elif args.char_level:
         tokens = prepare_tokens_charlevel(args.tokens)
         alphabet = sorted({ch for _, ch in tokens if _ != -1})
@@ -169,6 +176,9 @@ def main():
         encoding_width = CHAR_WIDTH
 
     if args.eom and args.dataset not in ("tinydialogues", "personachat"):
+        # BabyLM has few natural boundaries — use synthetic segmentation
+        if args.dataset == "babylm" and args.eom_segment == 0:
+            args.eom_segment = 200
         tokens = inject_eom_tokens(tokens, segment_length=args.eom_segment)
 
     if args.hierarchy:
