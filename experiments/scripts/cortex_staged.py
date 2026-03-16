@@ -85,7 +85,12 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     cortex.add_region("S1", s1, entry=True)
     cortex.add_region("S2", s2)
     cortex.add_region("S3", s3)
-    cortex.add_region("M1", m1)
+    bg = BasalGanglia(
+        context_dim=s1.n_columns + 1,
+        learning_rate=0.05,
+        seed=789,
+    )
+    cortex.add_region("M1", m1, basal_ganglia=bg)
 
     # Feedforward
     cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
