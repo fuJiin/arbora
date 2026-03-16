@@ -135,8 +135,8 @@ class CorticalRegion:
         # Models postsynaptic temporal integration of spike trains.
         self.firing_rate_l23 = np.zeros(self.n_l23_total)
 
-        # L2/3 lateral weights (associative binding across columns)
-        self.l23_lateral_weights = np.zeros((self.n_l23_total, self.n_l23_total))
+        # L2/3 lateral connections use dendritic segments only (no dense matrix).
+        # Segments provide sparse pattern-specific predictions, matching biology.
 
         # Per-neuron eligibility traces
         self.trace_l4 = np.zeros(self.n_l4_total)
@@ -657,11 +657,10 @@ class CorticalRegion:
     def _activate_l23(self, top_cols: np.ndarray):
         """Activate L2/3 associative neurons in active columns.
 
-        L2/3 receives four sources of drive:
+        L2/3 receives three sources of drive:
         1. L4 feedforward: base drive to all neurons in the column
         2. L4 winner bonus: precise columns boost the matching L2/3 neuron
-        3. L2/3 lateral weights: previous L2/3 activity biases current selection
-        4. L2/3 segment prediction: predicted neurons get voltage boost
+        3. L2/3 segment prediction: predicted neurons get voltage boost
 
         Then competitive selection: burst columns → all fire,
         precise columns → single winner.
@@ -681,11 +680,6 @@ class CorticalRegion:
                 valid_cols = precise_cols[valid]
                 valid_winners = l4_winners[valid]
                 self.voltage_l23[valid_cols * self.n_l23 + valid_winners] += 0.5
-
-        # L2/3 lateral weights: previous L2/3 activity biases current selection
-        if self.active_l23.any():
-            lat = self.active_l23.astype(np.float64) @ self.l23_lateral_weights
-            self.voltage_l23 += lat
 
         # L2/3 segment prediction boost: predicted neurons are primed
         l23_boost = self.l23_prediction_boost or self.fb_boost
@@ -708,38 +702,12 @@ class CorticalRegion:
             self.active_l23[precise_cols * self.n_l23 + winners] = True
 
     def _learn(self):
-        """L2/3 lateral Hebbian learning + dendritic segment updates.
+        """Dendritic segment updates for L4 and L2/3 prediction.
 
-        L2/3 lateral weights use dense Hebbian learning (broad context).
-        L2/3 dendritic segments add selective pattern-specific predictions.
-        L4 prediction is handled entirely by L4 dendritic segments.
+        L4 segments: feedback (L2/3→L4) and lateral (L4→L4) prediction.
+        L2/3 segments: lateral (L2/3→L2/3) pattern-specific prediction.
+        All use sparse dendritic segment learning (grow/reinforce/punish).
         """
-        active_l23_f = self.active_l23.astype(np.float64)
-        neuromod = self.surprise_modulator * self.reward_modulator
-        lr_l23 = np.full(self.n_l23_total, self.learning_rate * neuromod)
-        burst_scale = np.repeat(
-            1.0 + (self.burst_learning_scale - 1.0) * self.bursting_columns,
-            self.n_l23,
-        )
-        lr_l23 *= burst_scale
-
-        # L2/3 -> L2/3 lateral: Hebbian with trace
-        # Exploit sparsity: only rows with nonzero trace and cols with active
-        # neurons need the outer product. Synapse decay on full array.
-        trace_nz = np.flatnonzero(self.trace_l23)
-        active_nz = np.flatnonzero(active_l23_f)
-        if len(trace_nz) > 0 and len(active_nz) > 0:
-            # Sparse outer product: only (trace_nz, active_nz) elements
-            delta = (
-                self.trace_l23[trace_nz, np.newaxis]
-                * (lr_l23 * active_l23_f)[np.newaxis, active_nz]
-            )
-            self.l23_lateral_weights[np.ix_(trace_nz, active_nz)] += delta
-        if self.synapse_decay < 1.0:
-            self.l23_lateral_weights *= self.synapse_decay
-        np.minimum(self.l23_lateral_weights, 1, out=self.l23_lateral_weights)
-
-        # Dendritic segment learning (L4 prediction + L2/3 lateral)
         self._learn_segments()
         self._learn_l23_segments()
 

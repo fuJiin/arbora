@@ -857,7 +857,7 @@ class Topology:
             r = s.region
             region_data: dict = {
                 "ff_weights": r.ff_weights,
-                "l23_lateral_weights": r.l23_lateral_weights,
+                # l23_lateral_weights removed — L2/3 lateral uses segments only
                 "fb_seg_indices": r.fb_seg_indices,
                 "fb_seg_perm": r.fb_seg_perm,
                 "lat_seg_indices": r.lat_seg_indices,
@@ -925,7 +925,8 @@ class Topology:
             r = s.region
 
             r.ff_weights[:] = region_data["ff_weights"]
-            r.l23_lateral_weights[:] = region_data["l23_lateral_weights"]
+            # Old checkpoints may have l23_lateral_weights — skip it.
+            # L2/3 lateral now uses segments only.
             r.fb_seg_indices[:] = region_data["fb_seg_indices"]
             r.fb_seg_perm[:] = region_data["fb_seg_perm"]
             r.lat_seg_indices[:] = region_data["lat_seg_indices"]

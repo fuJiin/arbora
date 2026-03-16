@@ -26,10 +26,6 @@ class SensoryRegion(CorticalRegion):
         self.encoding_width = encoding_width
         super().__init__(input_dim=input_dim, seed=seed, **kwargs)
 
-        # --- L2/3 lateral structural mask: local connectivity ---
-        radius = max(1, self.n_columns // 4)
-        self._init_l23_lateral_mask(radius)
-
     def _build_ff_mask(self, input_dim: int) -> np.ndarray:
         """Build encoding-width-aware receptive field mask."""
         col_mask = np.zeros((input_dim, self.n_columns), dtype=np.bool_)
@@ -130,35 +126,5 @@ class SensoryRegion(CorticalRegion):
         col = neuron // self.n_l23
         return self._l23_col_pools[col]
 
-    def _init_l23_lateral_mask(self, radius: int):
-        """Build local connectivity mask for L2/3 lateral weights."""
-        self.l23_lat_mask = np.zeros_like(self.l23_lateral_weights, dtype=np.bool_)
-        for src_col in range(self.n_columns):
-            for dst_col in range(self.n_columns):
-                if abs(src_col - dst_col) <= radius:
-                    src_start = src_col * self.n_l23
-                    src_end = src_start + self.n_l23
-                    dst_start = dst_col * self.n_l23
-                    dst_end = dst_start + self.n_l23
-                    self.l23_lat_mask[src_start:src_end, dst_start:dst_end] = True
-
-        self.l23_lateral_weights[~self.l23_lat_mask] = 0.0
-
-    def _learn(self):
-        """Override to enforce L2/3 lateral mask after learning.
-
-        Only re-zero the modified elements (sparse outer product rows/cols)
-        rather than the entire matrix.
-        """
-        # Compute trace/active indices before calling super (which decays traces)
-        trace_nz = np.flatnonzero(self.trace_l23)
-        active_nz = np.flatnonzero(self.active_l23)
-
-        super()._learn()
-
-        # Only enforce mask on the rows/cols that were actually modified
-        if len(trace_nz) > 0 and len(active_nz) > 0:
-            patch = self.l23_lateral_weights[np.ix_(trace_nz, active_nz)]
-            mask_patch = self.l23_lat_mask[np.ix_(trace_nz, active_nz)]
-            patch[~mask_patch] = 0.0
-            self.l23_lateral_weights[np.ix_(trace_nz, active_nz)] = patch
+    # L2/3 lateral connectivity is handled by dendritic segments with
+    # local connectivity pools (_l23_col_pools), not a dense weight matrix.

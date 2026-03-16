@@ -148,7 +148,6 @@ class CortexDiagnostics:
         # Weight health
         for prefix, w in [
             ("ff", region.ff_weights),
-            ("l23_lat", region.l23_lateral_weights),
         ]:
             setattr(snap, f"{prefix}_mean", float(np.mean(w)))
             setattr(snap, f"{prefix}_std", float(np.std(w)))
