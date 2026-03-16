@@ -4,67 +4,62 @@
 Biologically-plausible cortical learning for next-token prediction. Minicolumn model with L4/L2/3 layers, dendritic segments, per-neuron feedforward weights, apical gain feedback. NumPy + Numba, Python 3.12+, uv.
 
 ## Project Structure
-- **`src/step/cortex/`** — `sensory.py`, `motor.py`, `topology.py`, `modulators.py`, `basal_ganglia.py`, `stages.py` (new)
-- **`src/step/probes/`** — `diagnostics.py`, `representation.py`, `bpc.py`, `centroid_bpc.py` (new)
-- **`src/step/decoders/`** — `dendritic.py` (permanence decay added)
-- **`experiments/scripts/`** — `cortex_run.py`
+- **`src/step/cortex/`** — `sensory.py`, `motor.py` (babbling), `topology.py` (freeze/enable), `stages.py`, `modulators.py`, `basal_ganglia.py`
+- **`src/step/probes/`** — `centroid_bpc.py` (primary metric), `bpc.py` (dendritic, deprecated), `diagnostics.py`, `representation.py`
+- **`experiments/scripts/`** — `cortex_run.py`, `cortex_staged.py` (staged runner), `cortex_repl.py` (with /info guardrails)
 
 ## Architecture
 - **S1**: 128 cols, k=8. Char-level. **S2**: 32 cols, k=4, buf=4. Word-level. **S3**: 32 cols, k=4, buf=8. Topic-level.
-- **Feedforward**: Learned ff_weights (Hebbian). **Lateral**: Dendritic segments only. **Apical**: Per-neuron gain (BAC firing model).
+- **M1**: 32 cols, k=4. Motor output with babbling (direct column forcing).
+- **Apical**: Per-neuron gain (BAC firing model). Near no-op at 1M scale (decay tuning needed).
 
-## Centroid BPC — Key Breakthrough This Session
+## Key Results
 
-Dendritic decoder BPC was unreliable (learned component couldn't track drift). Replaced with **centroid-based BPC** (non-learned, EMA centroids + dot-product similarity).
+### Centroid BPC (non-learned probe, replaces dendritic decoder)
+- **1M sensory run**: cbpc 4.79 (100k) → 4.59 (300k) → 4.79 (1M). Plateaus at ~300k.
+- Random baseline ~5.0 (log2(32)). Model is learning, but gains diminish after 300k.
+- Dendritic decoder showed false regression (7.6→8.4); centroid confirmed monotonic learning.
+- **Implication**: Sensory stage can be 300-500k tokens, not 1M.
 
-**100k comparison**: dendritic 8.49, centroid **4.95** (random baseline ~5.0). Centroid shows monotonic improvement.
+### Motor babbling (Stage 2)
+- Input noise mixing failed: M1 ff_weights collapsed to single dominant pattern.
+- **Direct column forcing works**: bypasses ff_weights, randomly activates k columns. All 32 cols explored uniformly, 18/31 unique tokens in col_token_map.
+- Meaningful col→token mapping needs Stage 3 reward signal (frequency dominates without RL).
 
-**1M run in progress** (at ~280k): centroid BPC 6.93 (10k) → 4.79 (100k) → **4.67 (280k)** and still improving. Dendritic BPC showed false regression at 200k; centroid confirms model was learning all along.
+## Training Stages (implemented)
 
-## Uncommitted Changes (main branch)
-- `src/step/probes/centroid_bpc.py` — non-learned BPC probe
-- `src/step/cortex/topology.py` — timeline_interval, decoder_perm_decay, centroid probe, freeze/enable APIs
-- `src/step/cortex/region.py` — `learning_enabled` flag gates all plasticity
-- `src/step/cortex/stages.py` — `TrainingStage` dataclass + predefined SENSORY/BABBLING/GUIDED stages
-- `src/step/decoders/dendritic.py` — perm_decay parameter
-- `experiments/scripts/cortex_run.py` — --timeline-interval, --decoder-decay flags
+Infrastructure: `region.learning_enabled`, `connection.enabled`, `Topology.freeze/unfreeze_region`, `TrainingStage.configure()`, `cortex_staged.py`.
 
-## Training Stages (developmental progression)
+1. **Sensory** (S1→S2→S3): 300-500k tokens. Self-supervised. Plateaus by 300k. ✅ Validated.
+2. **Babbling** (M1 direct forcing, S1 frozen): 200k tokens. Diverse column exploration working. ✅ Mechanism built.
+3. **Guided babbling** (M1+BG+S2): S2 word-recognition as reward. Needs implementation of reward pathway.
+4. **Imitation** (S1→S2→M2→M1): Echolalia. Needs M2 region.
+5. **Generation** (PFC→M2→M1): Goal-directed RL. Needs PFC region.
 
-1. **Sensory** (S1→S2→S3): Self-supervised representation learning. All sensory regions learn, M1 disconnected. *Current focus — validating at 1M.*
-2. **Babbling** (M1→S1→M1): Self-supervised motor exploration. S1 frozen (forward pass only). M1 learns forward model via efference copy.
-3. **Guided babbling** (M1+BG+S2): RL. S2 word-recognition as natural reward signal. BG gates "keep going" vs "try something else."
-4. **Imitation** (S1→S2→M2→M1): Echolalia. Hear word → encode → sequence → reproduce. Bootstraps M2 as sequencer. *Needs M2 region.*
-5. **Generation** (PFC→M2→M1): Goal-directed RL. PFC maintains goals, BG per-stripe gating. *Needs PFC region.*
+### Stages vs BG/thalamus design principle
+- **Stages** = hardware readiness (which circuits online). Discrete, developmental.
+- **BG/thalamus** = software (how circuits used). Continuous, learned within-stage.
 
-### Stage infrastructure built:
-- `region.learning_enabled` — freeze all plasticity per region
-- `connection.enabled` — disable specific connections
-- `Topology.freeze_region()` / `unfreeze_region()` / `disable_connection()` / `enable_connection()`
-- `TrainingStage.configure(topology)` — applies stage config
-- Predefined: `SENSORY_STAGE`, `BABBLING_STAGE`, `GUIDED_BABBLING_STAGE`
-
-### Stages vs BG/thalamus — design principle:
-- **Stages** control "hardware readiness" — which circuits are online (discrete, developmental)
-- **BG/thalamus** control "software" — how circuits are used once online (continuous, learned)
-- Thalamic gate is within-stage (learns when to allow feedback). Stage determines the connection exists.
-
-## PFC Design (from research, not yet implemented)
-- **Working memory**: Slow voltage decay (~0.97) + binary maint_flag toggled by BG input gate per stripe
+## PFC Design (researched, not implemented)
+- **Working memory**: Slow voltage decay (~0.97) + binary maint_flag toggled by BG per-stripe gate
 - **Representations**: Mixed-selective, conjunctive. Receives S2+S3. Denser activation.
 - **Learning**: Three-factor Hebbian (pre × post × reward). Eligibility trace decay ~0.98.
-- **BG gating**: Per-stripe input gate. RL via dopamine RPE. Output gating deferred.
+- **Minimal**: 16 cols, 4 stripes of 4, k=4. Input gating only (skip output gating initially).
 
-## Key Decisions
-- **Centroid BPC as primary metric**: Non-learned, can't break. Dendritic decoder kept as optional.
-- **BabyLM as canonical dataset**: 53.5M chars child-directed speech.
-- **REPL guardrails needed**: Show model capabilities, vocabulary hints, age-appropriate prompts. Users shouldn't talk to the model like an adult.
-- **Apical gain tuning deferred**: Need centroid BPC at 1M scale first.
+## Parameter Tuning Needed
+- **M1 col_token_map**: Frequency-dominated. Needs count normalization or recency weighting.
+- **Apical gain decay**: Near no-op at 1M. Learning/decay balance needs A/B with centroid BPC.
+- **Sensory stage length**: 300k sufficient (plateau), saves training time.
+
+## Checkpoints
+- `babylm_s3_1m_v2.ckpt` — 1M sensory with centroid probe
+- `babylm_s3_100k.ckpt` / `stage1_sensory.ckpt` — 100k sensory (used for babbling tests)
+- `stage2_babbling.ckpt` — after 200k babbling (direct column forcing)
 
 ## Next Steps
-- [ ] **Build staged runner script** — chains stages, loads/saves checkpoints
-- [ ] **Finish 1M centroid run** — confirm cbpc keeps improving (in progress)
-- [ ] **Commit session changes** — centroid probe, stage infra, timeline fix, freeze APIs
-- [ ] **REPL guardrails** — show training stage, vocabulary, sample prompts
-- [ ] **M1 babbling (Stage 2)** — first consumer of stage infra
-- [ ] **Tune apical gain** — A/B with reliable centroid BPC
+- [ ] **Stage 3 guided babbling** — wire S2 word-recognition as BG reward signal
+- [ ] **M1 col_token_map normalization** — recency-weighted or frequency-normalized counts
+- [ ] **Apical gain A/B** — tune decay rate using centroid BPC at 300k
+- [ ] **REPL centroid integration** — replace dendritic decoder with centroid probe in REPL
+- [ ] **M2 sequencing region** — bridge S2 word patterns to M1 character sequences
+- [ ] **PFC implementation** — maint_voltage, maint_flag, per-stripe BG, three-factor learning
