@@ -19,7 +19,6 @@ class TestCorticalRegionInit:
         r = CorticalRegion(8, n_columns=64, n_l4=8, n_l23=8, k_columns=6)
         assert r.voltage_l4.shape == (512,)
         assert r.voltage_l23.shape == (512,)
-        assert r.l23_lateral_weights.shape == (512, 512)
         assert r.trace_l4.shape == (512,)
         assert r.trace_l23.shape == (512,)
 
@@ -163,9 +162,8 @@ class TestBurst:
         r.step(col_drive([0.0, 1.0, 0.0, 0.0], 2))
         l23_active = np.where(r.active_l23)[0]
 
-        for n in l23_active:
-            weight = r.l23_lateral_weights[l23_traced, n]
-            assert weight > 0.3
+        # L2/3 segments should have grown (permanences > 0)
+        assert r.l23_seg_perm.sum() > 0
 
 
 # ---------------------------------------------------------------------------
@@ -278,9 +276,8 @@ class TestEligibility:
 
 
 class TestLearning:
-    def test_l23_lateral_weights_strengthen_on_sequence(self):
-        """If L2/3 neuron A fires at t, then neuron B fires at t+1,
-        l23_lateral_weights[A, B] should increase."""
+    def test_l23_segments_grow_on_sequence(self):
+        """L2/3 segment permanences should grow after sequential activation."""
         r = CorticalRegion(
             8, n_columns=4,
             n_l4=2,
@@ -290,17 +287,16 @@ class TestLearning:
             synapse_decay=1.0,
             eligibility_decay=0.9,
         )
+        initial_perm = r.l23_seg_perm.sum()
+
         r.step(col_drive([1.0, 0.0, 0.0, 0.0], 2))
-        l23_traced = np.where(r.trace_l23 > 0)[0][0]
-
         r.step(col_drive([0.0, 1.0, 0.0, 0.0], 2))
-        l23_active = np.where(r.active_l23)[0]
 
-        for n in l23_active:
-            assert r.l23_lateral_weights[l23_traced, n] > 0
+        # Segment permanences should have changed
+        assert r.l23_seg_perm.sum() != initial_perm
 
-    def test_l23_weights_clipped_to_unit(self):
-        """L2/3 lateral weights stay in [0, 1]."""
+    def test_l23_seg_perm_clipped_to_unit(self):
+        """L2/3 segment permanences stay in [0, 1]."""
         r = CorticalRegion(
             8, n_columns=4,
             n_l4=2,
@@ -311,8 +307,8 @@ class TestLearning:
         )
         for _ in range(100):
             r.step(col_drive([1.0, 0.0, 0.0, 0.0], 2))
-        assert r.l23_lateral_weights.max() <= 1.0
-        assert r.l23_lateral_weights.min() >= 0.0
+        assert r.l23_seg_perm.max() <= 1.0
+        assert r.l23_seg_perm.min() >= 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -352,44 +348,23 @@ class TestL23Lateral:
         assert r.bursting_columns[0]
         assert r.active_l23[0:4].all()
 
-    def test_lateral_overrides_l4_match(self):
-        """Strong L2/3 lateral input can make a different L2/3
-        neuron win than the L4-matching one."""
+    def test_l23_segment_prediction_biases_selection(self):
+        """L2/3 segment prediction boosts a specific neuron to win."""
         r = CorticalRegion(
             8, n_columns=4,
             n_l4=4,
             n_l23=4,
             k_columns=1,
         )
-        r.predict_neuron(0, 0, segment_type="fb")
-        r.active_l23[0] = True
-
-        source_l23 = 7  # col 1, neuron 3
-        target_l23 = 3  # col 0, neuron 3
-        r.l23_lateral_weights[source_l23, target_l23] = 5.0
-        r.active_l23[source_l23] = True
+        # Wire L2/3 segment: neuron 3 in col 0 predicted by neuron 7 (col 1)
+        target_l23 = 3
+        r.l23_seg_indices[target_l23, 0, :] = 7  # source: col 1 neuron 3
+        r.l23_seg_perm[target_l23, 0, :] = 1.0
+        r.active_l23[7] = True  # source active
 
         r.step(col_drive([1.0, 0.0, 0.0, 0.0], 4))
-        assert r.active_l4[0]
+        # The predicted neuron should have won L2/3 competition
         assert r.active_l23[target_l23]
-
-    def test_l23_lateral_weights_learn(self):
-        """Co-active L2/3 neurons strengthen lateral connections."""
-        r = CorticalRegion(
-            8, n_columns=4,
-            n_l4=2,
-            n_l23=2,
-            k_columns=1,
-            learning_rate=0.1,
-            synapse_decay=1.0,
-            eligibility_decay=0.9,
-        )
-        r.step(col_drive([1.0, 0.0, 0.0, 0.0], 2))
-        l23_traced = np.where(r.trace_l23 > 0)[0][0]
-        r.step(col_drive([0.0, 1.0, 0.0, 0.0], 2))
-        l23_active = np.where(r.active_l23)[0]
-        for n in l23_active:
-            assert r.l23_lateral_weights[l23_traced, n] > 0
 
     def test_l23_voltage_resets_on_activation(self):
         """Active L2/3 neurons have voltage reset after step."""

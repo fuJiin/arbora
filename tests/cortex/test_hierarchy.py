@@ -72,7 +72,7 @@ class TestSurpriseModulatorScalesLearning:
             enc[0] = 1.0
             enc[5] = 1.0
             r.process(enc)
-            return float(r.l23_lateral_weights.sum())
+            return float(r.l23_seg_perm.sum())
 
         w_normal = run_one_step(1.0)
         w_high = run_one_step(2.0)
