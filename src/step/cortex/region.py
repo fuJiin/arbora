@@ -147,13 +147,12 @@ class CorticalRegion:
         self._pred_context_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
 
         # Apical feedback (S2 L2/3 → S1 L4): initialized lazily via
-        # init_apical_segments() once the higher region exists.
+        # init_apical_context() once the higher region exists.
+        # Uses per-neuron learned gain weights (BAC firing model):
+        # gain = 1 + context @ apical_gain_weights (multiplicative on voltage)
         self._apical_source_dim: int = 0
-        self.apical_seg_indices: np.ndarray | None = None
-        self.apical_seg_perm: np.ndarray | None = None
         self._apical_context = np.zeros(0, dtype=np.float64)
-        # _pred_apical_context removed — apical is now pure gain modulation
-        self.apical_predicted_cols = np.zeros(self.n_columns, dtype=np.bool_)
+        self._apical_gain_weights: np.ndarray | None = None
 
         # --- Feedforward weights ---
         col_mask = self._build_ff_mask(input_dim)
@@ -360,19 +359,28 @@ class CorticalRegion:
                 )
 
     def init_apical_context(self, source_dim: int):
-        """Initialize apical context for gain modulation from a higher region.
+        """Initialize apical gain modulation from a higher region.
 
-        Called after the higher region is created, since its size isn't
-        known at construction time. Sets up the context buffer for
-        receiving continuous firing rate signals.
+        Creates a learned weight matrix mapping the higher region's L2/3
+        firing rates to per-neuron gain factors on this region's L4.
+        Models biological BAC (backpropagation-activated calcium) firing:
+        apical input lowers firing threshold without directly causing spikes.
 
-        No dendritic segments — apical feedback is pure gain modulation,
-        not pattern-matched prediction. This prevents the instructive
-        feedback loop where segment learning creates sender-receiver
-        dependency that disrupts the sender's representations.
+        The gain is multiplicative on voltage: neurons with no feedforward
+        drive are unaffected regardless of apical signal. This prevents
+        the instructive feedback loop where top-down signals override
+        bottom-up representations.
+
+        Learning is slow (10x slower than feedforward) to prevent
+        sender-receiver coupling that disrupts the sender's representations.
         """
         self._apical_source_dim = source_dim
         self._apical_context = np.zeros(source_dim, dtype=np.float64)
+        # Per-neuron gain weights: (source_dim, n_l4_total)
+        # Initialized small positive — slight uniform gain initially
+        self._apical_gain_weights = self._rng.uniform(
+            0.0, 0.1, (source_dim, self.n_l4_total),
+        )
 
     # Keep old name as alias for backward compat (topology.connect uses it)
     def init_apical_segments(self, source_dim: int):
@@ -421,10 +429,10 @@ class CorticalRegion:
         self.predicted_l23[:] = False
         self._pred_context_l23[:] = False
         self._pred_context_l4[:] = False
-        self.apical_predicted_cols[:] = False
         self._efference_copy = None
         if self.has_apical:
             self._apical_context[:] = 0.0
+            # Preserve _apical_gain_weights (learned, not transient)
 
     def _predict_from_segments(self) -> np.ndarray:
         """Check which L4 neurons have active dendritic segments.
@@ -495,17 +503,16 @@ class CorticalRegion:
         # 4. Feedforward drive to L4 neurons
         self.voltage_l4 += drive
 
-        # 5a. Apical gating: precision modulation from top-down context.
-        #     Higher region's activity level scales how sharply this region
-        #     discriminates between columns. Pure gain control — amplifies
-        #     existing drive differences without selecting specific winners.
-        #     Models cortical feedback as precision weighting (predictive coding).
+        # 5a. Apical gating: per-neuron gain from top-down context.
+        #     Models BAC firing: apical calcium plateau lowers threshold.
+        #     gain_per_neuron = 1 + context @ weights (always >= 1).
+        #     Multiplicative on voltage — can't fire without basal drive.
         if self.has_apical and self._apical_context.any():
-            # Scalar precision: how active is the higher region? [0, 1]
-            ctx_strength = float(np.mean(self._apical_context))
-            # Scale drive contrast: gain > 1 sharpens competition
-            gain = 1.0 + (self.prediction_gain - 1.0) * ctx_strength
-            self.voltage_l4 *= gain
+            raw_gain = self._apical_context @ self._apical_gain_weights
+            # Clamp to [0, prediction_gain-1] then shift to [1, prediction_gain]
+            np.clip(raw_gain, 0.0, self.prediction_gain - 1.0, out=raw_gain)
+            raw_gain += 1.0
+            self.voltage_l4 *= raw_gain
 
         # 5b. Predicted neurons get a voltage boost (they're primed)
         self.voltage_l4[self.predicted_l4] += self.fb_boost
@@ -518,8 +525,14 @@ class CorticalRegion:
         # 7. Activate L2/3: L4 feedforward + lateral context
         self._activate_l23(top_cols)
 
-        # 8. Learn (L2/3 lateral Hebbian + segment permanence updates)
+        # 8. Learn (dendritic segment permanence updates)
         self._learn()
+
+        # 8b. Apical gain learning: slow Hebbian on gain weights.
+        #     Strengthen connections from active context → active neurons.
+        #     10x slower than feedforward to prevent sender disruption.
+        if self.has_apical and self._apical_context.any():
+            self._learn_apical_gain()
 
         # 9. Update eligibility traces for newly active neurons
         self._update_traces()
@@ -700,6 +713,35 @@ class CorticalRegion:
         if len(precise_cols) > 0:
             winners = by_col[precise_cols].argmax(axis=1)
             self.active_l23[precise_cols * self.n_l23 + winners] = True
+
+    def _learn_apical_gain(self):
+        """Slow Hebbian learning on apical gain weights.
+
+        Models plasticity at apical synapses — which higher-region neurons
+        can modulate which lower-region neurons. Learning rate is 10x
+        slower than feedforward to prevent sender-receiver coupling.
+
+        Rule: if context was active AND neuron fired → strengthen (LTP).
+        Passive decay keeps weights bounded.
+        """
+        # Slow learning rate: 10x slower than feedforward
+        apical_lr = self.learning_rate * 0.1
+
+        # Context as column vector, active neurons as row vector
+        ctx = self._apical_context  # (source_dim,)
+        active = self.active_l4.astype(np.float64)  # (n_l4_total,)
+
+        # Sparse update: only where context is nonzero
+        ctx_nz = np.flatnonzero(ctx)
+        active_nz = np.flatnonzero(active)
+        if len(ctx_nz) > 0 and len(active_nz) > 0:
+            # LTP: outer product of active context × active neurons
+            delta = apical_lr * ctx[ctx_nz, np.newaxis] * active[np.newaxis, active_nz]
+            self._apical_gain_weights[np.ix_(ctx_nz, active_nz)] += delta
+
+        # Passive decay to prevent unbounded growth
+        self._apical_gain_weights *= 0.9999
+        np.clip(self._apical_gain_weights, 0.0, 1.0, out=self._apical_gain_weights)
 
     def _learn(self):
         """Dendritic segment updates for L4 and L2/3 prediction.

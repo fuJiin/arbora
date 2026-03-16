@@ -865,8 +865,9 @@ class Topology:
                 "l23_seg_indices": r.l23_seg_indices,
                 "l23_seg_perm": r.l23_seg_perm,
             }
-            # Apical segments removed — apical is now pure gain modulation.
-            # No segment data to save.
+            # Apical per-neuron gain weights
+            if r._apical_gain_weights is not None:
+                region_data["apical_gain_weights"] = r._apical_gain_weights
 
             if isinstance(r, MotorRegion):
                 region_data["_col_token_counts"] = r._col_token_counts
@@ -934,8 +935,9 @@ class Topology:
             r.l23_seg_indices[:] = region_data["l23_seg_indices"]
             r.l23_seg_perm[:] = region_data["l23_seg_perm"]
 
-            # Old checkpoints may have apical_seg_indices — skip them.
-            # Apical is now pure gain modulation, no segments to load.
+            # Load apical gain weights (new) or skip old segment data
+            if "apical_gain_weights" in region_data and r._apical_gain_weights is not None:
+                r._apical_gain_weights[:] = region_data["apical_gain_weights"]
 
             if (
                 isinstance(r, MotorRegion)
