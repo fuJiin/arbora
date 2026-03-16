@@ -418,9 +418,16 @@ class Topology:
         log_interval: int = 100,
         rolling_window: int = 100,
         show_predictions: int = 0,
+        metric_interval: int = 0,
     ) -> CortexResult:
         if self._entry_name is None:
             raise ValueError("No entry region. Call add_region(..., entry=True).")
+
+        # metric_interval controls how often expensive decode/prediction
+        # metrics are computed. Default (0) = every log_interval steps.
+        # Set to 1 for full resolution (slower), or N for every Nth step.
+        if metric_interval <= 0:
+            metric_interval = max(1, log_interval)
 
         topo_order = self._topo_order()
         entry_name = self._entry_name
@@ -494,47 +501,6 @@ class Topology:
                 if self._eom_steps > _max_speak_steps:
                     self._in_eom = False
 
-            # -- Entry prediction + decode --
-            predicted_neurons = entry_region.get_prediction(k)
-            predicted_set = frozenset(int(i) for i in predicted_neurons)
-
-            syn_id, syn_str = entry_state.syn_decoder.decode_synaptic(
-                predicted_neurons, entry_region
-            )
-            col_id, col_str = entry_state.syn_decoder.decode_columns(
-                predicted_neurons, entry_region.n_l4
-            )
-            idx_predicted = entry_state.decode_index.decode(predicted_set)
-
-            idx_str = ""
-            if (
-                idx_predicted >= 0
-                and idx_predicted in entry_state.syn_decoder._token_id_set
-            ):
-                for i, tid in enumerate(entry_state.syn_decoder._token_ids):
-                    if tid == idx_predicted:
-                        idx_str = entry_state.syn_decoder._token_strs[i]
-                        break
-
-            # Dendritic decoder: reads L2/3 binary activations from previous step
-            den_predictions = entry_state.dendritic_decoder.decode(
-                entry_region.active_l23
-            )
-            den_id = den_predictions[0] if den_predictions else -1
-            den_str = ""
-            if den_id >= 0 and den_id in entry_state.syn_decoder._token_id_set:
-                for i, tid in enumerate(entry_state.syn_decoder._token_ids):
-                    if tid == den_id:
-                        den_str = entry_state.syn_decoder._token_strs[i]
-                        break
-
-            # BPC: measure prediction quality before processing this token
-            if bpc_probe is not None and t > 0:
-                bpc_probe.step(
-                    token_id, entry_region.active_l23,
-                    entry_state.dendritic_decoder,
-                )
-
             # Snapshot L2/3 binary state before processing (for dendritic decoder)
             prev_l23 = entry_region.active_l23.copy()
 
@@ -586,12 +552,14 @@ class Topology:
                             thalamic_readiness[key].append(readiness)
                         tgt.set_apical_context(signal)
 
-            # -- Per-region bookkeeping --
+            # -- Per-region bookkeeping (sampled to reduce overhead) --
+            is_metric_step = (t % metric_interval == 0) or (t < 100)
             for _name, s in self._regions.items():
-                s.rep_tracker.observe(
-                    token_id, s.region.active_columns, s.region.active_l4
-                )
-                if s.diagnostics is not None:
+                if is_metric_step:
+                    s.rep_tracker.observe(
+                        token_id, s.region.active_columns, s.region.active_l4
+                    )
+                if s.diagnostics is not None and is_metric_step:
                     s.diagnostics.step(t, s.region)
                 if s.timeline is not None:
                     s.timeline.capture(
@@ -739,35 +707,78 @@ class Topology:
                                 token_id, prev_motor_l23[_name],
                             )
 
-            # -- Entry metrics --
-            active_l4_indices = np.nonzero(entry_region.active_l4)[0]
-            active_set = frozenset(int(i) for i in active_l4_indices)
+            # -- Entry metrics (expensive decodes sampled at metric intervals) --
+            if is_metric_step and t > 0:
+                predicted_neurons = entry_region.get_prediction(k)
+                active_l4_indices = np.nonzero(entry_region.active_l4)[0]
 
-            if t > 0:
+                # Overlap
                 if len(active_l4_indices) > 0 and len(predicted_neurons) > 0:
                     overlap = np.isin(active_l4_indices, predicted_neurons).sum() / len(active_l4_indices)
                 else:
                     overlap = 0.0
                 metrics[entry_name].overlaps.append(overlap)
 
-                accuracy = 1.0 if idx_predicted == token_id else 0.0
-                metrics[entry_name].accuracies.append(accuracy)
+                # Decoder accuracies
+                syn_id, syn_str = entry_state.syn_decoder.decode_synaptic(
+                    predicted_neurons, entry_region
+                )
+                col_id, col_str = entry_state.syn_decoder.decode_columns(
+                    predicted_neurons, entry_region.n_l4
+                )
+                predicted_set = frozenset(int(i) for i in predicted_neurons)
+                idx_predicted = entry_state.decode_index.decode(predicted_set)
+                den_predictions = entry_state.dendritic_decoder.decode(
+                    entry_region.active_l23
+                )
+                den_id = den_predictions[0] if den_predictions else -1
 
-                syn_acc = 1.0 if syn_id == token_id else 0.0
-                metrics[entry_name].synaptic_accuracies.append(syn_acc)
-
-                col_acc = 1.0 if col_id == token_id else 0.0
-                metrics[entry_name].column_accuracies.append(col_acc)
-
-                den_acc = 1.0 if den_id == token_id else 0.0
-                metrics[entry_name].dendritic_accuracies.append(den_acc)
+                metrics[entry_name].accuracies.append(
+                    1.0 if idx_predicted == token_id else 0.0
+                )
+                metrics[entry_name].synaptic_accuracies.append(
+                    1.0 if syn_id == token_id else 0.0
+                )
+                metrics[entry_name].column_accuracies.append(
+                    1.0 if col_id == token_id else 0.0
+                )
+                metrics[entry_name].dendritic_accuracies.append(
+                    1.0 if den_id == token_id else 0.0
+                )
 
                 if show_predictions > 0:
+                    idx_str = ""
+                    if (
+                        idx_predicted >= 0
+                        and idx_predicted in entry_state.syn_decoder._token_id_set
+                    ):
+                        for i, tid in enumerate(entry_state.syn_decoder._token_ids):
+                            if tid == idx_predicted:
+                                idx_str = entry_state.syn_decoder._token_strs[i]
+                                break
+                    den_str = ""
+                    if den_id >= 0 and den_id in entry_state.syn_decoder._token_id_set:
+                        for i, tid in enumerate(entry_state.syn_decoder._token_ids):
+                            if tid == den_id:
+                                den_str = entry_state.syn_decoder._token_strs[i]
+                                break
                     prediction_log.append(
                         (token_str, den_str, idx_str, col_str, syn_str)
                     )
 
-            entry_state.decode_index.observe(token_id, active_set)
+            # BPC: measure prediction quality (sampled at metric intervals)
+            if bpc_probe is not None and is_metric_step and t > 0:
+                bpc_probe.step(
+                    token_id, entry_region.active_l23,
+                    entry_state.dendritic_decoder,
+                )
+
+            # -- Decoder training (every step — cheap, drives learning) --
+            if token_id not in entry_state.decode_index._token_id_to_idx:
+                active_set = frozenset(
+                    int(i) for i in np.nonzero(entry_region.active_l4)[0]
+                )
+                entry_state.decode_index.observe(token_id, active_set)
             entry_state.syn_decoder.observe(
                 token_id, token_str, encoding, entry_region.active_columns
             )
@@ -779,7 +790,7 @@ class Topology:
             if (
                 t > 0
                 and t % log_interval == 0
-                and metrics[entry_name].overlaps
+                and metrics[entry_name].dendritic_accuracies
             ):
                 self._log_step(
                     t, start, entry_name, metrics, surprise_modulators,
