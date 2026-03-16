@@ -22,6 +22,7 @@ class MotorRegion(SensoryRegion):
     - Per-column L5 readout score (mean L2/3 firing rate in column)
     - Confidence threshold: below → silent (no prediction)
     - Self-organizing column→token mapping via activation frequency
+    - Babbling mode: noise injection for motor exploration
     """
 
     def __init__(
@@ -42,6 +43,11 @@ class MotorRegion(SensoryRegion):
         )
         self.output_threshold = output_threshold
 
+        # Babbling mode: mix random sparse drive with normal feedforward.
+        # 0.0 = normal (no noise), 1.0 = pure random babbling.
+        # Models brainstem pattern generators in early infant vocalization.
+        self.babbling_noise: float = 0.0
+
         # L5 output state (updated each step in process())
         self.output_scores = np.zeros(n_columns)
 
@@ -59,7 +65,15 @@ class MotorRegion(SensoryRegion):
         self.last_reward: float = 0.0
 
     def process(self, encoding: np.ndarray) -> np.ndarray:
-        """Feedforward + compute L5 output scores."""
+        """Feedforward + compute L5 output scores.
+
+        When babbling_noise > 0, mixes random sparse drive into the
+        feedforward input. At babbling_noise=1.0, the input is entirely
+        random k-hot patterns (pure motor exploration).
+        """
+        if self.babbling_noise > 0.0:
+            encoding = self._mix_babbling_noise(encoding)
+
         active = super().process(encoding)
 
         # L5 readout: per-column mean L2/3 firing rate
@@ -67,6 +81,23 @@ class MotorRegion(SensoryRegion):
         self.output_scores = rates.mean(axis=1)
 
         return active
+
+    def _mix_babbling_noise(self, encoding: np.ndarray) -> np.ndarray:
+        """Mix random sparse activation into feedforward input.
+
+        Generates a random sparse pattern matching the expected input
+        sparsity (k_columns active out of input_dim neurons), then
+        blends it with the real feedforward signal.
+        """
+        noise = np.zeros_like(encoding)
+        # Random k-hot: activate random neurons to create diverse drive.
+        # Use input_dim-scale sparsity matching typical S1 L2/3 output.
+        n_active = max(1, int(0.1 * len(encoding)))  # ~10% active
+        active_idx = self._rng.choice(len(encoding), n_active, replace=False)
+        noise[active_idx] = self._rng.uniform(0.3, 1.0, n_active)
+
+        alpha = self.babbling_noise
+        return (1.0 - alpha) * encoding + alpha * noise
 
     def observe_token(self, token_id: int) -> None:
         """Update column→token mapping based on current activation.
