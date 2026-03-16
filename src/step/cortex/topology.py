@@ -865,9 +865,8 @@ class Topology:
                 "l23_seg_indices": r.l23_seg_indices,
                 "l23_seg_perm": r.l23_seg_perm,
             }
-            if r.apical_seg_indices is not None:
-                region_data["apical_seg_indices"] = r.apical_seg_indices
-                region_data["apical_seg_perm"] = r.apical_seg_perm
+            # Apical segments removed — apical is now pure gain modulation.
+            # No segment data to save.
 
             if isinstance(r, MotorRegion):
                 region_data["_col_token_counts"] = r._col_token_counts
@@ -934,12 +933,8 @@ class Topology:
             r.l23_seg_indices[:] = region_data["l23_seg_indices"]
             r.l23_seg_perm[:] = region_data["l23_seg_perm"]
 
-            if (
-                "apical_seg_indices" in region_data
-                and r.apical_seg_indices is not None
-            ):
-                r.apical_seg_indices[:] = region_data["apical_seg_indices"]
-                r.apical_seg_perm[:] = region_data["apical_seg_perm"]
+            # Old checkpoints may have apical_seg_indices — skip them.
+            # Apical is now pure gain modulation, no segments to load.
 
             if (
                 isinstance(r, MotorRegion)
