@@ -17,6 +17,7 @@ from step.config import (
     CortexConfig,
     _default_motor_config,
     _default_region2_config,
+    _default_region3_config,
     _default_s1_config,
     make_motor_region,
     make_sensory_region,
@@ -85,6 +86,17 @@ def main():
         "--reward",
         action="store_true",
         help="Enable reward modulation: M1→S1 dopaminergic turn-taking reward",
+    )
+    parser.add_argument(
+        "--s3",
+        action="store_true",
+        help="Add S3 association region on top of S2 (topic/theme extraction)",
+    )
+    parser.add_argument(
+        "--s3-buffer-depth",
+        type=int,
+        default=8,
+        help="Temporal buffer depth for S2→S3 feedforward (default: 8 ≈ 8 words)",
     )
     parser.add_argument(
         "--eom",
@@ -296,6 +308,20 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
     if args.apical:
         gate = ThalamicGate() if args.gate_feedback else None
         cortex.connect("S2", "S1", "apical", thalamic_gate=gate)
+
+    if args.s3:
+        r3_cfg = _default_region3_config()
+        r3_input_dim = region2.n_l23_total * args.s3_buffer_depth
+        region3 = make_sensory_region(r3_cfg, r3_input_dim, seed=789)
+        cortex.add_region("S3", region3)
+        cortex.connect(
+            "S2", "S3", "feedforward",
+            buffer_depth=args.s3_buffer_depth, burst_gate=args.burst_gate,
+        )
+        cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
+        if args.apical:
+            s3_gate = ThalamicGate() if args.gate_feedback else None
+            cortex.connect("S3", "S2", "apical", thalamic_gate=s3_gate)
 
     if args.motor:
         m1_cfg = _default_motor_config()
