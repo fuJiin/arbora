@@ -67,14 +67,21 @@ class MotorRegion(SensoryRegion):
     def process(self, encoding: np.ndarray) -> np.ndarray:
         """Feedforward + compute L5 output scores.
 
-        When babbling_noise > 0, mixes random sparse drive into the
-        feedforward input. At babbling_noise=1.0, the input is entirely
-        random k-hot patterns (pure motor exploration).
+        When babbling_noise > 0, forces random column activations directly,
+        bypassing ff_weights and k-WTA competition. This ensures M1 explores
+        its full output space uniformly rather than collapsing to dominant
+        patterns. Models brainstem pattern generators driving motor cortex.
         """
-        if self.babbling_noise > 0.0:
-            encoding = self._mix_babbling_noise(encoding)
-
-        active = super().process(encoding)
+        if self.babbling_noise >= 1.0:
+            active = self._babble_direct()
+        elif self.babbling_noise > 0.0:
+            # Partial noise: mix random columns with normal processing
+            if self._rng.random() < self.babbling_noise:
+                active = self._babble_direct()
+            else:
+                active = super().process(encoding)
+        else:
+            active = super().process(encoding)
 
         # L5 readout: per-column mean L2/3 firing rate
         rates = self.firing_rate_l23.reshape(self.n_columns, self.n_l23)
@@ -82,22 +89,56 @@ class MotorRegion(SensoryRegion):
 
         return active
 
-    def _mix_babbling_noise(self, encoding: np.ndarray) -> np.ndarray:
-        """Mix random sparse activation into feedforward input.
+    def _babble_direct(self) -> np.ndarray:
+        """Force random k-hot column activation, bypassing ff_weights.
 
-        Generates a random sparse pattern matching the expected input
-        sparsity (k_columns active out of input_dim neurons), then
-        blends it with the real feedforward signal.
+        Directly activates random columns and their neurons, then runs
+        the normal L2/3 activation and learning pipeline. This ensures
+        every column gets explored uniformly.
         """
-        noise = np.zeros_like(encoding)
-        # Random k-hot: activate random neurons to create diverse drive.
-        # Use input_dim-scale sparsity matching typical S1 L2/3 output.
-        n_active = max(1, int(0.1 * len(encoding)))  # ~10% active
-        active_idx = self._rng.choice(len(encoding), n_active, replace=False)
-        noise[active_idx] = self._rng.uniform(0.3, 1.0, n_active)
+        # Pick random k columns
+        cols = self._rng.choice(self.n_columns, self.k_columns, replace=False)
 
-        alpha = self.babbling_noise
-        return (1.0 - alpha) * encoding + alpha * noise
+        # Run the standard step pipeline but inject our columns
+        # 1. Decay voltages (same as normal step)
+        self.voltage_l4 *= self.voltage_decay
+        self.voltage_l23 *= self.voltage_decay
+
+        # 2. Compute predictions (for segment learning)
+        self._compute_predictions()
+
+        # 3. Save prediction context
+        self._pred_context_l23[:] = self.active_l23
+        self._pred_context_l4[:] = self.active_l4
+
+        # 4-6. Force our chosen columns active (skip ff_weights/k-WTA)
+        # Set high voltage for chosen columns so burst detection works
+        for col in cols:
+            start = col * self.n_l4
+            end = start + self.n_l4
+            self.voltage_l4[start:end] = 1.0
+
+        scores_l4 = self.voltage_l4 + self.excitability_l4
+        self._activate_l4_burst(cols, scores_l4)
+
+        # 7. Activate L2/3
+        self._activate_l23(cols)
+
+        # 8. Learn segments (if enabled)
+        if self.learning_enabled:
+            self._learn()
+
+        # 9-13. Standard housekeeping
+        self._update_traces()
+        self._update_excitability()
+        self.voltage_l4[self.active_l4] = 0.0
+        self.voltage_l23[self.active_l23] = 0.0
+        np.clip(self.voltage_l4, 0.0, 1.0, out=self.voltage_l4)
+        np.clip(self.voltage_l23, 0.0, 1.0, out=self.voltage_l23)
+        self.firing_rate_l23 *= self.voltage_decay
+        self.firing_rate_l23[self.active_l23] += 1.0 - self.voltage_decay
+
+        return np.nonzero(self.active_l4)[0]
 
     def observe_token(self, token_id: int) -> None:
         """Update column→token mapping based on current activation.
