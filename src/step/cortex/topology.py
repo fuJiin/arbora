@@ -311,12 +311,19 @@ class Topology:
                 self._in_eom = False
 
         # -- Process in topo order --
+        # Motor regions skip process() during input phase (not EOM, gate
+        # not forced open). BG/observe still run — only the expensive
+        # cortical computation is skipped.
+        m1_active = self._in_eom or self.force_gate_open
         topo_order = self._topo_order()
         for name in topo_order:
             s = self._regions[name]
             if name == entry_name:
                 encoding = self._encoder.encode(token_str)
                 s.region.process(encoding)
+            elif s.motor and not m1_active:
+                # Skip M1 process during input phase
+                pass
             else:
                 for conn in self._connections:
                     if conn.target == name and conn.kind == "feedforward":
@@ -353,10 +360,11 @@ class Topology:
         for _name, s in self._regions.items():
             if s.motor:
                 motor_region = s.region
-                motor_region.observe_token(token_id)
+                if m1_active:
+                    motor_region.observe_token(token_id)
 
                 if self._total_steps > 0:
-                    # BG gating
+                    # BG gating: always step (learns from both phases)
                     gate = 1.0
                     if s.basal_ganglia is not None:
                         precision = (
@@ -371,15 +379,17 @@ class Topology:
                             gate = 1.0
                         motor_region.output_scores *= gate
 
-                    # Population vote output
-                    pop_id, pop_conf = motor_region.get_population_output()
-                    m_id, m_conf = pop_id, pop_conf
+                    if m1_active:
+                        pop_id, pop_conf = motor_region.get_population_output()
+                        m_id, m_conf = pop_id, pop_conf
+                    else:
+                        m_id, m_conf = -1, 0.0
 
                     motor_region.last_output = (m_id, m_conf)
                     motor_region.last_gate = gate
                     motor_region.last_reward = 0.0
 
-                    # BG reward signal
+                    # BG reward: always send (learns from both phases)
                     if s.basal_ganglia is not None:
                         gate_target = 1.0 if self._in_eom else 0.0
                         gate_error = gate_target - s.basal_ganglia.gate_value
@@ -504,11 +514,16 @@ class Topology:
             # Snapshot L2/3 binary state before processing (for dendritic decoder)
             prev_l23 = entry_region.active_l23.copy()
 
+            # Motor regions skip process() during input phase (not EOM,
+            # gate not forced open). Saves ~1ms/tok when M1 is idle.
+            m1_active = self._in_eom or self.force_gate_open
+
             # Snapshot motor L2/3 before processing (for motor decoder training)
             prev_motor_l23: dict[str, np.ndarray] = {}
-            for _mn, _ms in self._regions.items():
-                if _ms.motor and _ms.motor_decoder is not None:
-                    prev_motor_l23[_mn] = _ms.region.active_l23.copy()
+            if m1_active:
+                for _mn, _ms in self._regions.items():
+                    if _ms.motor and _ms.motor_decoder is not None:
+                        prev_motor_l23[_mn] = _ms.region.active_l23.copy()
 
             # -- Process in topo order --
             for name in topo_order:
@@ -516,6 +531,9 @@ class Topology:
                 if name == entry_name:
                     encoding = self._encoder.encode(token_str)
                     s.region.process(encoding)
+                elif s.motor and not m1_active:
+                    # Skip M1 process during input phase
+                    pass
                 else:
                     # Find feedforward source
                     for conn in self._connections:
@@ -572,16 +590,13 @@ class Topology:
             for _name, s in self._regions.items():
                 if s.motor:
                     motor_region = s.region
-                    motor_region.observe_token(token_id)
+                    # observe_token only during active phase (M1 processed)
+                    if m1_active:
+                        motor_region.observe_token(token_id)
                     if self._total_steps > 0:
-                        # BG gating: step with S1 context, gate M1 output
+                        # BG gating: always step (learns from both phases)
+                        gate = 1.0
                         if s.basal_ganglia is not None:
-                            # BG context: per-column precision state (inverted
-                            # burst). Precise = 1 means column predicted
-                            # correctly (EOM/familiar), burst = 0 means novel.
-                            # During EOM: dense 1s → strong context signal.
-                            # During input: sparse 1s → weak signal.
-                            # Models L5/6 → striatum precision projection.
                             precision = (
                                 ~entry_region.bursting_columns
                             ).astype(np.float64)
@@ -595,21 +610,22 @@ class Topology:
                             motor_region.output_scores *= gate
                             metrics[_name].bg_gate_values.append(gate)
 
-                        # Compute output from both methods for comparison
-                        pop_id, pop_conf = motor_region.get_population_output()
-                        if s.motor_decoder is not None:
-                            dec_id, _dec_conf = (
-                                motor_region.get_decoded_output(
-                                    s.motor_decoder,
+                        if m1_active:
+                            # M1 processed this step — compute output + metrics
+                            pop_id, pop_conf = motor_region.get_population_output()
+                            if s.motor_decoder is not None:
+                                dec_id, _dec_conf = (
+                                    motor_region.get_decoded_output(
+                                        s.motor_decoder,
+                                    )
                                 )
-                            )
+                            else:
+                                dec_id = -1
+                            m_id, m_conf = pop_id, pop_conf
                         else:
-                            dec_id = -1
-
-                        # Population vote is primary: biologically grounded
-                        # (L5 population coding) and empirically better.
-                        # Decoder tracked for diagnostic comparison only.
-                        m_id, m_conf = pop_id, pop_conf
+                            # M1 idle during input — silent output
+                            m_id, m_conf = -1, 0.0
+                            pop_id, dec_id = -1, -1
 
                         metrics[_name].motor_confidences.append(m_conf)
                         if m_id >= 0:
@@ -636,18 +652,10 @@ class Topology:
 
                         # Expose last-step state for interactive use
                         motor_region.last_output = (m_id, m_conf)
-                        motor_region.last_gate = (
-                            gate if s.basal_ganglia is not None
-                            else 1.0
-                        )
+                        motor_region.last_gate = gate
                         motor_region.last_reward = reward
 
-                        # Send gate error signal to BG every step.
-                        # Stage 1 is supervised (phase labels known):
-                        #   EOM phase: target=1 → signal = 1-gate (push open)
-                        #   Input phase: target=0 → signal = -gate (push closed)
-                        # Provides gradient from both phases, avoids
-                        # sparse-reward collapse. Stage 2/3 will switch to RL.
+                        # BG reward: always send (learns from both phases)
                         if s.basal_ganglia is not None:
                             gate_target = 1.0 if self._in_eom else 0.0
                             gate_error = gate_target - s.basal_ganglia.gate_value
@@ -672,7 +680,6 @@ class Topology:
                                 m.turn_correct_silent += 1
 
                         # Apply reward through reward connections
-                        # (cortical modulation — kept for backward compat)
                         for conn in self._connections:
                             if (
                                 conn.kind == "reward"
@@ -686,12 +693,7 @@ class Topology:
                                     mod
                                 )
 
-                        # Efference copy: when M1 output is fed back as
-                        # the next input (autoregressive generation), tell
-                        # S1 what to expect so it can suppress the predicted
-                        # sensory consequence. Only when gate is forced open
-                        # (interactive generation) — during training, the
-                        # next input comes from the corpus, not M1.
+                        # Efference copy: only during generation (gate forced open)
                         if m_id >= 0 and self.force_gate_open:
                             ef_encoding = self._encoder.encode(
                                 chr(m_id) if m_id < 128 else "",
