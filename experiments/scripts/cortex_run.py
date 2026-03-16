@@ -128,6 +128,18 @@ def main():
         help="EOM speak window for TinyDialogues (default: 10)",
     )
     parser.add_argument(
+        "--timeline-interval",
+        type=int,
+        default=1,
+        help="Record timeline every N steps (default: 1 = every step, 0 = disable)",
+    )
+    parser.add_argument(
+        "--decoder-decay",
+        type=float,
+        default=0.9999,
+        help="Dendritic decoder permanence decay per step (default: 0.9999, 1.0 = no decay)",
+    )
+    parser.add_argument(
         "--checkpoint",
         type=str,
         default=None,
@@ -274,10 +286,13 @@ def main():
 def _run_single(tokens, cortex_cfg, encoder, input_dim, encoding_width, args):
     region = _make_region(cortex_cfg, input_dim, encoding_width)
 
+    enable_tl = args.timeline_interval != 0
     cortex = Topology(
         encoder,
-        enable_timeline=True,
+        enable_timeline=enable_tl,
+        timeline_interval=args.timeline_interval if enable_tl else 1,
         diagnostics_interval=args.log_interval,
+        decoder_perm_decay=args.decoder_decay,
     )
     cortex.add_region("S1", region, entry=True)
 
@@ -295,10 +310,13 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
 
     surprise = SurpriseTracker()
 
+    enable_tl = args.timeline_interval != 0
     cortex = Topology(
         encoder,
-        enable_timeline=True,
+        enable_timeline=enable_tl,
+        timeline_interval=args.timeline_interval if enable_tl else 1,
         diagnostics_interval=args.log_interval,
+        decoder_perm_decay=args.decoder_decay,
     )
     cortex.add_region("S1", region1, entry=True)
     cortex.add_region("S2", region2)
