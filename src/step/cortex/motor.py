@@ -73,11 +73,11 @@ class MotorRegion(SensoryRegion):
         patterns. Models brainstem pattern generators driving motor cortex.
         """
         if self.babbling_noise >= 1.0:
-            active = self._babble_direct()
+            active = self._babble_direct(encoding)
         elif self.babbling_noise > 0.0:
             # Partial noise: mix random columns with normal processing
             if self._rng.random() < self.babbling_noise:
-                active = self._babble_direct()
+                active = self._babble_direct(encoding)
             else:
                 active = super().process(encoding)
         else:
@@ -89,18 +89,24 @@ class MotorRegion(SensoryRegion):
 
         return active
 
-    def _babble_direct(self) -> np.ndarray:
-        """Force random k-hot column activation, bypassing ff_weights.
+    def _babble_direct(self, encoding: np.ndarray | None = None) -> np.ndarray:
+        """Force random column activations while training ff_weights.
 
-        Directly activates random columns and their neurons, then runs
-        the normal L2/3 activation and learning pipeline. This ensures
-        every column gets explored uniformly.
+        Randomly selects k columns (ensuring diverse exploration), then
+        runs normal L2/3 activation and learning. Crucially, also trains
+        ff_weights via _learn_ff so the sensorimotor mapping develops —
+        M1 learns "when S1 pattern is X, I should activate columns Y."
+
+        Args:
+            encoding: The real feedforward input (S1 L2/3). If provided,
+                      ff_weights are trained to map this input to the
+                      forced columns. Builds the forward model.
         """
         # Pick random k columns
         cols = self._rng.choice(self.n_columns, self.k_columns, replace=False)
 
         # Run the standard step pipeline but inject our columns
-        # 1. Decay voltages (same as normal step)
+        # 1. Decay voltages
         self.voltage_l4 *= self.voltage_decay
         self.voltage_l23 *= self.voltage_decay
 
@@ -111,8 +117,7 @@ class MotorRegion(SensoryRegion):
         self._pred_context_l23[:] = self.active_l23
         self._pred_context_l4[:] = self.active_l4
 
-        # 4-6. Force our chosen columns active (skip ff_weights/k-WTA)
-        # Set high voltage for chosen columns so burst detection works
+        # 4-6. Force our chosen columns active
         for col in cols:
             start = col * self.n_l4
             end = start + self.n_l4
@@ -124,9 +129,14 @@ class MotorRegion(SensoryRegion):
         # 7. Activate L2/3
         self._activate_l23(cols)
 
-        # 8. Learn segments (if enabled)
+        # 8. Learn — segments AND ff_weights
         if self.learning_enabled:
             self._learn()
+            # Train ff_weights: learn to map S1 input → forced columns.
+            # This builds the sensorimotor forward model.
+            if encoding is not None:
+                flat = encoding.flatten().astype(np.float64)
+                self._learn_ff(flat)
 
         # 9-13. Standard housekeeping
         self._update_traces()

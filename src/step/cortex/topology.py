@@ -699,26 +699,20 @@ class Topology:
 
                         # -- Motor reward --
                         spoke = m_id >= 0
-                        if self._reward_source is not None and spoke:
-                            # Pluggable reward (e.g., S2 word recognition)
-                            m_char = chr(m_id) if 32 <= m_id < 127 else None
+                        if self._reward_source is not None:
+                            # Pluggable reward replaces turn-taking entirely
+                            m_char = (
+                                chr(m_id) if spoke and 32 <= m_id < 127
+                                else None
+                            )
                             s2_cols = np.zeros(0)
                             for _rn, _rs in self._regions.items():
                                 if _rn == "S2":
                                     s2_cols = _rs.region.active_columns
                                     break
-                            word_reward = self._reward_source.step(
+                            reward = self._reward_source.step(
                                 m_char, s2_cols,
                             )
-                            # Use word reward when available, fall back to
-                            # turn-taking for non-word steps
-                            if word_reward is not None:
-                                reward = word_reward
-                            else:
-                                reward = self._compute_turn_reward(
-                                    spoke, self._in_eom, self._eom_steps,
-                                    _max_speak_steps,
-                                )
                         else:
                             reward = self._compute_turn_reward(
                                 spoke, self._in_eom, self._eom_steps,
