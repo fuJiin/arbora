@@ -161,17 +161,28 @@ def run_stage(
     # Apply stage configuration (freeze/unfreeze, enable/disable)
     stage.configure(cortex)
 
-    # Slice tokens to stage size
-    stage_tokens = tokens[:stage.n_tokens]
-    if len(stage_tokens) < stage.n_tokens:
-        print(
-            f"  Warning: only {len(stage_tokens):,} tokens available "
-            f"(requested {stage.n_tokens:,})"
-        )
+    # Choose run mode: babbling (autoregressive) or corpus-driven
+    is_babbling = stage.babbling_noise > 0 or stage.force_motor_active
 
-    start = time.monotonic()
-    result = cortex.run(stage_tokens, log_interval=log_interval)
-    elapsed = time.monotonic() - start
+    if is_babbling:
+        # Autoregressive babbling: M1 drives, hears itself through S1
+        print(f"  Mode: autoregressive babbling (noise={stage.babbling_noise})")
+        result = cortex.run_babbling(
+            stage.n_tokens, log_interval=log_interval,
+        )
+        elapsed = result["elapsed_seconds"]
+    else:
+        # Corpus-driven: standard token-by-token processing
+        stage_tokens = tokens[:stage.n_tokens]
+        if len(stage_tokens) < stage.n_tokens:
+            print(
+                f"  Warning: only {len(stage_tokens):,} tokens available "
+                f"(requested {stage.n_tokens:,})"
+            )
+
+        start = time.monotonic()
+        result = cortex.run(stage_tokens, log_interval=log_interval)
+        elapsed = time.monotonic() - start
 
     print(f"\nStage '{stage.name}' completed in {elapsed:.1f}s")
 
@@ -182,21 +193,28 @@ def run_stage(
         cortex.save_checkpoint(ckpt_path)
         print(f"Saved checkpoint: {ckpt_path}")
 
-    # Save run data
-    run_dir = save_run(
-        name=f"staged-{stage.name}-{stage.n_tokens // 1000}k",
-        timelines=dict(cortex.timelines),
-        diagnostics=dict(cortex.diagnostics),
-        result=result,
-        region_configs={},
-        meta_extra={
-            "stage": stage.name,
-            "n_tokens": len(stage_tokens),
-            "learning_regions": stage.learning_regions,
-            "encoder": "PositionalCharEncoder",
-        },
-    )
-    print(f"Run saved: {run_dir}")
+    # Save run data (babbling returns dict, corpus returns CortexResult)
+    if not is_babbling:
+        run_dir = save_run(
+            name=f"staged-{stage.name}-{stage.n_tokens // 1000}k",
+            timelines=dict(cortex.timelines),
+            diagnostics=dict(cortex.diagnostics),
+            result=result,
+            region_configs={},
+            meta_extra={
+                "stage": stage.name,
+                "n_tokens": stage.n_tokens,
+                "learning_regions": stage.learning_regions,
+                "encoder": "PositionalCharEncoder",
+            },
+        )
+        print(f"Run saved: {run_dir}")
+    else:
+        print(
+            f"  Babbling summary: "
+            f"{len(result['tokens_produced'])} chars produced, "
+            f"{len(result['unique_tokens'])} unique"
+        )
 
     return result
 
@@ -278,6 +296,9 @@ def main():
                 connections=s.connections,
                 load_checkpoint=s.load_checkpoint,
                 save_checkpoint=s.save_checkpoint,
+                babbling_noise=s.babbling_noise,
+                force_motor_active=s.force_motor_active,
+                reward_source=s.reward_source,
             )
             for s in stages
         ]

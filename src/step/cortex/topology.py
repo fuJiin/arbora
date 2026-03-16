@@ -929,6 +929,207 @@ class Topology:
         )
 
     # ------------------------------------------------------------------
+    # Babbling loop (Stages 2-3)
+    # ------------------------------------------------------------------
+
+    def run_babbling(
+        self,
+        n_steps: int,
+        *,
+        log_interval: int = 100,
+    ) -> dict:
+        """Autoregressive babbling loop: M1 drives, hears itself through S1.
+
+        No corpus input. M1 produces a token, that token is encoded and
+        fed through S1 (frozen) → S2 (frozen, if connected). Reward is
+        computed from S2 pattern stability. M1 learns from the loop.
+
+        Returns dict with babbling metrics.
+        """
+        if self._entry_name is None:
+            raise ValueError("No entry region.")
+
+        entry_name = self._entry_name
+        entry_state = self._regions[entry_name]
+        entry_region = entry_state.region
+
+        # Find motor region
+        motor_name = None
+        motor_state = None
+        for name, s in self._regions.items():
+            if s.motor:
+                motor_name = name
+                motor_state = s
+                break
+        if motor_state is None:
+            raise ValueError("No motor region for babbling.")
+        motor_region = motor_state.region
+
+        # Start with a random seed token
+        import string
+        seed_char = " "
+        current_token_id = ord(seed_char)
+        current_token_str = seed_char
+
+        # Metrics
+        rewards = []
+        gate_values = []
+        tokens_produced = []
+        unique_tokens = set()
+
+        start = time.monotonic()
+
+        for t in range(n_steps):
+            # 1. Encode current token (M1's last output or seed)
+            encoding = self._encoder.encode(current_token_str)
+
+            # 2. Process through S1 (frozen — forward pass only)
+            entry_region.process(encoding)
+
+            # 3. Propagate to connected regions (S2 if enabled)
+            topo_order = self._topo_order()
+            for name in topo_order:
+                s = self._regions[name]
+                if name == entry_name:
+                    continue  # Already processed
+                if s.motor:
+                    # M1 gets S1's L2/3 as input
+                    for conn in self._connections:
+                        if (conn.target == name and conn.kind == "feedforward"
+                                and conn.enabled):
+                            s.region.process(self._get_ff_signal(conn))
+                            break
+                else:
+                    # S2/S3: process if feedforward is enabled
+                    for conn in self._connections:
+                        if (conn.target == name and conn.kind == "feedforward"
+                                and conn.enabled):
+                            s.region.process(self._get_ff_signal(conn))
+                            break
+
+            # 4. Inter-region signals (surprise, apical)
+            for conn in self._connections:
+                if not conn.enabled:
+                    continue
+                src = self._regions[conn.source].region
+                tgt = self._regions[conn.target].region
+
+                if conn.kind == "surprise":
+                    n_active = int(src.active_columns.sum())
+                    n_bursting = int(src.bursting_columns.sum())
+                    burst_rate = n_bursting / max(n_active, 1)
+                    modulator = conn.surprise_tracker.update(burst_rate)
+                    tgt.surprise_modulator = modulator
+
+                elif conn.kind == "apical":
+                    if tgt.has_apical:
+                        r_active = int(src.active_columns.sum())
+                        r_bursting = int(src.bursting_columns.sum())
+                        confidence = 1.0 - (r_bursting / max(r_active, 1))
+                        signal = src.firing_rate_l23 * confidence
+                        if conn.thalamic_gate is not None:
+                            tgt_active = int(tgt.active_columns.sum())
+                            tgt_bursting = int(tgt.bursting_columns.sum())
+                            tgt_burst_rate = (
+                                tgt_bursting / max(tgt_active, 1)
+                            )
+                            conn.thalamic_gate.update(tgt_burst_rate)
+                        tgt.set_apical_context(signal)
+
+            # 5. M1 output: get produced token
+            pop_id, pop_conf = motor_region.get_population_output()
+            # During babbling, if M1 has no token mapping yet, pick a
+            # random printable char. This bootstraps the explore loop —
+            # M1 "babbles" a random sound and hears itself through S1.
+            if pop_id < 0 and motor_region.babbling_noise > 0:
+                _babble_chars = "abcdefghijklmnopqrstuvwxyz .!?'-"
+                pop_id = ord(_babble_chars[t % len(_babble_chars)])
+                pop_conf = 0.5
+
+            # 6. BG gating
+            gate = 1.0
+            if motor_state.basal_ganglia is not None:
+                precision = (
+                    ~entry_region.bursting_columns
+                ).astype(np.float64)
+                prec_frac = precision.sum() / max(
+                    entry_region.n_columns, 1,
+                )
+                ctx = np.append(precision, prec_frac)
+                gate = motor_state.basal_ganglia.step(ctx)
+                if self.force_gate_open:
+                    gate = 1.0
+                motor_region.output_scores *= gate
+
+            # 7. Compute reward
+            m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
+            if self._reward_source is not None:
+                s2_cols = np.zeros(0)
+                for _rn, _rs in self._regions.items():
+                    if _rn == "S2":
+                        s2_cols = _rs.region.active_columns
+                        break
+                reward = self._reward_source.step(m_char, s2_cols)
+            else:
+                reward = 0.0
+
+            # 8. Send reward to BG
+            if motor_state.basal_ganglia is not None:
+                motor_state.basal_ganglia.reward(reward)
+
+            # 9. Update col_token_map
+            if pop_id >= 0:
+                motor_region.observe_token(pop_id)
+
+            # Track metrics
+            rewards.append(reward)
+            gate_values.append(gate)
+            if m_char:
+                tokens_produced.append(m_char)
+                unique_tokens.add(m_char)
+
+            # 10. Feed M1's output back as next input
+            if m_char:
+                current_token_id = pop_id
+                current_token_str = m_char
+            # else: keep previous token (M1 was silent)
+
+            self._total_steps += 1
+
+            # Logging
+            if t > 0 and t % log_interval == 0:
+                recent_r = rewards[-log_interval:]
+                avg_r = sum(recent_r) / len(recent_r)
+                recent_g = gate_values[-log_interval:]
+                avg_g = sum(recent_g) / len(recent_g)
+                recent_tok = tokens_produced[-log_interval:]
+                n_unique = len(set(recent_tok))
+                burst_pct = (
+                    float(entry_region.bursting_columns.sum())
+                    / max(entry_region.n_columns, 1)
+                )
+                elapsed = time.monotonic() - start
+                print(
+                    f"  [babble] t={t:,} "
+                    f"r={avg_r:+.3f} "
+                    f"gate={avg_g:.2f} "
+                    f"burst={burst_pct:.1%} "
+                    f"chars={len(recent_tok)}/{log_interval} "
+                    f"unique={n_unique} "
+                    f"total_vocab={len(unique_tokens)} "
+                    f"({elapsed:.1f}s)"
+                )
+
+        elapsed = time.monotonic() - start
+        return {
+            "rewards": rewards,
+            "gate_values": gate_values,
+            "tokens_produced": tokens_produced,
+            "unique_tokens": sorted(unique_tokens),
+            "elapsed_seconds": elapsed,
+        }
+
+    # ------------------------------------------------------------------
     # Checkpointing
     # ------------------------------------------------------------------
 
