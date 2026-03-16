@@ -213,11 +213,12 @@ def print_help():
     """Print available commands."""
     print(f"{DIM}Commands:{RESET}")
     print(f"{DIM}  /help            Show this help{RESET}")
+    print(f"{DIM}  /info            Show model capabilities and sample prompts{RESET}")
     print(f"{DIM}  /reset           Clear working memory{RESET}")
     print(f"{DIM}  /stats           Show BPC statistics{RESET}")
     print(
         f"{DIM}  /warmup [N]      "
-        f"Train on N more TinyDialogues chars (default 5000){RESET}"
+        f"Train on N more chars (default 5000){RESET}"
     )
     print(
         f"{DIM}  /save [name]     "
@@ -238,6 +239,65 @@ def print_help():
         f"{DIM}M1 interruptions during input "
         f"are shown inline.{RESET}"
     )
+
+
+def print_info(cortex, encoder, region1, motor, decoder):
+    """Show model capabilities, vocabulary, and sample prompts."""
+    print(f"\n{BOLD}=== Model Info ==={RESET}\n")
+
+    # Architecture
+    regions = list(cortex._regions.keys())
+    frozen = [n for n, s in cortex._regions.items() if not s.region.learning_enabled]
+    active_conns = [
+        f"{c.source}→{c.target}({c.kind})"
+        for c in cortex._connections if c.enabled
+    ]
+    print(f"  {DIM}Regions:{RESET} {', '.join(regions)}")
+    if frozen:
+        print(f"  {DIM}Frozen:{RESET} {', '.join(frozen)}")
+    print(f"  {DIM}Active connections:{RESET} {', '.join(active_conns) or 'none'}")
+
+    # S1 stats
+    burst_sum = float(region1.bursting_columns.sum())
+    burst_pct = burst_sum / max(region1.n_columns, 1)
+    print(f"  {DIM}S1 burst rate:{RESET} {burst_pct:.0%} (lower = better predictions)")
+
+    # Vocabulary from decoder
+    if decoder and decoder.n_tokens > 0:
+        known = sorted(decoder._neurons.keys())
+        chars = [chr(t) if 32 <= t < 127 else f"<{t}>" for t in known]
+        print(f"  {DIM}Known chars ({len(chars)}):{RESET} {''.join(chars)}")
+
+    # M1 status
+    if motor:
+        unique_tokens = set(int(t) for t in motor._col_token_map if t >= 0)
+        m1_chars = sorted(chr(t) if 32 <= t < 127 else f"<{t}>" for t in unique_tokens)
+        babbling = getattr(motor, "babbling_noise", 0.0)
+        print(f"  {DIM}M1 can produce ({len(m1_chars)}):{RESET} {''.join(m1_chars)}")
+        if babbling > 0:
+            print(f"  {DIM}M1 babbling noise:{RESET} {babbling:.0%}")
+
+    # Sample prompts (BabyLM = child-directed speech)
+    print(f"\n  {BOLD}Sample prompts (child-directed speech):{RESET}")
+    samples = [
+        "want milk?",
+        "look at the dog!",
+        "where is mommy?",
+        "good boy!",
+        "come here.",
+        "what is that?",
+        "no no no!",
+        "all gone!",
+        "hi baby!",
+        "up up up!",
+    ]
+    # Pick 5 random samples
+    rng = np.random.default_rng()
+    for s in rng.choice(samples, min(5, len(samples)), replace=False):
+        print(f"    {CYAN}> {s}{RESET}")
+
+    print(f"\n  {DIM}Tip: Use short, simple phrases. This model was trained on{RESET}")
+    print(f"  {DIM}child-directed speech — not adult conversation.{RESET}\n")
 
 
 def reset_state(cortex, encoder):
@@ -286,6 +346,9 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                 break
             elif cmd == "/help":
                 print_help()
+                continue
+            elif cmd == "/info":
+                print_info(cortex, encoder, region1, motor, decoder)
                 continue
             elif cmd == "/reset":
                 reset_state(cortex, encoder)
@@ -514,18 +577,22 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="personachat",
-        choices=["personachat", "tinydialogues"],
-        help="Dataset for vocab and warmup (default: personachat)",
+        default="babylm",
+        choices=["personachat", "tinydialogues", "babylm"],
+        help="Dataset for vocab and warmup (default: babylm)",
     )
     args = parser.parse_args()
 
     # Load tokens for vocab (and warmup)
-    load_fn = (
-        prepare_tokens_personachat
-        if args.dataset == "personachat"
-        else prepare_tokens_tinydialogues
-    )
+    if args.dataset == "personachat":
+        load_fn = lambda n, **kw: prepare_tokens_personachat(n, **kw)
+    elif args.dataset == "tinydialogues":
+        load_fn = lambda n, **kw: prepare_tokens_tinydialogues(n, **kw)
+    else:
+        from step.data import prepare_tokens_charlevel, inject_eom_tokens
+        def load_fn(n, **kw):
+            tokens = prepare_tokens_charlevel(n, dataset="babylm")
+            return inject_eom_tokens(tokens, segment_length=200)
 
     # Need enough chars to discover full alphabet (rare chars like digits
     # only appear after many dialogues). 100k when loading checkpoint,
@@ -556,6 +623,9 @@ def main():
     elif not args.no_warmup and args.warmup > 0:
         tokens = load_fn(args.warmup, speak_window=10)
         warmup(cortex, tokens)
+
+    # Show model info on startup
+    print_info(cortex, encoder, region1, motor, decoder)
 
     # Enter interactive mode
     interactive_loop(cortex, encoder, region1, motor, decoder, load_fn)
