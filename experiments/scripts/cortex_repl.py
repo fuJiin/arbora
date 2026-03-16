@@ -129,8 +129,7 @@ def warmup(cortex, tokens, log_interval=2000):
 
 def step_token(cortex, token_id, token_str):
     """Process one token through the full hierarchy, return motor output."""
-    with contextlib.redirect_stdout(io.StringIO()):
-        cortex.run([(token_id, token_str)], log_interval=0)
+    cortex.step(token_id, token_str)
 
 
 def decode_prediction(
