@@ -99,6 +99,11 @@ def main():
         help="Temporal buffer depth for S2→S3 feedforward (default: 8 ≈ 8 words)",
     )
     parser.add_argument(
+        "--no-s3-feedback",
+        action="store_true",
+        help="Disable S3→S2 apical feedback (keeps S2→S1). Feedback hurts S2 at 100k scale.",
+    )
+    parser.add_argument(
         "--eom",
         action="store_true",
         help="Inject EOM tokens at story boundaries for turn-taking training",
@@ -319,7 +324,7 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
             buffer_depth=args.s3_buffer_depth, burst_gate=args.burst_gate,
         )
         cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
-        if args.apical:
+        if args.apical and not args.no_s3_feedback:
             s3_gate = ThalamicGate() if args.gate_feedback else None
             cortex.connect("S3", "S2", "apical", thalamic_gate=s3_gate)
 
