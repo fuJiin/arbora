@@ -65,7 +65,9 @@ def build_model(alphabet, s2_cols, s2_k, buffer_depth, burst_gate):
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S1", "M1", "feedforward")
     cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
+    # M1→S1 apical only if M1 and S2 have same L2/3 dim (share apical target)
+    if m1.n_l23_total == s2.n_l23_total:
+        cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("M1", "S1", "reward", reward_modulator=RewardModulator())
 
     return cortex, encoder, s1, s2
