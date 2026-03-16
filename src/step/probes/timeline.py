@@ -52,11 +52,9 @@ class Timeline:
         # Apical prediction state
         apical_pred_cols = []
         n_apical_pred = 0
-        if region.has_apical:
-            apical_pred_cols = np.nonzero(
-                region.apical_predicted_cols
-            )[0].tolist()
-            n_apical_pred = len(apical_pred_cols)
+        if region.has_apical and region._apical_gain_weights is not None:
+            # Count neurons with meaningful apical gain (weights > 0.1)
+            n_apical_pred = int((region._apical_gain_weights > 0.1).any(axis=0).sum())
 
         self.frames.append(
             TimelineFrame(
