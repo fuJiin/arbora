@@ -35,6 +35,16 @@ feedforward synapses.
 
 import numpy as np
 
+try:
+    from step.cortex._numba_kernels import (
+        predict_segments as _nb_predict,
+        grow_segment as _nb_grow,
+        adapt_segments_batch as _nb_adapt,
+    )
+    _HAS_NUMBA = True
+except ImportError:
+    _HAS_NUMBA = False
+
 
 class CorticalRegion:
     def __init__(
@@ -433,20 +443,31 @@ class CorticalRegion:
 
         Returns boolean mask of shape (n_l4_total,).
         """
-        predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
+        if _HAS_NUMBA:
+            predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
+            if self.active_l23.any():
+                predicted |= _nb_predict(
+                    self.active_l23, self.fb_seg_indices, self.fb_seg_perm,
+                    self.perm_threshold, self.seg_activation_threshold,
+                )
+            if self.active_l4.any():
+                predicted |= _nb_predict(
+                    self.active_l4, self.lat_seg_indices, self.lat_seg_perm,
+                    self.perm_threshold, self.seg_activation_threshold,
+                )
+            return predicted
 
+        predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
         if self.active_l23.any():
             active_at_syn = self.active_l23[self.fb_seg_indices]
             connected = self.fb_seg_perm > self.perm_threshold
             counts = (active_at_syn & connected).sum(axis=2)
             predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
-
         if self.active_l4.any():
             active_at_syn = self.active_l4[self.lat_seg_indices]
             connected = self.lat_seg_perm > self.perm_threshold
             counts = (active_at_syn & connected).sum(axis=2)
             predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
-
         return predicted
 
     def get_prediction(self, k: int) -> np.ndarray:
@@ -530,14 +551,18 @@ class CorticalRegion:
         Uses previous active_l23 as context (saved in _pred_context_l23).
         Returns boolean mask of shape (n_l23_total,).
         """
-        predicted = np.zeros(self.n_l23_total, dtype=np.bool_)
+        if _HAS_NUMBA and self.active_l23.any():
+            return _nb_predict(
+                self.active_l23, self.l23_seg_indices, self.l23_seg_perm,
+                self.perm_threshold, self.seg_activation_threshold,
+            )
 
+        predicted = np.zeros(self.n_l23_total, dtype=np.bool_)
         if self.active_l23.any():
             active_at_syn = self.active_l23[self.l23_seg_indices]
             connected = self.l23_seg_perm > self.perm_threshold
             counts = (active_at_syn & connected).sum(axis=2)
             predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
-
         return predicted
 
     def set_apical_context(self, context: np.ndarray):
@@ -802,7 +827,19 @@ class CorticalRegion:
         if not ctx.any():
             return
 
-        # Find best-matching segment — vectorized across segments
+        neuromod = self.surprise_modulator * self.reward_modulator
+        inc = self.perm_increment * neuromod
+        dec = self.perm_decrement * neuromod
+
+        if _HAS_NUMBA:
+            _nb_grow(
+                neuron, seg_indices, seg_perm, ctx,
+                pool.astype(np.int32) if pool.dtype != np.int32 else pool,
+                inc, dec, self.perm_init,
+            )
+            return
+
+        # NumPy fallback
         overlaps = ctx[seg_indices[neuron]].sum(axis=1)
         best_seg_idx = int(overlaps.argmax())
         if overlaps[best_seg_idx] <= 0:
@@ -812,16 +849,10 @@ class CorticalRegion:
         perm = seg_perm[neuron, best_seg_idx].copy()
         syn_active = ctx[idx]
 
-        # Strengthen active synapses, weaken inactive (modulated by neuromodulators)
-        neuromod = self.surprise_modulator * self.reward_modulator
-        inc = self.perm_increment * neuromod
-        dec = self.perm_decrement * neuromod
         perm[syn_active] = np.minimum(perm[syn_active] + inc, 1.0)
         perm[~syn_active] = np.maximum(perm[~syn_active] - dec, 0.0)
 
-        # Grow: replace weakest inactive synapses with active sources.
         active_in_pool = pool[ctx[pool]]
-
         if len(active_in_pool) > 0:
             existing_set = set(idx.tolist())
             new_sources = np.array(
@@ -864,45 +895,46 @@ class CorticalRegion:
         ctx: np.ndarray,
         reinforce: bool,
     ):
-        """Reinforce or punish active segments for a batch of neurons.
-
-        Fully vectorized: computes segment activation, then applies permanence
-        updates to all active (neuron, segment) pairs in bulk via masked ops.
-        """
+        """Reinforce or punish active segments for a batch of neurons."""
         if len(neurons) == 0 or not ctx.any():
-            return
-
-        # Batch: (n_neurons, n_seg, n_syn)
-        batch_idx = seg_indices[neurons]
-        batch_perm = seg_perm[neurons]
-        syn_active = ctx[batch_idx]  # (n, n_seg, n_syn)
-        connected = batch_perm > self.perm_threshold
-        counts = (syn_active & connected).sum(axis=2)  # (n, n_seg)
-        active_mask = counts >= self.seg_activation_threshold  # (n, n_seg)
-
-        if not active_mask.any():
             return
 
         neuromod = self.surprise_modulator * self.reward_modulator
         inc = self.perm_increment * neuromod
         dec = self.perm_decrement * neuromod
 
-        # Expand active_mask to synapse level: (n, n_seg, n_syn)
+        if _HAS_NUMBA:
+            _nb_adapt(
+                neurons.astype(np.intp),
+                seg_indices, seg_perm, ctx,
+                self.perm_threshold, self.seg_activation_threshold,
+                inc, dec, reinforce,
+            )
+            return
+
+        # NumPy fallback
+        batch_idx = seg_indices[neurons]
+        batch_perm = seg_perm[neurons]
+        syn_active = ctx[batch_idx]
+        connected = batch_perm > self.perm_threshold
+        counts = (syn_active & connected).sum(axis=2)
+        active_mask = counts >= self.seg_activation_threshold
+
+        if not active_mask.any():
+            return
+
         active_f = active_mask[:, :, np.newaxis].astype(np.float64)
         syn_f = syn_active.astype(np.float64)
 
         if reinforce:
-            # active_seg & syn_active: +inc; active_seg & ~syn_active: -dec
             delta = active_f * (syn_f * inc - (1.0 - syn_f) * dec)
             batch_perm += delta
             np.clip(batch_perm, 0.0, 1.0, out=batch_perm)
         else:
-            # Punish: only connected + active synapses on active segments
             punish_f = active_f * syn_f * connected.astype(np.float64)
             batch_perm -= punish_f * dec
             np.maximum(batch_perm, 0.0, out=batch_perm)
 
-        # Write back only modified neurons' segments
         seg_perm[neurons] = batch_perm
 
     # ------------------------------------------------------------------

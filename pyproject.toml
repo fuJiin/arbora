@@ -6,6 +6,7 @@ dependencies = [
     "numpy",
     "transformers",
     "datasets",
+    "numba>=0.64.0",
 ]
 
 [project.optional-dependencies]
