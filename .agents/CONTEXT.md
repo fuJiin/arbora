@@ -7,79 +7,68 @@ Research project exploring biologically-plausible learning for next-token predic
 
 - **`src/step/config.py`** — `CortexConfig`, factory functions `make_sensory_region()`, `make_motor_region()`
 - **`src/step/cortex/`** — `region.py` (base with ff weights), `sensory.py` (encoding masking + local connectivity), `motor.py` (L5 readout), `modulators.py`, `basal_ganglia.py`, `topology.py`
-- **`src/step/probes/`** — `diagnostics.py`, `representation.py`, `timeline.py`, `bpc.py`
-- **`src/step/data.py`** — token loading: `prepare_tokens_tinydialogues()`, `prepare_tokens_personachat()`, `EOM_TOKEN`, `STORY_BOUNDARY`
+- **`src/step/probes/`** — `diagnostics.py`, `representation.py`, `timeline.py`, `bpc.py`, `word_selectivity.py`
+- **`src/step/data.py`** — `prepare_tokens_charlevel()`, `prepare_tokens_personachat()`, `inject_eom_tokens()`, BabyLM/PersonaChat/TinyDialogues
 - **`src/step/decoders/`** — `InvertedIndexDecoder`, `SynapticDecoder`, `DendriticDecoder`
-- **`experiments/scripts/`** — `cortex_run.py`, `cortex_repl.py`, `td_sweep.py`, `bg_sweep.py`, `ef_sweep.py`
-- **`experiments/checkpoints/`** — saved model checkpoints (gitignored)
+- **`experiments/scripts/`** — `cortex_run.py`, `cortex_repl.py`, `s2_probe.py`, `s2_sweep.py`, `ef_sweep.py`
+- **`experiments/checkpoints/`** — `personachat_k4_100k.ckpt`, `babylm_100k.ckpt` (gitignored)
 
 ## Architecture
 
 ### Class hierarchy
-- **CorticalRegion** (`region.py`): ff_weights, process(), _learn_ff(), reconstruct(), efference copy (with `efference_gain`), dendritic segments, L4/L2/3 pipeline
+- **CorticalRegion** (`region.py`): ff_weights, process(), _learn_ff(), reconstruct(), efference copy (`efference_gain`), dendritic segments, L4/L2/3 pipeline
 - **SensoryRegion** (`sensory.py`): encoding-width receptive field masking, local connectivity for segments + L2/3 lateral mask
 - **MotorRegion** (`motor.py`): L5 readout, population vote, column→token mapping. Inherits SensoryRegion (for local connectivity)
 
 ### S1 → S2 → M1 + BasalGanglia
 - **S1**: 128 cols, k=8, ltd=0.05, synapse_decay=1.0, PositionalCharEncoder
 - **S2**: 32 cols k=4, temporal buffer (depth=4) + burst gating, apical feedback to S1, thalamic gating
-- **M1**: 32 cols k=4, L5 readout threshold 0.3, population vote output (L5 population coding)
+- **M1**: 32 cols k=4, L5 readout threshold 0.3, population vote
 - **BG**: Go/no-go gate, three-factor plasticity, supervised gate-error (Stage 1)
-- **Efference copy**: When M1 speaks during `force_gate_open`, S1 subtracts `efference_gain * predicted_drive` from actual drive. Default gain=1.0.
+- **Efference copy**: During `force_gate_open`, S1 subtracts `efference_gain * predicted_drive`. Default gain=1.0.
 
-### Topology features
-- `force_gate_open` flag for interactive use (bypasses BG gating + triggers efference copy)
-- `save_checkpoint()`/`load_checkpoint()` for full model persistence
-- Dataset presets (`--dataset personachat`) auto-set buffer_depth=4, burst_gate, apical, gate_feedback
+### Key APIs
+- **`Topology.step(token_id, token_str)`**: Lightweight single-token processing (no metrics overhead). ~1.4x faster than `run()`.
+- **`Topology.run(tokens, metric_interval=N)`**: Full training loop. `metric_interval` controls expensive decode sampling.
+- **`cortex_run.py --dataset babylm`**: BabyLM support with synthetic EOM every 200 chars.
 
 ## Training Results
 
-### 100k PersonaChat (k=4, full architecture)
-- S1 BPC: **5.27** (steady-state 5.38, random baseline 5.43)
-- M1 population vote: **33%** training accuracy
-- M1 representation: NON-TRIVIAL, context discrimination 0.942
+### BabyLM S2 probe results (babylm_100k checkpoint, 50k probe chars)
+- **S2 BPC: 5.67 — BEATS S1's 5.82** (first time S2 outperforms S1 at char prediction)
+- **S2 consistent words: 288** (vs S1's 151, vs 123 on PersonaChat)
+- S2 mean word consistency: 0.338 (vs S1's 0.291)
+- Still no truly selective columns (entropy > 0.85 everywhere)
+- **Diagnosis**: 32 columns can't specialize for individual words — they represent word *classes* via co-activation patterns. More columns may help.
+
+### BabyLM dataset characteristics
+- 53.5M total chars, we trained on 100k (0.2%)
+- 79 words with 50+ occurrences in 100k — much better repetition than PersonaChat
+- Child-directed speech: simple vocab, avg word length 4.1 (matches S2 buffer_depth=4)
 
 ### M1 token map collapse (diagnosed 2026-03-16)
-- Only **7 unique tokens** across 30 assigned columns: 12×space, 5×`?`, 4×`e`, 3×`.`, 3×`o`, 2×`t`, 1×`i`
-- Column→token mapping dominated by character frequency — no mechanism pushes columns to specialize for rare chars
-- Output scores during generation all near zero (max 0.003 vs 0.3 threshold) — M1 barely fires
-- **Verdict: "bad" not "fixable"** — collapsed mappings, not diverse-mappings-with-wrong-activation
-
-### M1 babbling plan (designed, tabled)
-- Modeled on infant vocal development: random motor exploration → sensorimotor mapping → guided imitation
-- **Phase 1**: Pure motor babbling — random/noisy M1 drive, no S1 loop, builds diverse column→token map
-- **Phase 2**: Sensorimotor mapping — M1→S1→M1 closed loop, learns what own output looks like through S1 (addresses exposure bias)
-- **Phase 3**: Guided babbling — interleaved with corpus reading (current training)
-- **Tabled**: S2/S3 representations are the blocker — M1 needs higher-level intent signals to be useful after babbling
-
-## Key Architectural Findings
-
-### S2 interpretability: blind spot
-- Same aggregate metrics as S1 (selectivity, context discrimination) but no word-level analysis
-- S2 gets 4-frame temporal buffer of S1's burst-gated activity — could capture word patterns, but no probe to verify
-- **Need**: Word-level selectivity probe, S2→S1 column pairing analysis, S2 prediction decoder
-
-### Feedback gating: passive, not adaptive
-- ThalamicGate (receiver burst rate) + precision weighting (sender confidence) — both passive/reactive
-- Apical feedback disabled by default because S2 was "precise but wrong"
-- **Defer** until S2 interpretability shows S2 is learning something useful
-
-### Performance
-- ~250-500 tokens/sec, 100k chars in ~10-15 min with full hierarchy
-- Bottleneck: Python loops in segment learning (~6K-12K micro-ops/step)
-- **Defer** until 1M+ training becomes routine need
+- Column→token mapping collapsed to ~7 high-frequency chars
+- **Tabled**: needs babbling phases, waiting for S2/S3
 
 ## Key Decisions
-- **synapse_decay=1.0**: No passive decay. Sparse encoding prevents catastrophic forgetting.
-- **PersonaChat over TinyDialogues**: Human-written > GPT-generated for natural language patterns.
+- **BabyLM for S2 tuning**: Better word repetition profile than PersonaChat (79 words with 50+ occ vs handful)
+- **Architecture before scale**: Get S2↔S3 interface right at 100k, then scale to 1M+. Avoid over-investing in S2 config that doesn't compose with S3.
+- **S2/S3 before M1 babbling**: Higher-level representations are the blocker for useful M1 generation.
 - **Efference copy over neural adaptation**: Architecturally consistent, no special-case behavior.
-- **ff machinery in CorticalRegion**: All regions receive input via ff_weights.
-- **S2/S3 before M1 babbling**: Higher-level representations are the blocker for M1 usefulness. Get S2 working first.
+- **ff machinery in CorticalRegion**: All regions process input via ff_weights.
+
+## In Progress
+- **S2 architecture sweep running** (`s2_sweep.py`): 6 configs on BabyLM 100k
+  - S2 columns: 32 (baseline), 64, 128
+  - S2 k: 4, 8, 16 (proportional)
+  - Buffer depth: 4, 8
+  - Burst gating: on/off
+  - Note: M1→S1 apical skipped when S2/M1 dims differ (single apical source limitation)
 
 ## Next Steps (Priority Order)
-- [ ] **S2 interpretability probe** — word-level selectivity analysis to determine if S2 is learning multi-char patterns. Build probes before changing architecture.
-- [ ] **S2 architecture tuning** — based on probe results, tune S2 to extract word-level context (may need more columns, different buffer depth, etc.)
-- [ ] **S3 / concept region** — higher-level abstractions that would eventually drive M1 via intent signals
-- [ ] **M1 babbling phases** — implement staged motor exploration once S2/S3 provide useful representations
-- [ ] **Feedback gating** — adaptive S2→S1 gating once S2 is demonstrably useful
-- [ ] **Performance** — Numba on segment learning when 1M+ training needed
+- [ ] **Analyze S2 sweep results** — determine if more columns improve selectivity or if distributed co-activation is the right abstraction level
+- [ ] **Build minimal S3** — higher-level region on top of winning S2 config. Tests what S3 needs from S2.
+- [ ] **Scale BabyLM training** — 1M+ chars once S2↔S3 architecture is validated
+- [ ] **M1 babbling phases** — staged motor exploration once S2/S3 provide useful representations
+- [ ] **Feedback gating** — adaptive S2→S1 once S2 is demonstrably useful
+- [ ] **Performance (Numba)** — `@njit` on segment hot loops when needed
