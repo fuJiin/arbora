@@ -135,6 +135,8 @@ class Topology:
         self.force_gate_open = False
         # Tracks total steps across run() calls (BG skips t=0 globally)
         self._total_steps = 0
+        # Pluggable reward source (None = use default turn-taking reward)
+        self._reward_source = None
 
     # ------------------------------------------------------------------
     # Stage configuration API
@@ -163,6 +165,15 @@ class Topology:
                 conn.enabled = True
                 return
         raise ValueError(f"No {kind} connection {source}->{target}")
+
+    def set_reward_source(self, source) -> None:
+        """Set a pluggable reward source for BG learning.
+
+        The source should have a step(char, s2_active_columns) method
+        that returns a reward float or None. Pass None to revert to
+        default turn-taking reward.
+        """
+        self._reward_source = source
 
     # ------------------------------------------------------------------
     # Builder API
@@ -686,12 +697,33 @@ class Topology:
                                 1.0 if dec_id == token_id else 0.0,
                             )
 
-                        # -- Stage 1 reward: turn-taking --
+                        # -- Motor reward --
                         spoke = m_id >= 0
-                        reward = self._compute_turn_reward(
-                            spoke, self._in_eom, self._eom_steps,
-                            _max_speak_steps,
-                        )
+                        if self._reward_source is not None and spoke:
+                            # Pluggable reward (e.g., S2 word recognition)
+                            m_char = chr(m_id) if 32 <= m_id < 127 else None
+                            s2_cols = np.zeros(0)
+                            for _rn, _rs in self._regions.items():
+                                if _rn == "S2":
+                                    s2_cols = _rs.region.active_columns
+                                    break
+                            word_reward = self._reward_source.step(
+                                m_char, s2_cols,
+                            )
+                            # Use word reward when available, fall back to
+                            # turn-taking for non-word steps
+                            if word_reward is not None:
+                                reward = word_reward
+                            else:
+                                reward = self._compute_turn_reward(
+                                    spoke, self._in_eom, self._eom_steps,
+                                    _max_speak_steps,
+                                )
+                        else:
+                            reward = self._compute_turn_reward(
+                                spoke, self._in_eom, self._eom_steps,
+                                _max_speak_steps,
+                            )
                         metrics[_name].motor_rewards.append(reward)
 
                         # Expose last-step state for interactive use
