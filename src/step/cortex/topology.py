@@ -260,6 +260,154 @@ class Topology:
         return self._regions[name].region
 
     # ------------------------------------------------------------------
+    # Single-token step (lightweight, no metrics overhead)
+    # ------------------------------------------------------------------
+
+    def step(self, token_id: int, token_str: str) -> None:
+        """Process one token through the hierarchy.
+
+        Lightweight alternative to run() for interactive use and probing.
+        Handles EOM/boundary tokens, feedforward processing, inter-region
+        signals, motor output, and BG gating — but skips metrics
+        accumulation, logging, BPC, and diagnostics.
+        """
+        if self._entry_name is None:
+            raise ValueError("No entry region. Call add_region(..., entry=True).")
+
+        entry_name = self._entry_name
+        entry_state = self._regions[entry_name]
+        entry_region = entry_state.region
+
+        # -- Story boundary --
+        if token_id == STORY_BOUNDARY:
+            for s in self._regions.values():
+                s.region.reset_working_memory()
+                if s.basal_ganglia is not None:
+                    s.basal_ganglia.reset()
+            for conn in self._connections:
+                if conn._buffer is not None:
+                    conn._buffer[:] = 0.0
+                    conn._buffer_pos = 0
+                if conn.thalamic_gate is not None:
+                    conn.thalamic_gate.reset()
+                if conn.kind == "reward" and conn.reward_modulator is not None:
+                    conn.reward_modulator.reset()
+            if hasattr(self._encoder, "reset"):
+                self._encoder.reset()
+            self._in_eom = False
+            self._eom_steps = 0
+            return
+
+        # -- EOM token --
+        if token_id == EOM_TOKEN:
+            self._in_eom = True
+            self._eom_steps = 0
+            return
+
+        # -- Turn-taking state --
+        if self._in_eom:
+            self._eom_steps += 1
+            if self._eom_steps > 20:
+                self._in_eom = False
+
+        # -- Process in topo order --
+        topo_order = self._topo_order()
+        for name in topo_order:
+            s = self._regions[name]
+            if name == entry_name:
+                encoding = self._encoder.encode(token_str)
+                s.region.process(encoding)
+            else:
+                for conn in self._connections:
+                    if conn.target == name and conn.kind == "feedforward":
+                        s.region.process(self._get_ff_signal(conn))
+                        break
+
+        # -- Inter-region signals --
+        for conn in self._connections:
+            src = self._regions[conn.source].region
+            tgt = self._regions[conn.target].region
+
+            if conn.kind == "surprise":
+                n_active = int(src.active_columns.sum())
+                n_bursting = int(src.bursting_columns.sum())
+                burst_rate = n_bursting / max(n_active, 1)
+                modulator = conn.surprise_tracker.update(burst_rate)
+                tgt.surprise_modulator = modulator
+
+            elif conn.kind == "apical":
+                if tgt.has_apical:
+                    r_active = int(src.active_columns.sum())
+                    r_bursting = int(src.bursting_columns.sum())
+                    confidence = 1.0 - (r_bursting / max(r_active, 1))
+                    signal = src.firing_rate_l23 * confidence
+                    if conn.thalamic_gate is not None:
+                        tgt_active = int(tgt.active_columns.sum())
+                        tgt_bursting = int(tgt.bursting_columns.sum())
+                        tgt_burst_rate = tgt_bursting / max(tgt_active, 1)
+                        readiness = conn.thalamic_gate.update(tgt_burst_rate)
+                        signal = signal * readiness
+                    tgt.set_apical_context(signal)
+
+        # -- Motor processing --
+        for _name, s in self._regions.items():
+            if s.motor:
+                motor_region = s.region
+                motor_region.observe_token(token_id)
+
+                if self._total_steps > 0:
+                    # BG gating
+                    gate = 1.0
+                    if s.basal_ganglia is not None:
+                        precision = (
+                            ~entry_region.bursting_columns
+                        ).astype(np.float64)
+                        prec_frac = precision.sum() / max(
+                            entry_region.n_columns, 1,
+                        )
+                        ctx = np.append(precision, prec_frac)
+                        gate = s.basal_ganglia.step(ctx)
+                        if self.force_gate_open:
+                            gate = 1.0
+                        motor_region.output_scores *= gate
+
+                    # Population vote output
+                    pop_id, pop_conf = motor_region.get_population_output()
+                    m_id, m_conf = pop_id, pop_conf
+
+                    motor_region.last_output = (m_id, m_conf)
+                    motor_region.last_gate = gate
+                    motor_region.last_reward = 0.0
+
+                    # BG reward signal
+                    if s.basal_ganglia is not None:
+                        gate_target = 1.0 if self._in_eom else 0.0
+                        gate_error = gate_target - s.basal_ganglia.gate_value
+                        s.basal_ganglia.reward(gate_error)
+                        spoke = m_id >= 0
+                        reward = self._compute_turn_reward(
+                            spoke, self._in_eom, self._eom_steps, 20,
+                        )
+                        motor_region.last_reward = reward
+                        for conn in self._connections:
+                            if (
+                                conn.kind == "reward"
+                                and conn.source == _name
+                                and conn.reward_modulator is not None
+                            ):
+                                mod = conn.reward_modulator.update(reward)
+                                self._regions[conn.target].region.reward_modulator = mod
+
+                    # Efference copy (generation mode only)
+                    if m_id >= 0 and self.force_gate_open:
+                        ef_encoding = self._encoder.encode(
+                            chr(m_id) if m_id < 128 else "",
+                        )
+                        entry_region.set_efference_copy(ef_encoding)
+
+        self._total_steps += 1
+
+    # ------------------------------------------------------------------
     # Run loop
     # ------------------------------------------------------------------
 

@@ -49,8 +49,7 @@ def build_model(alphabet):
 
 
 def step_token(cortex, token_id, token_str):
-    with contextlib.redirect_stdout(io.StringIO()):
-        cortex.run([(token_id, token_str)], log_interval=999)
+    cortex.step(token_id, token_str)
 
 
 def generate(cortex, s1, m1, encoder, prompt, max_steps=30):
