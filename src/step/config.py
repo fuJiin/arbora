@@ -84,6 +84,28 @@ def _default_region2_config() -> CortexConfig:
     )
 
 
+def _default_region3_config() -> CortexConfig:
+    """Region 3 (S3) defaults: association cortex for topic/theme extraction.
+
+    Receives S2's L2/3 firing rates through a temporal buffer.
+    S2 changes roughly every word (~4 chars), so a buffer_depth=8
+    on S2 output spans ~8 words — approximately one phrase/clause.
+
+    Slower dynamics than S2: higher voltage_decay retains context longer,
+    high eligibility_decay for extended temporal credit assignment.
+    Same 32c/k4 as S2 — distributed representation works well at this scale.
+    """
+    return CortexConfig(
+        n_columns=32,
+        k_columns=4,
+        voltage_decay=0.9,
+        eligibility_decay=0.99,
+        synapse_decay=0.9999,
+        learning_rate=0.15,
+        ltd_rate=0.15,
+    )
+
+
 @dataclass
 class HierarchyConfig:
     """Configuration for a two-region sensory hierarchy."""
