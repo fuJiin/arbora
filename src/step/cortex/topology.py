@@ -725,11 +725,21 @@ class Topology:
                         motor_region.last_gate = gate
                         motor_region.last_reward = reward
 
-                        # BG reward: always send (learns from both phases)
+                        # BG reward: send computed reward to update gate weights
                         if s.basal_ganglia is not None:
-                            gate_target = 1.0 if self._in_eom else 0.0
-                            gate_error = gate_target - s.basal_ganglia.gate_value
-                            s.basal_ganglia.reward(gate_error)
+                            if self._reward_source is not None:
+                                # Pluggable reward: send directly to BG
+                                s.basal_ganglia.reward(reward)
+                            else:
+                                # Default: turn-taking gate error
+                                gate_target = (
+                                    1.0 if self._in_eom else 0.0
+                                )
+                                gate_error = (
+                                    gate_target
+                                    - s.basal_ganglia.gate_value
+                                )
+                                s.basal_ganglia.reward(gate_error)
 
                         # -- Turn-taking behavioral counters --
                         m = metrics[_name]
