@@ -38,31 +38,38 @@ Research project exploring biologically-plausible learning for next-token predic
 ## Current State
 
 ### S3 built and probed (babylm_s3_100k checkpoint)
-- S3: 32c/k4, buf=8 on S2 L2/3, burst gating, apical feedback to S2
-- **S3 BPC: 5.52** — almost matches S1 (5.47), better than S2 (5.75)
-- **S3 consistent words: 223** (vs S2's 109). 2x improvement with same column count.
-- S3's top words are topic-specific: "mosquitoes", "tickling", "microphone", "catherine's"
-- S2's top words are phonetically distinctive: "yummy", "chomp", "vroom"
-- **Hierarchy is working**: each level extracts increasingly abstract features
-- S3→S2 thalamic gate at 0.35-0.47 after 100k — still slowly opening
+- S3: 32c/k4, buf=8 on S2 L2/3, burst gating
+- **S3 BPC: 5.45** — best of all regions. S3 consistent words: 232 (vs S2's 242 without feedback).
+- S3's top words are topic-specific: "mosquitoes", "tickling", "microphone"
+- **Hierarchy working**: each level extracts increasingly abstract features
+
+### Apical feedback A/B test (BabyLM 100k, 4 configs)
+- **S2→S1 helps S1**: BPC 5.87 → 5.64 (0.24 improvement). S2 word patterns ARE useful for S1.
+- **But feedback hurts the sender**: S2 consistent words drop 242 → 195 (S2→S1) or 242 → 112 (S3→S2).
+- **S3→S2 hurts S2 the most**: consistent words 242 → 112, BPC 5.51 → 5.79.
+- **S3 is stable regardless** of feedback config (BPC 5.45-5.51).
+- **Root cause**: apical feedback is too instructive, disrupts sender's internal learning. Should be modulatory (gain control), not additive. Fix later.
+- **Best config for scaling: S2→S1 feedback ON, S3→S2 feedback OFF.**
 
 ### S2 settled (sweep complete)
-- 32c/k4/buf4/burst is the sweet spot — only config where S2 beats S1 at BPC
-- Word representation is fundamentally distributed (no selective columns in any config)
+- 32c/k4/buf4/burst. Distributed co-activation, no selective columns.
 
 ### M1 tabled
-- Token map collapsed to ~7 frequent chars. Needs babbling phases after sensory hierarchy is scaled.
+- Token map collapsed to ~7 frequent chars. Needs babbling after sensory hierarchy scales.
 
 ## Key Decisions
-- **BabyLM for training**: Child-directed speech, 53.5M chars, better word repetition than PersonaChat
-- **32c/k4 for S2 and S3**: Distributed co-activation works well at this scale
-- **S3 buf=8**: Spans ~8 words (one phrase). Captures topic-level patterns.
-- **PFC ≠ M2**: Broca's handles sequencing, PFC handles intent/reasoning
-- **Architecture before scale**: Validate hierarchy at 100k, then scale to 1M+
+- **BabyLM for training**: 53.5M chars of child-directed speech
+- **32c/k4 for S2 and S3**: Distributed co-activation at this scale
+- **S2→S1 feedback ON, S3→S2 OFF**: Feedback helps receiver but hurts sender. Use only where net benefit is clear.
+- **PFC ≠ M2**: Broca's = sequencing, PFC = intent/reasoning
+- **Architecture before scale**: Validated at 100k, now scaling to 1M
+
+## In Progress
+- **1M BabyLM training**: S1→S2→S3+M1, S2→S1 apical ON, S3→S2 OFF. Checkpoint: `babylm_s3_1m`
 
 ## Next Steps
-- [ ] **Scale BabyLM training** — 1M+ chars with S1→S2→S3. Sensory hierarchy validated, needs more data for S3 to mature.
-- [ ] **Dashboard updates** — add S3 panels, 3-region hierarchy comparison, word selectivity viz
-- [ ] **S3→S2 apical feedback tuning** — gate is barely open at 100k. May need more training or lower threshold.
-- [ ] **M1 babbling** — staged motor exploration once sensory hierarchy is scaled
-- [ ] **PFC/M2 planning** — design intent→sequencing→output pipeline
+- [ ] **Analyze 1M results** — probe S1/S2/S3 at scale. Does S3 mature with more data?
+- [ ] **Fix apical feedback mechanism** — make modulatory (gain) instead of instructive (additive) so it doesn't hurt sender
+- [ ] **Dashboard updates** — add S3 panels, 3-region comparison
+- [ ] **M1 babbling** — staged motor exploration
+- [ ] **PFC/M2** — design intent→sequencing→output pipeline
