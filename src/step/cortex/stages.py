@@ -48,6 +48,12 @@ class TrainingStage:
     # Checkpoint to save after this stage
     save_checkpoint: str | None = None
 
+    # Motor babbling noise (0.0 = off, 1.0 = pure random)
+    babbling_noise: float = 0.0
+
+    # Force M1 active every step (not just EOM phase)
+    force_motor_active: bool = False
+
     def configure(self, topology) -> None:
         """Apply this stage's configuration to a Topology."""
         # Freeze/unfreeze regions
@@ -57,6 +63,12 @@ class TrainingStage:
                     topology.unfreeze_region(name)
                 else:
                     topology.freeze_region(name)
+
+        # Motor babbling configuration
+        for name, state in topology._regions.items():
+            if state.motor:
+                state.region.babbling_noise = self.babbling_noise
+        topology.force_gate_open = self.force_motor_active
 
         # Enable/disable connections
         for sc in self.connections:
@@ -146,6 +158,8 @@ BABBLING_STAGE = TrainingStage(
     connections=_babbling_connections(),
     load_checkpoint="stage1_sensory",
     save_checkpoint="stage2_babbling",
+    babbling_noise=1.0,  # Pure random exploration
+    force_motor_active=True,  # M1 processes every step, not just EOM
 )
 
 GUIDED_BABBLING_STAGE = TrainingStage(
