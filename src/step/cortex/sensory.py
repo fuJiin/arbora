@@ -145,6 +145,20 @@ class SensoryRegion(CorticalRegion):
         self.l23_lateral_weights[~self.l23_lat_mask] = 0.0
 
     def _learn(self):
-        """Override to enforce L2/3 lateral mask after learning."""
+        """Override to enforce L2/3 lateral mask after learning.
+
+        Only re-zero the modified elements (sparse outer product rows/cols)
+        rather than the entire matrix.
+        """
+        # Compute trace/active indices before calling super (which decays traces)
+        trace_nz = np.flatnonzero(self.trace_l23)
+        active_nz = np.flatnonzero(self.active_l23)
+
         super()._learn()
-        self.l23_lateral_weights[~self.l23_lat_mask] = 0.0
+
+        # Only enforce mask on the rows/cols that were actually modified
+        if len(trace_nz) > 0 and len(active_nz) > 0:
+            patch = self.l23_lateral_weights[np.ix_(trace_nz, active_nz)]
+            mask_patch = self.l23_lat_mask[np.ix_(trace_nz, active_nz)]
+            patch[~mask_patch] = 0.0
+            self.l23_lateral_weights[np.ix_(trace_nz, active_nz)] = patch

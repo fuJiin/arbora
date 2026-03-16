@@ -87,14 +87,26 @@ class DendriticDecoder:
         if not ctx.any():
             return []
 
-        scores: list[tuple[int, int]] = []
-        for token_id, (indices, perm) in self._neurons.items():
-            overlap = self._best_segment_overlap(indices, perm, ctx)
-            if overlap >= self.seg_threshold:
-                scores.append((token_id, overlap))
+        if not self._neurons:
+            return []
 
-        scores.sort(key=lambda x: x[1], reverse=True)
-        return [tid for tid, _ in scores[:k]]
+        # Batch all neurons: stack indices/perm, compute overlaps in one shot
+        token_ids = list(self._neurons.keys())
+        all_indices = np.stack([self._neurons[t][0] for t in token_ids])  # (N, n_seg, n_syn)
+        all_perm = np.stack([self._neurons[t][1] for t in token_ids])
+        active_at_syn = ctx[all_indices]  # (N, n_seg, n_syn)
+        connected = all_perm > self.perm_threshold
+        counts = (active_at_syn & connected).sum(axis=2)  # (N, n_seg)
+        max_overlaps = counts.max(axis=1)  # (N,)
+
+        # Filter by threshold and get top-k
+        above = max_overlaps >= self.seg_threshold
+        if not above.any():
+            return []
+        valid_idx = np.flatnonzero(above)
+        valid_overlaps = max_overlaps[valid_idx]
+        top = valid_idx[np.argsort(valid_overlaps)[::-1][:k]]
+        return [token_ids[i] for i in top]
 
     def decode_scores(self, l23_state: np.ndarray) -> dict[int, int]:
         """Return all token scores (best segment overlap) for analysis."""
@@ -102,12 +114,23 @@ class DendriticDecoder:
         if not ctx.any():
             return {}
 
-        result = {}
-        for token_id, (indices, perm) in self._neurons.items():
-            overlap = self._best_segment_overlap(indices, perm, ctx)
-            if overlap > 0:
-                result[token_id] = overlap
-        return result
+        if not self._neurons:
+            return {}
+
+        # Batch all neurons
+        token_ids = list(self._neurons.keys())
+        all_indices = np.stack([self._neurons[t][0] for t in token_ids])
+        all_perm = np.stack([self._neurons[t][1] for t in token_ids])
+        active_at_syn = ctx[all_indices]
+        connected = all_perm > self.perm_threshold
+        counts = (active_at_syn & connected).sum(axis=2)
+        max_overlaps = counts.max(axis=1)
+
+        return {
+            token_ids[i]: int(max_overlaps[i])
+            for i in range(len(token_ids))
+            if max_overlaps[i] > 0
+        }
 
     def _best_segment_overlap(
         self,
@@ -128,16 +151,10 @@ class DendriticDecoder:
         ctx: np.ndarray,
     ) -> None:
         """Find best-matching segment, reinforce active synapses, grow new ones."""
-        # Find segment with most context overlap
-        best_seg = 0
-        best_overlap = -1
-        for s in range(self.n_segments):
-            overlap = int(ctx[indices[s]].sum())
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_seg = s
-
-        if best_overlap <= 0:
+        # Vectorized: find segment with most context overlap
+        overlaps = ctx[indices].sum(axis=1)
+        best_seg = int(overlaps.argmax())
+        if overlaps[best_seg] <= 0:
             return
 
         idx = indices[best_seg].copy()
@@ -150,18 +167,16 @@ class DendriticDecoder:
 
         # Grow: replace weakest inactive synapses with active sources
         active_sources = np.nonzero(ctx)[0]
-        existing = set(idx.tolist())
-        new_sources = [s for s in active_sources if s not in existing]
+        new_sources = active_sources[~np.isin(active_sources, idx)]
 
-        if new_sources:
+        if len(new_sources) > 0:
             inactive_slots = np.where(~syn_active)[0]
             if len(inactive_slots) > 0:
                 order = np.argsort(p[inactive_slots])
                 n_grow = min(len(new_sources), len(inactive_slots))
-                for i in range(n_grow):
-                    slot = inactive_slots[order[i]]
-                    idx[slot] = new_sources[i]
-                    p[slot] = self.perm_init
+                slots = inactive_slots[order[:n_grow]]
+                idx[slots] = new_sources[:n_grow]
+                p[slots] = self.perm_init
 
         indices[best_seg] = idx
         perm[best_seg] = p

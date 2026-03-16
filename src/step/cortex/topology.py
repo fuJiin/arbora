@@ -740,13 +740,12 @@ class Topology:
                             )
 
             # -- Entry metrics --
-            active_set = frozenset(
-                int(i) for i in np.nonzero(entry_region.active_l4)[0]
-            )
+            active_l4_indices = np.nonzero(entry_region.active_l4)[0]
+            active_set = frozenset(int(i) for i in active_l4_indices)
 
             if t > 0:
-                if active_set:
-                    overlap = len(predicted_set & active_set) / len(active_set)
+                if len(active_l4_indices) > 0 and len(predicted_neurons) > 0:
+                    overlap = np.isin(active_l4_indices, predicted_neurons).sum() / len(active_l4_indices)
                 else:
                     overlap = 0.0
                 metrics[entry_name].overlaps.append(overlap)

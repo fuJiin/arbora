@@ -298,9 +298,8 @@ class CorticalRegion:
         if len(active_dims) > 0:
             sub_ltp = ltp_rate * 0.1 * flat_input[active_dims, np.newaxis]
             self.ff_weights[active_dims] += sub_ltp
-            # Enforce structural mask only on modified rows
-            for d in active_dims:
-                self.ff_weights[d, ~self.ff_mask[d]] = 0.0
+            # Enforce structural mask on modified rows — vectorized
+            self.ff_weights[active_dims] *= self.ff_mask[active_dims]
             # Upper clamp only on modified rows
             np.minimum(
                 self.ff_weights[active_dims], 1, out=self.ff_weights[active_dims]
@@ -618,8 +617,9 @@ class CorticalRegion:
         # Burst columns: no prediction — all neurons fire
         burst_cols = top_cols[~has_prediction]
         self.bursting_columns[burst_cols] = True
-        for col in burst_cols:
-            self.active_l4[col * self.n_l4 : (col + 1) * self.n_l4] = True
+        if len(burst_cols) > 0:
+            active_l4_by_col = self.active_l4.reshape(self.n_columns, self.n_l4)
+            active_l4_by_col[burst_cols] = True
 
         # Precise columns: mask unpredicted neurons, pick best scorer
         precise_mask = has_prediction
@@ -713,7 +713,8 @@ class CorticalRegion:
                 * (lr_l23 * active_l23_f)[np.newaxis, active_nz]
             )
             self.l23_lateral_weights[np.ix_(trace_nz, active_nz)] += delta
-        self.l23_lateral_weights *= self.synapse_decay
+        if self.synapse_decay < 1.0:
+            self.l23_lateral_weights *= self.synapse_decay
         np.minimum(self.l23_lateral_weights, 1, out=self.l23_lateral_weights)
 
         # Dendritic segment learning (L4 prediction + L2/3 lateral)
@@ -801,16 +802,10 @@ class CorticalRegion:
         if not ctx.any():
             return
 
-        # Find best-matching segment
-        best_seg_idx = 0
-        best_overlap = -1
-        for s in range(seg_indices.shape[1]):
-            overlap = int(ctx[seg_indices[neuron, s]].sum())
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_seg_idx = s
-
-        if best_overlap <= 0:
+        # Find best-matching segment — vectorized across segments
+        overlaps = ctx[seg_indices[neuron]].sum(axis=1)
+        best_seg_idx = int(overlaps.argmax())
+        if overlaps[best_seg_idx] <= 0:
             return
 
         idx = seg_indices[neuron, best_seg_idx].copy()
@@ -824,20 +819,26 @@ class CorticalRegion:
         perm[syn_active] = np.minimum(perm[syn_active] + inc, 1.0)
         perm[~syn_active] = np.maximum(perm[~syn_active] - dec, 0.0)
 
-        # Grow: replace weakest inactive synapses with active sources
-        active_in_pool = np.intersect1d(np.nonzero(ctx)[0], pool)
-        existing_set = set(idx.tolist())
-        new_sources = [s for s in active_in_pool if s not in existing_set]
+        # Grow: replace weakest inactive synapses with active sources.
+        active_in_pool = pool[ctx[pool]]
 
-        if new_sources:
+        if len(active_in_pool) > 0:
+            existing_set = set(idx.tolist())
+            new_sources = np.array(
+                [s for s in active_in_pool if s not in existing_set],
+                dtype=idx.dtype,
+            )
+        else:
+            new_sources = active_in_pool
+
+        if len(new_sources) > 0:
             inactive_slots = np.where(~syn_active)[0]
             if len(inactive_slots) > 0:
                 order = np.argsort(perm[inactive_slots])
                 n_grow = min(len(new_sources), len(inactive_slots))
-                for i in range(n_grow):
-                    slot = inactive_slots[order[i]]
-                    idx[slot] = new_sources[i]
-                    perm[slot] = self.perm_init
+                slots = inactive_slots[order[:n_grow]]
+                idx[slots] = new_sources[:n_grow]
+                perm[slots] = self.perm_init
 
         seg_indices[neuron, best_seg_idx] = idx
         seg_perm[neuron, best_seg_idx] = perm
@@ -865,8 +866,8 @@ class CorticalRegion:
     ):
         """Reinforce or punish active segments for a batch of neurons.
 
-        Vectorizes the segment activation check across all neurons x segments,
-        then only iterates over the (neuron, segment) pairs that are active.
+        Fully vectorized: computes segment activation, then applies permanence
+        updates to all active (neuron, segment) pairs in bulk via masked ops.
         """
         if len(neurons) == 0 or not ctx.any():
             return
@@ -886,20 +887,23 @@ class CorticalRegion:
         inc = self.perm_increment * neuromod
         dec = self.perm_decrement * neuromod
 
-        # Iterate only over active (neuron_local_idx, segment) pairs
-        ni, si = np.nonzero(active_mask)
-        for i in range(len(ni)):
-            n_local, s = ni[i], si[i]
-            neuron = neurons[n_local]
-            perm = seg_perm[neuron, s]
-            sa = syn_active[n_local, s]
-            if reinforce:
-                perm[sa] = np.minimum(perm[sa] + inc, 1.0)
-                perm[~sa] = np.maximum(perm[~sa] - dec, 0.0)
-            else:
-                mask = sa & (perm > self.perm_threshold)
-                perm[mask] = np.maximum(perm[mask] - dec, 0.0)
-            seg_perm[neuron, s] = perm
+        # Expand active_mask to synapse level: (n, n_seg, n_syn)
+        active_f = active_mask[:, :, np.newaxis].astype(np.float64)
+        syn_f = syn_active.astype(np.float64)
+
+        if reinforce:
+            # active_seg & syn_active: +inc; active_seg & ~syn_active: -dec
+            delta = active_f * (syn_f * inc - (1.0 - syn_f) * dec)
+            batch_perm += delta
+            np.clip(batch_perm, 0.0, 1.0, out=batch_perm)
+        else:
+            # Punish: only connected + active synapses on active segments
+            punish_f = active_f * syn_f * connected.astype(np.float64)
+            batch_perm -= punish_f * dec
+            np.maximum(batch_perm, 0.0, out=batch_perm)
+
+        # Write back only modified neurons' segments
+        seg_perm[neurons] = batch_perm
 
     # ------------------------------------------------------------------
     # L4 segment learning (feedback + lateral)
@@ -914,17 +918,19 @@ class CorticalRegion:
         best_overlap = -1
         best_type = None
 
+        # Vectorized overlap computation per segment type
         for seg_type, seg_indices, ctx in [
             ("fb", self.fb_seg_indices, self._pred_context_l23),
             ("lat", self.lat_seg_indices, self._pred_context_l4),
         ]:
             if not ctx.any():
                 continue
-            for s in range(seg_indices.shape[1]):
-                overlap = int(ctx[seg_indices[neuron, s]].sum())
-                if overlap > best_overlap:
-                    best_overlap = overlap
-                    best_type = seg_type
+            # (n_seg, n_syn) -> sum over synapses
+            overlaps = ctx[seg_indices[neuron]].sum(axis=1)
+            max_overlap = int(overlaps.max())
+            if max_overlap > best_overlap:
+                best_overlap = max_overlap
+                best_type = seg_type
 
         if best_type is None or best_overlap <= 0:
             return
