@@ -986,12 +986,16 @@ class Topology:
 
         for t in range(n_steps):
             # Adaptive noise: compare fast vs slow reward EMA
-            # Fast EMA rising above slow → things are improving → exploit
-            # Fast EMA falling below slow → stagnating → explore
+            # Fast rising above slow → improving → exploit (reduce noise)
+            # Fast falling below slow → stagnating → explore (increase noise)
+            # Small |delta| for too long → stagnation → also explore
             if t > 100:
                 reward_delta = reward_ema - reward_ema_slow
-                # Positive delta → reduce noise, negative → increase
+                # Delta-driven adaptation
                 noise -= noise_adapt_rate * reward_delta
+                # Stagnation detection: if |delta| is tiny, slowly increase noise
+                if abs(reward_delta) < 0.001:
+                    noise += noise_adapt_rate * 0.1  # gentle push to explore
                 noise = max(noise_floor, min(noise_ceiling, noise))
             motor_region.babbling_noise = noise
 
@@ -1311,14 +1315,15 @@ class Topology:
         self, char: str | None, entry_region,
     ) -> float:
         """Compute reward from pluggable source with appropriate context."""
-        from step.cortex.reward import S1PredictionReward
-        if isinstance(self._reward_source, S1PredictionReward):
+        from step.cortex.reward import CuriosityReward
+        if isinstance(self._reward_source, CuriosityReward):
+            # Curiosity/S1-prediction: pass S1 burst fraction
             n_active = max(int(entry_region.active_columns.sum()), 1)
             n_bursting = int(entry_region.bursting_columns.sum())
             burst_frac = n_bursting / n_active
             return self._reward_source.step(char, burst_frac)
         else:
-            # Generic reward source (e.g., WordReward)
+            # Generic reward source (e.g., WordReward): pass S2 columns
             s2_cols = np.zeros(0)
             for _rn, _rs in self._regions.items():
                 if _rn == "S2":

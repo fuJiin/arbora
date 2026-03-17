@@ -10,57 +10,75 @@ Stage 3 (guided babbling): Is M1 producing word-like sequences?
 import numpy as np
 
 
-class S1PredictionReward:
-    """Stage 3: reward for natural character transitions.
+class CuriosityReward:
+    """Reward for prediction improvement (dopamine RPE model).
 
-    Combines S1 prediction quality with a repetition penalty. S1 knows
-    which bigrams are natural (from corpus training). Reward is positive
-    when M1 produces a predicted char that DIFFERS from the previous —
-    this specifically reinforces natural transitions (th, he, an) while
-    penalizing repetition (ee, ss) even though S1 predicts repetition well.
+    Tracks expected S1 burst rate per bigram. Reward = improvement
+    over expectation: expected_burst - actual_burst. This gives:
 
-    Reward components:
-      prediction: scale * (1 - 2*burst_fraction)  [-scale, +scale]
-      repetition: -penalty if same char as previous
-      diversity:  +bonus if char hasn't been seen recently
+    - High reward for new bigrams where S1 is learning to predict
+    - Zero reward for fully-predicted bigrams (nothing left to learn)
+    - Negative reward for bigrams that got WORSE (shouldn't happen often)
+
+    Naturally solves exploration: known patterns stop being rewarding,
+    pushing M1 to discover new ones. No need for explicit diversity
+    bonus or repetition penalty — they emerge from the RPE structure.
+
+    Models dopaminergic RPE: DA neurons fire for unexpected reward
+    (prediction improvement), not expected reward (prediction accuracy).
     """
 
     def __init__(
         self,
-        scale: float = 0.5,
-        repetition_penalty: float = 0.3,
+        scale: float = 1.0,
+        baseline_decay: float = 0.99,
     ):
         self.scale = scale
-        self.repetition_penalty = repetition_penalty
+        self.baseline_decay = baseline_decay
+
+        # Per-bigram expected burst rate (EMA)
+        # Key: (prev_char, char) → expected burst fraction
+        self._expected_burst: dict[tuple[str | None, str], float] = {}
         self._prev_char: str | None = None
-        self._recent_chars: list[str] = []
-        self._recent_window: int = 10
+
+        # Global baseline for unseen bigrams
+        self._global_burst_ema: float = 0.5
 
     def step(self, char, s1_burst_fraction: float) -> float:
         if char is None:
             return 0.0
 
-        # Base: S1 prediction quality
-        reward = self.scale * (1.0 - 2.0 * s1_burst_fraction)
+        bigram = (self._prev_char, char)
 
-        # Repetition penalty: discourage same char as previous
-        if char == self._prev_char:
-            reward -= self.repetition_penalty
+        # Get expected burst for this bigram (or global baseline)
+        if bigram in self._expected_burst:
+            expected = self._expected_burst[bigram]
+        else:
+            expected = self._global_burst_ema
 
-        # Diversity bonus: reward chars not seen in recent window
-        if char not in self._recent_chars:
-            reward += 0.1
+        # RPE: positive when actual burst < expected (better than expected)
+        rpe = expected - s1_burst_fraction
+
+        # Update expected burst (EMA toward actual)
+        alpha = 1.0 - self.baseline_decay
+        if bigram in self._expected_burst:
+            self._expected_burst[bigram] += alpha * (
+                s1_burst_fraction - self._expected_burst[bigram]
+            )
+        else:
+            self._expected_burst[bigram] = s1_burst_fraction
+
+        # Update global baseline
+        self._global_burst_ema += alpha * (
+            s1_burst_fraction - self._global_burst_ema
+        )
 
         self._prev_char = char
-        self._recent_chars.append(char)
-        if len(self._recent_chars) > self._recent_window:
-            self._recent_chars.pop(0)
-
-        return reward
+        return self.scale * rpe
 
     def reset(self):
         self._prev_char = None
-        self._recent_chars.clear()
+        # Keep learned expectations — they transfer across dialogues
 
 
 class WordReward:
