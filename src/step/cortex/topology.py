@@ -1155,6 +1155,221 @@ class Topology:
         }
 
     # ------------------------------------------------------------------
+    # Interleaved training (listen + babble)
+    # ------------------------------------------------------------------
+
+    def run_interleaved(
+        self,
+        tokens: list[tuple[int, str]],
+        n_babble_steps: int,
+        *,
+        listen_chunk: int = 200,
+        babble_chunk: int = 50,
+        log_interval: int = 100,
+    ) -> dict:
+        """Interleaved listening and babbling — like a baby's day.
+
+        Alternates between:
+        - Listening: corpus tokens through full hierarchy, M1 observes
+        - Babbling: autoregressive M1→S1→M1 loop with reward
+
+        The listening phases continually reinforce L5 token mappings,
+        preventing the drift that occurs in pure babbling runs.
+
+        Args:
+            tokens: Corpus tokens for listening phases.
+            n_babble_steps: Total babble steps (controls run length).
+            listen_chunk: Corpus tokens per listening episode.
+            babble_chunk: Babble steps per babbling episode.
+            log_interval: Steps between log lines.
+        """
+        if self._entry_name is None:
+            raise ValueError("No entry region.")
+
+        entry_name = self._entry_name
+        entry_state = self._regions[entry_name]
+        entry_region = entry_state.region
+
+        motor_state = None
+        motor_region = None
+        for name, s in self._regions.items():
+            if s.motor:
+                motor_state = s
+                motor_region = s.region
+                break
+        if motor_state is None:
+            raise ValueError("No motor region for interleaved training.")
+
+        # Adaptive noise state
+        noise_floor = 0.05
+        noise_ceiling = motor_region.babbling_noise
+        noise = noise_ceiling
+        reward_ema = 0.0
+        reward_ema_slow = 0.0
+        noise_adapt_rate = 0.001
+
+        # Metrics
+        rewards = []
+        tokens_produced = []
+        unique_tokens = set()
+        total_listen = 0
+        total_babble = 0
+        corpus_pos = 0
+
+        start = time.monotonic()
+
+        while total_babble < n_babble_steps:
+            # -- LISTEN episode: process corpus tokens --
+            chunk_end = min(corpus_pos + listen_chunk, len(tokens))
+            if corpus_pos >= len(tokens):
+                corpus_pos = 0  # Loop corpus
+                chunk_end = min(listen_chunk, len(tokens))
+
+            listen_tokens = tokens[corpus_pos:chunk_end]
+            corpus_pos = chunk_end
+
+            # Process listening tokens through standard run loop
+            # (M1 learning_enabled means it processes + learns)
+            import io, contextlib
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.run(listen_tokens, log_interval=999999)
+            total_listen += len(listen_tokens)
+
+            # -- BABBLE episode: autoregressive M1 loop --
+            seed_char = " "
+            current_token_str = seed_char
+
+            for b in range(babble_chunk):
+                if total_babble >= n_babble_steps:
+                    break
+
+                # Adaptive noise
+                if total_babble > 100:
+                    reward_delta = reward_ema - reward_ema_slow
+                    noise -= noise_adapt_rate * reward_delta
+                    if abs(reward_delta) < 0.001:
+                        noise += noise_adapt_rate * 0.1
+                    noise = max(noise_floor, min(noise_ceiling, noise))
+                motor_region.babbling_noise = noise
+
+                # Encode + process
+                encoding = self._encoder.encode(current_token_str)
+                entry_region.process(encoding)
+
+                # Propagate to M1 + other regions
+                topo_order = self._topo_order()
+                for rname in topo_order:
+                    s = self._regions[rname]
+                    if rname == entry_name:
+                        continue
+                    for conn in self._connections:
+                        if (conn.target == rname and conn.kind == "feedforward"
+                                and conn.enabled):
+                            s.region.process(self._get_ff_signal(conn))
+                            break
+
+                # Inter-region signals
+                for conn in self._connections:
+                    if not conn.enabled:
+                        continue
+                    src = self._regions[conn.source].region
+                    tgt = self._regions[conn.target].region
+                    if conn.kind == "surprise":
+                        n_active = max(int(src.active_columns.sum()), 1)
+                        n_bursting = int(src.bursting_columns.sum())
+                        modulator = conn.surprise_tracker.update(
+                            n_bursting / n_active
+                        )
+                        tgt.surprise_modulator = modulator
+                    elif conn.kind == "apical" and tgt.has_apical:
+                        r_active = max(int(src.active_columns.sum()), 1)
+                        r_bursting = int(src.bursting_columns.sum())
+                        confidence = 1.0 - (r_bursting / r_active)
+                        signal = src.firing_rate_l23 * confidence
+                        tgt.set_apical_context(signal)
+
+                # M1 output
+                pop_id, pop_conf = motor_region.get_population_output()
+
+                # BG gating
+                if motor_state.basal_ganglia is not None:
+                    precision = (
+                        ~entry_region.bursting_columns
+                    ).astype(np.float64)
+                    ctx = np.append(
+                        precision,
+                        precision.sum() / max(entry_region.n_columns, 1),
+                    )
+                    motor_state.basal_ganglia.step(ctx)
+
+                # Reward
+                m_char = (
+                    chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127
+                    else None
+                )
+                if self._reward_source is not None:
+                    reward = self._compute_pluggable_reward(
+                        m_char, entry_region,
+                    )
+                else:
+                    reward = 0.0
+
+                # Apply reward
+                if motor_state.basal_ganglia is not None:
+                    motor_state.basal_ganglia.reward(reward)
+                if hasattr(motor_region, 'apply_reward'):
+                    motor_region.apply_reward(reward)
+
+                # Observe + track
+                if pop_id >= 0:
+                    motor_region.observe_token(pop_id)
+                reward_ema = 0.99 * reward_ema + 0.01 * reward
+                reward_ema_slow = 0.999 * reward_ema_slow + 0.001 * reward
+                rewards.append(reward)
+                if m_char:
+                    tokens_produced.append(m_char)
+                    unique_tokens.add(m_char)
+                    current_token_str = m_char
+
+                total_babble += 1
+                self._total_steps += 1
+
+            # Logging at end of each babble episode
+            if total_babble % log_interval < babble_chunk:
+                recent_r = rewards[-babble_chunk:]
+                avg_r = sum(recent_r) / max(len(recent_r), 1)
+                recent_tok = tokens_produced[-babble_chunk:]
+                n_unique = len(set(recent_tok))
+                tail = "".join(recent_tok[-30:])
+                sample = repr(tail) if tail else "(empty)"
+                burst_pct = (
+                    float(entry_region.bursting_columns.sum())
+                    / max(entry_region.n_columns, 1)
+                )
+                elapsed = time.monotonic() - start
+                print(
+                    f"  [interleaved] babble={total_babble:,} "
+                    f"listen={total_listen:,} "
+                    f"r={avg_r:+.3f} "
+                    f"noise={noise:.2f} "
+                    f"burst={burst_pct:.1%} "
+                    f"unique={n_unique} "
+                    f"vocab={len(unique_tokens)} "
+                    f"out={sample} "
+                    f"({elapsed:.1f}s)"
+                )
+
+        elapsed = time.monotonic() - start
+        return {
+            "rewards": rewards,
+            "tokens_produced": tokens_produced,
+            "unique_tokens": sorted(unique_tokens),
+            "total_listen": total_listen,
+            "total_babble": total_babble,
+            "elapsed_seconds": elapsed,
+        }
+
+    # ------------------------------------------------------------------
     # Checkpointing
     # ------------------------------------------------------------------
 

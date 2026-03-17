@@ -174,10 +174,10 @@ SENSORY_STAGE = TrainingStage(
 
 BABBLING_STAGE = TrainingStage(
     name="babbling",
-    description="Motor babbling with caregiver reward (curiosity + word recognition)",
+    description="Interleaved listening + babbling with caregiver reward",
     n_tokens=200_000,
-    learning_regions=["M1"],
-    connections=_babbling_connections(),
+    learning_regions=["S1", "S2", "S3", "M1"],  # All learn during listening
+    connections=_sensory_connections(),  # Full hierarchy for listening
     load_checkpoint="stage1_sensory",
     save_checkpoint="stage2_babbling",
     babbling_noise=0.5,
