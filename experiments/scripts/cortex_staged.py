@@ -111,7 +111,7 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
 
     # PFC: receives S3 output (topic/phrase level, already integrates S2 word context)
     pfc_cfg = _default_pfc_config()
-    pfc = make_pfc_region(pfc_cfg, s3.n_l23_total, n_stripes=4, seed=999)
+    pfc = make_pfc_region(pfc_cfg, s3.n_l23_total, seed=999)
     cortex.add_region("PFC", pfc)
 
     # Feedforward

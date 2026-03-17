@@ -199,7 +199,6 @@ def _default_pfc_config() -> CortexConfig:
 def make_pfc_region(
     cfg: CortexConfig,
     input_dim: int,
-    n_stripes: int = 4,
     seed: int | None = None,
 ):
     """Create a PFCRegion from a CortexConfig."""
@@ -214,7 +213,6 @@ def make_pfc_region(
         input_dim=input_dim,
         n_columns=cfg.n_columns,
         k_columns=cfg.k_columns,
-        n_stripes=n_stripes,
         ltd_rate=cfg.ltd_rate,
         seed=seed if seed is not None else s,
         **d,

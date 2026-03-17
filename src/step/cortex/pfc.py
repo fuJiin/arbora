@@ -37,7 +37,6 @@ class PFCRegion(CorticalRegion):
         *,
         n_columns: int = 16,
         k_columns: int = 4,
-        n_stripes: int = 4,
         voltage_decay: float = 0.97,
         learning_rate: float = 0.02,
         eligibility_decay: float = 0.98,
@@ -54,14 +53,18 @@ class PFCRegion(CorticalRegion):
             seed=seed,
             **kwargs,
         )
-        self.n_stripes = n_stripes
-        self._cols_per_stripe = n_columns // n_stripes
 
-        # Per-stripe gating state: True = accept new input, False = maintain
-        self._stripe_gates = np.ones(n_stripes, dtype=np.bool_)
+        # Global gate: True = accept new input, False = maintain goal.
+        # BG controls this via Go/NoGo.
+        #
+        # Future: per-stripe gating (groups of columns independently
+        # updatable) for holding multiple goals. Biologically maps to
+        # PFC macrocolumns with separate cortico-BG-thalamic loops.
+        # See O'Reilly & Frank 2006 (PBWM) for the stripe model.
+        self.gate_open: bool = True
 
-        # Context snapshot: what was active when goal was set
-        # Used for confidence monitoring and echo mode
+        # Context snapshot: what was active when goal was set.
+        # Used for echo mode (M1 tries to reproduce this pattern).
         self._goal_context = np.zeros(self.n_l23_total, dtype=np.float64)
 
     @property
@@ -79,38 +82,27 @@ class PFCRegion(CorticalRegion):
         active_rates = rates[self.active_columns].mean()
         return float(active_rates)
 
-    def set_stripe_gates(self, gates: np.ndarray) -> None:
-        """Set per-stripe gating (from BG).
-
-        gates[i] = True → stripe i accepts new input (update goal)
-        gates[i] = False → stripe i maintains current state (hold goal)
-        """
-        self._stripe_gates[:] = gates
-
     def process(self, encoding: np.ndarray) -> np.ndarray:
-        """Feedforward with per-stripe gating.
+        """Feedforward with global gating.
 
-        Only stripes with open gates process new input. Closed stripes
-        maintain their current activation via slow voltage decay.
+        When gate is open: process new input normally (update goal).
+        When gate is closed: zero feedforward drive, rely on slow
+        voltage decay to maintain previous activation (hold goal).
         """
         flat = encoding.flatten().astype(np.float64)
 
-        # Compute drive for all columns
-        neuron_drive = flat @ self.ff_weights
-
-        # Apply stripe gating: zero drive for gated (maintaining) stripes
-        for s in range(self.n_stripes):
-            if not self._stripe_gates[s]:
-                start = s * self._cols_per_stripe * self.n_l4
-                end = (s + 1) * self._cols_per_stripe * self.n_l4
-                neuron_drive[start:end] = 0.0
+        if self.gate_open:
+            neuron_drive = flat @ self.ff_weights
+        else:
+            # Gate closed: no new input, maintain via slow decay
+            neuron_drive = np.zeros(self.n_l4_total)
 
         self.last_column_drive = neuron_drive.reshape(
             self.n_columns, self.n_l4
         ).max(axis=1)
         active = self.step(neuron_drive)
 
-        if self.learning_enabled:
+        if self.learning_enabled and self.gate_open:
             self._learn_ff(flat)
 
         return active
@@ -132,5 +124,5 @@ class PFCRegion(CorticalRegion):
     def reset_working_memory(self):
         """Reset transient state, preserving learned weights."""
         super().reset_working_memory()
-        self._stripe_gates[:] = True  # Open all gates on reset
+        self.gate_open = True
         self._goal_context[:] = 0.0
