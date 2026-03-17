@@ -1004,99 +1004,16 @@ class Topology:
                 noise = max(noise_floor, min(noise_ceiling, noise))
             motor_region.babbling_noise = noise
 
-            # 1. Encode current token (M1's last output or seed)
+            # 1-3. Encode + propagate through hierarchy
             encoding = self._encoder.encode(current_token_str)
-
-            # 2. Process through S1 (frozen — forward pass only)
-            entry_region.process(encoding)
-
-            # 3. Propagate to connected regions (S2 if enabled)
             topo_order = self._topo_order()
-            for name in topo_order:
-                s = self._regions[name]
-                if name == entry_name:
-                    continue  # Already processed
-                if s.motor:
-                    # M1 gets S1's L2/3 as input
-                    for conn in self._connections:
-                        if (conn.target == name and conn.kind == "feedforward"
-                                and conn.enabled):
-                            s.region.process(self._get_ff_signal(conn))
-                            break
-                else:
-                    # S2/S3: process if feedforward is enabled
-                    for conn in self._connections:
-                        if (conn.target == name and conn.kind == "feedforward"
-                                and conn.enabled):
-                            s.region.process(self._get_ff_signal(conn))
-                            break
+            self._propagate_feedforward(topo_order, entry_name, encoding)
 
-            # 4. Inter-region signals (surprise, apical)
-            for conn in self._connections:
-                if not conn.enabled:
-                    continue
-                src = self._regions[conn.source].region
-                tgt = self._regions[conn.target].region
+            # 4. Inter-region signals
+            self._propagate_signals()
 
-                if conn.kind == "surprise":
-                    n_active = int(src.active_columns.sum())
-                    n_bursting = int(src.bursting_columns.sum())
-                    burst_rate = n_bursting / max(n_active, 1)
-                    modulator = conn.surprise_tracker.update(burst_rate)
-                    tgt.surprise_modulator = modulator
-
-                elif conn.kind == "apical":
-                    if tgt.has_apical:
-                        r_active = int(src.active_columns.sum())
-                        r_bursting = int(src.bursting_columns.sum())
-                        confidence = 1.0 - (r_bursting / max(r_active, 1))
-                        signal = src.firing_rate_l23 * confidence
-                        if conn.thalamic_gate is not None:
-                            tgt_active = int(tgt.active_columns.sum())
-                            tgt_bursting = int(tgt.bursting_columns.sum())
-                            tgt_burst_rate = (
-                                tgt_bursting / max(tgt_active, 1)
-                            )
-                            conn.thalamic_gate.update(tgt_burst_rate)
-                        tgt.set_apical_context(signal)
-
-            # 5. M1 output: get produced token via L5 output weights
-            pop_id, pop_conf = motor_region.get_population_output()
-
-            # 6. BG gating
-            gate = 1.0
-            if motor_state.basal_ganglia is not None:
-                precision = (
-                    ~entry_region.bursting_columns
-                ).astype(np.float64)
-                prec_frac = precision.sum() / max(
-                    entry_region.n_columns, 1,
-                )
-                ctx = np.append(precision, prec_frac)
-                gate = motor_state.basal_ganglia.step(ctx)
-                if self.force_gate_open:
-                    gate = 1.0
-                motor_region.output_scores *= gate
-
-            # 7. Compute reward
-            m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
-            if self._reward_source is not None:
-                reward = self._compute_pluggable_reward(
-                    m_char, entry_region,
-                )
-            else:
-                reward = 0.0
-
-            # 8. Send reward to BG + M1 three-factor learning
-            if motor_state.basal_ganglia is not None:
-                motor_state.basal_ganglia.reward(reward)
-            # Three-factor: consolidate M1 ff_weight eligibility trace
-            if hasattr(motor_region, 'apply_reward'):
-                motor_region.apply_reward(reward)
-
-            # 9. Update col_token_map
-            if pop_id >= 0:
-                motor_region.observe_token(pop_id)
+            # 5-9. Motor output + reward + L5 learning
+            pop_id, reward = self._step_motor_reward(entry_region)
 
             # Update reward EMAs for adaptive noise
             reward_ema = 0.99 * reward_ema + 0.01 * reward  # fast
@@ -1252,77 +1169,16 @@ class Topology:
                     noise = max(noise_floor, min(noise_ceiling, noise))
                 motor_region.babbling_noise = noise
 
-                # Encode + process
+                # Encode + propagate + signals + motor reward
                 encoding = self._encoder.encode(current_token_str)
-                entry_region.process(encoding)
-
-                # Propagate to M1 + other regions
                 topo_order = self._topo_order()
-                for rname in topo_order:
-                    s = self._regions[rname]
-                    if rname == entry_name:
-                        continue
-                    for conn in self._connections:
-                        if (conn.target == rname and conn.kind == "feedforward"
-                                and conn.enabled):
-                            s.region.process(self._get_ff_signal(conn))
-                            break
-
-                # Inter-region signals
-                for conn in self._connections:
-                    if not conn.enabled:
-                        continue
-                    src = self._regions[conn.source].region
-                    tgt = self._regions[conn.target].region
-                    if conn.kind == "surprise":
-                        n_active = max(int(src.active_columns.sum()), 1)
-                        n_bursting = int(src.bursting_columns.sum())
-                        modulator = conn.surprise_tracker.update(
-                            n_bursting / n_active
-                        )
-                        tgt.surprise_modulator = modulator
-                    elif conn.kind == "apical" and tgt.has_apical:
-                        r_active = max(int(src.active_columns.sum()), 1)
-                        r_bursting = int(src.bursting_columns.sum())
-                        confidence = 1.0 - (r_bursting / r_active)
-                        signal = src.firing_rate_l23 * confidence
-                        tgt.set_apical_context(signal)
-
-                # M1 output
-                pop_id, pop_conf = motor_region.get_population_output()
-
-                # BG gating
-                if motor_state.basal_ganglia is not None:
-                    precision = (
-                        ~entry_region.bursting_columns
-                    ).astype(np.float64)
-                    ctx = np.append(
-                        precision,
-                        precision.sum() / max(entry_region.n_columns, 1),
-                    )
-                    motor_state.basal_ganglia.step(ctx)
-
-                # Reward
+                self._propagate_feedforward(topo_order, entry_name, encoding)
+                self._propagate_signals()
+                pop_id, reward = self._step_motor_reward(entry_region)
                 m_char = (
                     chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127
                     else None
                 )
-                if self._reward_source is not None:
-                    reward = self._compute_pluggable_reward(
-                        m_char, entry_region,
-                    )
-                else:
-                    reward = 0.0
-
-                # Apply reward
-                if motor_state.basal_ganglia is not None:
-                    motor_state.basal_ganglia.reward(reward)
-                if hasattr(motor_region, 'apply_reward'):
-                    motor_region.apply_reward(reward)
-
-                # Observe + track
-                if pop_id >= 0:
-                    motor_region.observe_token(pop_id)
                 reward_ema = 0.99 * reward_ema + 0.01 * reward
                 reward_ema_slow = 0.999 * reward_ema_slow + 0.001 * reward
                 rewards.append(reward)
@@ -1403,6 +1259,8 @@ class Topology:
             if isinstance(r, MotorRegion):
                 region_data["output_weights"] = r.output_weights
                 region_data["output_mask"] = r.output_mask
+                region_data["ff_eligibility"] = r._ff_eligibility
+                region_data["output_eligibility"] = r._output_eligibility
 
             if s.basal_ganglia is not None:
                 region_data["bg_go_weights"] = s.basal_ganglia.go_weights
@@ -1474,6 +1332,10 @@ class Topology:
                 if "output_weights" in region_data:
                     r.output_weights[:] = region_data["output_weights"]
                     r.output_mask[:] = region_data["output_mask"]
+                if "ff_eligibility" in region_data:
+                    r._ff_eligibility[:] = region_data["ff_eligibility"]
+                if "output_eligibility" in region_data:
+                    r._output_eligibility[:] = region_data["output_eligibility"]
 
             if (
                 s.basal_ganglia is not None
@@ -1530,6 +1392,101 @@ class Topology:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _propagate_feedforward(self, topo_order, entry_name, encoding=None):
+        """Process regions in topo order with feedforward signals."""
+        for name in topo_order:
+            s = self._regions[name]
+            if name == entry_name:
+                if encoding is not None:
+                    s.region.process(encoding)
+            elif s.motor and not (self._in_eom or self.force_gate_open
+                                  or s.region.learning_enabled):
+                pass  # Skip idle motor region
+            else:
+                for conn in self._connections:
+                    if (conn.target == name and conn.kind == "feedforward"
+                            and conn.enabled):
+                        s.region.process(self._get_ff_signal(conn))
+                        break
+
+    def _propagate_signals(self):
+        """Propagate inter-region signals (surprise, apical)."""
+        for conn in self._connections:
+            if not conn.enabled:
+                continue
+            src = self._regions[conn.source].region
+            tgt = self._regions[conn.target].region
+
+            if conn.kind == "surprise":
+                n_active = max(int(src.active_columns.sum()), 1)
+                n_bursting = int(src.bursting_columns.sum())
+                burst_rate = n_bursting / n_active
+                modulator = conn.surprise_tracker.update(burst_rate)
+                tgt.surprise_modulator = modulator
+
+            elif conn.kind == "apical":
+                if tgt.has_apical:
+                    r_active = max(int(src.active_columns.sum()), 1)
+                    r_bursting = int(src.bursting_columns.sum())
+                    confidence = 1.0 - (r_bursting / r_active)
+                    signal = src.firing_rate_l23 * confidence
+                    if conn.thalamic_gate is not None:
+                        tgt_active = max(int(tgt.active_columns.sum()), 1)
+                        tgt_bursting = int(tgt.bursting_columns.sum())
+                        tgt_burst_rate = tgt_bursting / tgt_active
+                        conn.thalamic_gate.update(tgt_burst_rate)
+                    tgt.set_apical_context(signal)
+
+    def _step_motor_reward(self, entry_region) -> tuple[int, float]:
+        """Process motor output, BG gating, and reward. Returns (token_id, reward)."""
+        for _name, s in self._regions.items():
+            if not s.motor:
+                continue
+            motor_region = s.region
+            pop_id, pop_conf = motor_region.get_population_output()
+
+            # BG gating
+            gate = 1.0
+            if s.basal_ganglia is not None:
+                precision = (
+                    ~entry_region.bursting_columns
+                ).astype(np.float64)
+                prec_frac = precision.sum() / max(entry_region.n_columns, 1)
+                ctx = np.append(precision, prec_frac)
+                gate = s.basal_ganglia.step(ctx)
+                if self.force_gate_open:
+                    gate = 1.0
+                motor_region.output_scores *= gate
+
+            # Reward
+            m_char = (
+                chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127
+                else None
+            )
+            if self._reward_source is not None:
+                reward = self._compute_pluggable_reward(m_char, entry_region)
+            else:
+                reward = 0.0
+
+            # Apply reward to BG + M1
+            if s.basal_ganglia is not None:
+                if self._reward_source is not None:
+                    s.basal_ganglia.reward(reward)
+                else:
+                    gate_target = 1.0 if self._in_eom else 0.0
+                    gate_error = gate_target - s.basal_ganglia.gate_value
+                    s.basal_ganglia.reward(gate_error)
+            if hasattr(motor_region, 'apply_reward'):
+                motor_region.apply_reward(reward)
+
+            # Update L5 output weights
+            if pop_id >= 0:
+                motor_region.observe_token(pop_id)
+
+            return pop_id, reward
+
+        return -1, 0.0
 
     def _compute_pluggable_reward(
         self, char: str | None, entry_region,

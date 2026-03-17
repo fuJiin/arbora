@@ -233,6 +233,8 @@ class MotorRegion(SensoryRegion):
         - ff_weights (input → column mapping)
         - output_weights (L2/3 → token mapping, L5)
         """
+        if not self.learning_enabled:
+            return
         if abs(reward) < 1e-6:
             return
 
@@ -346,3 +348,5 @@ class MotorRegion(SensoryRegion):
         """Reset transient state, preserving learned mappings."""
         super().reset_working_memory()
         self.output_scores[:] = 0.0
+        self._ff_eligibility[:] = 0.0
+        self._output_eligibility[:] = 0.0
