@@ -35,6 +35,11 @@ class CentroidBPCProbe:
         self._centroids: dict[int, np.ndarray] = {}
         self._counts: dict[int, int] = {}
 
+        # Pre-allocated centroid matrix (updated incrementally in observe)
+        self._token_list: list[int] = []
+        self._token_index: dict[int, int] = {}  # token_id -> row index
+        self._centroid_matrix: np.ndarray | None = None  # (n_tokens, source_dim)
+
         # BPC accumulators
         self._total_bits: float = 0.0
         self._n_chars: int = 0
@@ -87,11 +92,22 @@ class CentroidBPCProbe:
         if token_id not in self._centroids:
             self._centroids[token_id] = pattern.copy()
             self._counts[token_id] = 1
+            # Add to pre-allocated matrix
+            idx = len(self._token_list)
+            self._token_list.append(token_id)
+            self._token_index[token_id] = idx
+            if self._centroid_matrix is None:
+                self._centroid_matrix = pattern.copy().reshape(1, -1)
+            else:
+                self._centroid_matrix = np.vstack(
+                    [self._centroid_matrix, pattern.reshape(1, -1)]
+                )
         else:
             self._counts[token_id] += 1
-            self._centroids[token_id] += self._alpha * (
-                pattern - self._centroids[token_id]
-            )
+            delta = self._alpha * (pattern - self._centroids[token_id])
+            self._centroids[token_id] += delta
+            # Update pre-allocated matrix row in-place
+            self._centroid_matrix[self._token_index[token_id]] += delta
 
     def step(self, token_id: int, l23_state: np.ndarray) -> float:
         """Compute bits for one character prediction.
@@ -107,10 +123,10 @@ class CentroidBPCProbe:
         if n_tokens < 2:
             return 0.0
 
-        # Compute similarity to all centroids
+        # Compute similarity to all centroids (using pre-allocated matrix)
         pattern = l23_state.astype(np.float64)
-        token_ids = list(self._centroids.keys())
-        centroids = np.stack([self._centroids[t] for t in token_ids])
+        token_ids = self._token_list
+        centroids = self._centroid_matrix
 
         # Dot product similarity (pattern and centroids are sparse binary-ish)
         scores = centroids @ pattern  # (n_tokens,)
@@ -121,8 +137,8 @@ class CentroidBPCProbe:
         exp_scores = np.exp(scores)
         probs = exp_scores / exp_scores.sum()
 
-        if token_id in self._centroids:
-            idx = token_ids.index(token_id)
+        if token_id in self._token_index:
+            idx = self._token_index[token_id]
             prob = max(probs[idx], 1e-10)
         else:
             prob = 1.0 / max(n_tokens, 2)

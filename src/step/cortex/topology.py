@@ -137,6 +137,8 @@ class Topology:
         self._total_steps = 0
         # Pluggable reward source (None = use default turn-taking reward)
         self._reward_source = None
+        # Pre-allocated BG context buffer (lazily sized)
+        self._bg_ctx_buffer: np.ndarray | None = None
 
     # ------------------------------------------------------------------
     # Stage configuration API
@@ -422,7 +424,7 @@ class Topology:
                         prec_frac = precision.sum() / max(
                             entry_region.n_columns, 1,
                         )
-                        ctx = np.append(precision, prec_frac)
+                        ctx = self._build_bg_ctx(precision, prec_frac)
                         gate = s.basal_ganglia.step(ctx)
                         if self.force_gate_open:
                             gate = 1.0
@@ -665,7 +667,7 @@ class Topology:
                             prec_frac = precision.sum() / max(
                                 entry_region.n_columns, 1,
                             )
-                            ctx = np.append(precision, prec_frac)
+                            ctx = self._build_bg_ctx(precision, prec_frac)
                             gate = s.basal_ganglia.step(ctx)
                             if self.force_gate_open:
                                 gate = 1.0
@@ -1438,6 +1440,15 @@ class Topology:
                         conn.thalamic_gate.update(tgt_burst_rate)
                     tgt.set_apical_context(signal)
 
+    def _build_bg_ctx(self, precision: np.ndarray, prec_frac: float) -> np.ndarray:
+        """Build BG context vector using a pre-allocated buffer."""
+        n = precision.shape[0]
+        if self._bg_ctx_buffer is None or self._bg_ctx_buffer.shape[0] != n + 1:
+            self._bg_ctx_buffer = np.empty(n + 1, dtype=np.float64)
+        self._bg_ctx_buffer[:n] = precision
+        self._bg_ctx_buffer[n] = prec_frac
+        return self._bg_ctx_buffer
+
     def _step_motor_reward(self, entry_region) -> tuple[int, float]:
         """Process motor output, BG gating, and reward. Returns (token_id, reward)."""
         for _name, s in self._regions.items():
@@ -1453,7 +1464,7 @@ class Topology:
                     ~entry_region.bursting_columns
                 ).astype(np.float64)
                 prec_frac = precision.sum() / max(entry_region.n_columns, 1)
-                ctx = np.append(precision, prec_frac)
+                ctx = self._build_bg_ctx(precision, prec_frac)
                 gate = s.basal_ganglia.step(ctx)
                 if self.force_gate_open:
                     gate = 1.0
