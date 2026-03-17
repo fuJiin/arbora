@@ -131,6 +131,13 @@ class CaregiverReward:
         for w in self._known_words:
             for i in range(2, len(w) + 1):
                 self._prefixes.add(w[:i])
+        # Pre-compute extension counts: how many next-chars continue each prefix
+        self._prefix_extensions: dict[str, int] = {}
+        for p in self._prefixes:
+            self._prefix_extensions[p] = sum(
+                1 for p2 in self._prefixes
+                if p2.startswith(p) and len(p2) == len(p) + 1
+            )
 
     def step(self, char, s1_burst_fraction: float) -> float:
         """Compute combined reward for one M1-produced character.
@@ -155,7 +162,10 @@ class CaregiverReward:
                 self.words_attempted += 1
                 if word in self._known_words:
                     self.words_recognized += 1
-                    reward += self.word_bonus  # Full word! Big reward.
+                    # Caregiver goes WILD. This is the biggest reward
+                    # in the system — completing a real word. Scales
+                    # with word length (longer words = harder = more reward).
+                    reward += self.word_bonus * max(len(word), 2)
             self._current_word.clear()
         else:
             self._current_word.append(char)
@@ -172,13 +182,14 @@ class CaregiverReward:
     def _prefix_signal(self) -> float:
         """Live reward signal based on word completion optionality.
 
-        Checks current accumulated chars against prefix index:
-        - Valid prefix (many completions possible): positive signal
-        - Dead end (no completions): negative signal
-        - Full word exists: extra bonus
+        Scales reward by how many words this prefix could become:
+        - Many completions → high reward (promising direction)
+        - Few completions → low reward (narrowing)
+        - Complete word → strong "finish now" signal
+        - Dead end → zero (no penalty, curiosity handles exploration)
 
-        The signal scales with prefix length — longer valid prefixes
-        are more impressive (harder to achieve by chance).
+        Models caregiver excitement proportional to how word-like
+        the babbling sounds.
         """
         if not hasattr(self, '_prefixes'):
             return 0.0
@@ -186,18 +197,18 @@ class CaregiverReward:
         prefix = "".join(self._current_word)
 
         if prefix in self._known_words:
-            # This IS a complete word (even mid-sequence)
-            return self.word_bonus * 0.5
+            # This IS a complete word — strong signal to produce a space.
+            # Caregiver is thrilled: "did you just say 'the'?!"
+            return self.word_bonus * 1.0
 
         if prefix in self._prefixes:
-            # Valid prefix: reward scales with length
-            # "t" → small, "th" → medium, "the" → large
-            length_bonus = len(prefix) / 5.0  # normalize by typical word length
-            return self.word_bonus * 0.1 * min(length_bonus, 1.0)
+            # Valid prefix: scale by how many next-chars continue a word.
+            # More possible completions → more reward (promising direction).
+            n_ext = self._prefix_extensions.get(prefix, 0)
+            optionality = min(n_ext / 10.0, 1.0)
+            return self.word_bonus * 0.1 * optionality
 
-        # Dead end: no penalty. Curiosity handles exploration pressure.
-        # Penalizing dead ends caused attractor collapse — M1 learned
-        # to repeat one safe char rather than risk penalty.
+        # Dead end: no penalty.
         return 0.0
 
     def reset(self):
