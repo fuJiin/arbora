@@ -568,9 +568,14 @@ class Topology:
             # Snapshot L2/3 binary state before processing (for dendritic decoder)
             prev_l23 = entry_region.active_l23.copy()
 
-            # Motor regions skip process() during input phase (not EOM,
-            # gate not forced open). Saves ~1ms/tok when M1 is idle.
+            # Motor regions process when: EOM phase, gate forced open, or
+            # learning enabled (listening phase — M1 observes to build
+            # internal representations before babbling).
             m1_active = self._in_eom or self.force_gate_open
+            for _mn, _ms in self._regions.items():
+                if _ms.motor and _ms.region.learning_enabled:
+                    m1_active = True
+                    break
 
             # Snapshot motor L2/3 before processing (for motor decoder training)
             prev_motor_l23: dict[str, np.ndarray] = {}
