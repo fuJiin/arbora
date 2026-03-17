@@ -295,10 +295,13 @@ def print_info(cortex, encoder, region1, motor, decoder):
 
     # M1 status
     if motor:
-        unique_tokens = set(int(t) for t in motor._col_token_map if t >= 0)
-        m1_chars = sorted(chr(t) if 32 <= t < 127 else f"<{t}>" for t in unique_tokens)
+        l5_max = float(motor.output_weights.max(axis=0).max())
+        n_active = int((motor.output_weights.max(axis=0) > 0.01).sum())
         babbling = getattr(motor, "babbling_noise", 0.0)
-        print(f"  {DIM}M1 can produce ({len(m1_chars)}):{RESET} {''.join(m1_chars)}")
+        print(
+            f"  {DIM}M1 output_weights:{RESET} "
+            f"{n_active}/{motor.n_output_tokens} active tokens, max={l5_max:.3f}"
+        )
         if babbling > 0:
             print(f"  {DIM}M1 babbling noise:{RESET} {babbling:.0%}")
 

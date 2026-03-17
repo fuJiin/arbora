@@ -35,6 +35,8 @@ from step.config import (
 )
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
+from dataclasses import replace
+
 from step.cortex.stages import (
     BABBLING_STAGE,
     GUIDED_BABBLING_STAGE,
@@ -327,21 +329,7 @@ def main():
 
     # Override token counts if specified
     if args.tokens:
-        stages = [
-            TrainingStage(
-                name=s.name,
-                description=s.description,
-                n_tokens=args.tokens,
-                learning_regions=s.learning_regions,
-                connections=s.connections,
-                load_checkpoint=s.load_checkpoint,
-                save_checkpoint=s.save_checkpoint,
-                babbling_noise=s.babbling_noise,
-                force_motor_active=s.force_motor_active,
-                reward_source=s.reward_source,
-            )
-            for s in stages
-        ]
+        stages = [replace(s, n_tokens=args.tokens) for s in stages]
 
     # Load data (max tokens across all stages)
     max_tokens = max(s.n_tokens for s in stages)
