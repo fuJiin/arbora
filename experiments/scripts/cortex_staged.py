@@ -145,6 +145,25 @@ def load_data(n_tokens):
     return tokens, encoder
 
 
+def _extract_vocabulary(tokens, min_count=3, min_length=2):
+    """Extract common words from corpus tokens for caregiver reward."""
+    from collections import Counter
+    words = Counter()
+    current = []
+    for token_id, ch in tokens:
+        if token_id < 0:  # boundary
+            if len(current) >= min_length:
+                words["".join(current)] += 1
+            current.clear()
+        elif ch in (" ", ".", ",", "!", "?", "'", "-", ""):
+            if len(current) >= min_length:
+                words["".join(current)] += 1
+            current.clear()
+        else:
+            current.append(ch)
+    return {w for w, c in words.items() if c >= min_count}
+
+
 def resolve_checkpoint(name):
     """Resolve a checkpoint name to a full path."""
     if name is None:
@@ -173,6 +192,14 @@ def run_stage(
 
     # Apply stage configuration (freeze/unfreeze, enable/disable)
     stage.configure(cortex)
+
+    # Seed caregiver vocabulary from corpus if applicable
+    if cortex._reward_source is not None:
+        from step.cortex.reward import CaregiverReward
+        if isinstance(cortex._reward_source, CaregiverReward):
+            vocab = _extract_vocabulary(tokens)
+            cortex._reward_source.seed_vocabulary(vocab)
+            print(f"  Seeded caregiver with {len(vocab)} words from corpus")
 
     # Choose run mode: babbling (autoregressive) or corpus-driven
     is_babbling = stage.babbling_noise > 0 or stage.force_motor_active
