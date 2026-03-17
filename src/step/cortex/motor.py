@@ -15,14 +15,15 @@ from step.cortex.sensory import SensoryRegion
 
 
 class MotorRegion(SensoryRegion):
-    """Cortical region with L5 output gating for token prediction.
+    """Cortical region with L5 output layer for token production.
 
     Like S2, receives S1's L2/3 firing rate as input (encoding_width=0).
     Unlike S2, adds:
-    - Per-column L5 readout score (mean L2/3 firing rate in column)
-    - Confidence threshold: below → silent (no prediction)
-    - Self-organizing column→token mapping via activation frequency
-    - Babbling mode: noise injection for motor exploration
+    - L5 output layer: learned weights mapping L2/3 → token scores
+    - Output weights have structural sparsity (like ff_weights)
+    - Three-factor learning: Hebbian + reward modulation on both
+      ff_weights (input mapping) and output_weights (L5 readout)
+    - Babbling mode: direct column forcing for motor exploration
     """
 
     def __init__(
@@ -30,6 +31,9 @@ class MotorRegion(SensoryRegion):
         input_dim: int,
         *,
         n_columns: int = 32,
+        n_output_tokens: int = 128,
+        output_lr: float = 0.05,
+        output_sparsity: float = 0.5,
         output_threshold: float = 0.3,
         seed: int = 0,
         **kwargs,
@@ -49,22 +53,33 @@ class MotorRegion(SensoryRegion):
         self.babbling_noise: float = 0.0
 
         # Three-factor learning: eligibility trace on ff_weights.
-        # Records recent Hebbian weight changes. When reward arrives,
-        # positive reward consolidates the trace (keep changes),
-        # negative reward reverses it (undo changes).
         self._ff_eligibility = np.zeros_like(self.ff_weights)
         self._eligibility_decay = 0.95  # ~20-step window
 
         # L5 output state (updated each step in process())
         self.output_scores = np.zeros(n_columns)
 
-        # Self-organizing column→token mapping
-        # _col_token_counts[col][token_id] = activation count
-        self._col_token_counts: list[dict[int, int]] = [
-            {} for _ in range(n_columns)
-        ]
-        # Cached best mapping: col → token_id (-1 = unassigned)
-        self._col_token_map = np.full(n_columns, -1, dtype=np.int64)
+        # -- L5 output layer: L2/3 → token scores --
+        # Models cortical L5 pyramidal neurons that project to motor
+        # periphery. Learned weights with structural sparsity, same
+        # architecture as ff_weights. Three-factor Hebbian learning:
+        # pre=L2/3 activity, post=token, modulated by reward.
+        self.n_output_tokens = n_output_tokens
+        self.output_lr = output_lr
+        n_l23 = self.n_l23_total
+
+        # L5 weights: (n_l23_total, n_output_tokens)
+        self.output_weights = self._rng.uniform(
+            0, 0.01, size=(n_l23, n_output_tokens),
+        )
+        # Structural sparsity: each L2/3 neuron connects to ~50% of tokens
+        self.output_mask = (
+            self._rng.random((n_l23, n_output_tokens)) < output_sparsity
+        ).astype(np.float64)
+        self.output_weights *= self.output_mask
+
+        # L5 eligibility trace (three-factor learning)
+        self._output_eligibility = np.zeros((n_l23, n_output_tokens))
 
         # Last step output (set by topology run loop after BG gating)
         self.last_output: tuple[int, float] = (-1, 0.0)
@@ -198,82 +213,90 @@ class MotorRegion(SensoryRegion):
         )
 
     def apply_reward(self, reward: float) -> None:
-        """Consolidate eligibility trace into ff_weights using reward signal.
+        """Consolidate eligibility traces into weights using reward signal.
 
         Three-factor rule: dw = reward * eligibility_trace
-        Positive reward → keep recent changes (strengthen active pathways)
-        Negative reward → reverse them (weaken pathways that led to bad output)
+        Positive reward → strengthen recent pathways
+        Negative reward → weaken them
+
+        Applies to both:
+        - ff_weights (input → column mapping)
+        - output_weights (L2/3 → token mapping, L5)
         """
         if abs(reward) < 1e-6:
-            return  # No signal, don't modify weights
+            return
 
-        # Apply: positive reward consolidates, negative reverses
+        # Consolidate ff_weights (input mapping)
         self.ff_weights += reward * self._ff_eligibility
-        # Enforce structural mask and bounds
         self.ff_weights *= self.ff_mask
         np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
 
-    def observe_token(self, token_id: int) -> None:
-        """Update column→token mapping based on current activation.
+        # Consolidate output_weights (L5 readout)
+        self.output_weights += reward * self._output_eligibility
+        self.output_weights *= self.output_mask
+        np.clip(self.output_weights, 0, 1, out=self.output_weights)
 
-        Called each step with the actual token_id. Active columns
-        accumulate counts for this token, building the motor map.
+    def observe_token(self, token_id: int) -> None:
+        """Learn output weights: L2/3 → token association.
+
+        Three-factor Hebbian on output weights:
+        - Record L2/3→token coincidence in eligibility trace
+        - Consolidation happens in apply_reward()
+        Also does direct Hebbian strengthening (two-factor baseline)
+        so the mapping develops even without reward signal.
         """
-        for col in np.nonzero(self.active_columns)[0]:
-            counts = self._col_token_counts[col]
-            counts[token_id] = counts.get(token_id, 0) + 1
-            self._col_token_map[col] = max(counts, key=counts.get)
+        if token_id < 0 or token_id >= self.n_output_tokens:
+            return
+
+        # Decay output eligibility trace
+        self._output_eligibility *= self._eligibility_decay
+
+        # Record coincidence: active L2/3 neurons → observed token
+        active = self.active_l23.astype(np.float64)
+        if not active.any():
+            return
+
+        self._output_eligibility[:, token_id] += active
+
+        # Baseline two-factor Hebbian: small direct weight update
+        # so output mapping develops during corpus-free babbling
+        self.output_weights[:, token_id] += (
+            self.output_lr * 0.1 * active * self.output_mask[:, token_id]
+        )
+        np.clip(self.output_weights, 0, 1, out=self.output_weights)
 
     def get_output(self) -> tuple[int, float]:
-        """Return (predicted_token_id, confidence).
+        """Return (predicted_token_id, confidence) from output weights.
 
-        Returns (-1, 0.0) if no column is above threshold or if the
-        best column has no token assignment yet.
+        Computes token scores from L2/3 activations through learned
+        output weights. Same principle as ff_weights but reversed:
+        active L2/3 neurons vote for tokens via weighted connections.
         """
-        above = self.output_scores >= self.output_threshold
-        if not above.any():
-            return (-1, 0.0)
-
-        masked = self.output_scores.copy()
-        masked[~above] = -1.0
-        best_col = int(masked.argmax())
-        confidence = float(self.output_scores[best_col])
-
-        token_id = int(self._col_token_map[best_col])
-        if token_id < 0:
-            return (-1, 0.0)
-
-        return (token_id, confidence)
+        return self.get_population_output()
 
     def get_population_output(self) -> tuple[int, float]:
-        """Return (predicted_token_id, confidence) via population vote.
+        """Return (predicted_token_id, confidence) via output weights.
 
-        All active columns above threshold vote for their most-frequent
-        token. Votes weighted by column output score (L5 readout).
+        L2/3 activations → output_weights → token scores → argmax.
         Models L5 population coding: the motor command is encoded by
-        the *pattern* of active columns, not any single column.
+        the pattern of active L2/3 neurons, decoded through learned
+        output weights with structural sparsity.
 
-        Returns (-1, 0.0) if no column is above threshold or no votes.
+        Returns (-1, 0.0) if no L2/3 neurons are active or all scores zero.
         """
-        above = self.output_scores >= self.output_threshold
-        if not above.any():
+        active = self.active_l23.astype(np.float64)
+        if not active.any():
             return (-1, 0.0)
 
-        votes: dict[int, float] = {}
-        for col in np.nonzero(above)[0]:
-            token_id = int(self._col_token_map[col])
-            if token_id < 0:
-                continue
-            votes[token_id] = (
-                votes.get(token_id, 0.0)
-                + float(self.output_scores[col])
-            )
+        # Token scores: sum of output weights from active L2/3 neurons
+        token_scores = active @ self.output_weights  # (n_output_tokens,)
 
-        if not votes:
+        if token_scores.max() <= 0:
             return (-1, 0.0)
 
-        best_token = max(votes, key=votes.get)
-        confidence = float(self.output_scores[above].max())
+        best_token = int(token_scores.argmax())
+        # Confidence: normalized score (softmax-like)
+        confidence = float(token_scores[best_token] / max(token_scores.sum(), 1e-10))
         return (best_token, confidence)
 
     def get_decoded_output(self, decoder) -> tuple[int, float]:

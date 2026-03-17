@@ -54,14 +54,16 @@ class TestMotorRegion:
         scores = motor.get_output_distribution()
         assert scores.shape == (motor.n_columns,)
 
-    def test_observe_builds_mapping(self, motor, region1, encoder):
-        """Processing + observing tokens builds column→token map."""
+    def test_observe_strengthens_output_weights(self, motor, region1, encoder):
+        """Processing + observing tokens strengthens L5 output weights."""
         enc = encoder.encode("a")
         region1.process(enc)
         motor.process(region1.firing_rate_l23)
-        motor.observe_token(0)
-        # At least one column should now be mapped
-        assert (motor._col_token_map >= 0).any()
+        weights_before = motor.output_weights[:, ord("a")].copy()
+        motor.observe_token(ord("a"))
+        weights_after = motor.output_weights[:, ord("a")]
+        # Active L2/3 neurons should have increased weights to this token
+        assert (weights_after >= weights_before).all()
 
     def test_process_updates_output_scores(self, motor, region1, encoder):
         enc = encoder.encode("a")
