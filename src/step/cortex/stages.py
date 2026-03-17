@@ -74,7 +74,10 @@ class TrainingStage:
         topology.force_gate_open = self.force_motor_active
 
         # Reward source configuration
-        if self.reward_source == "curiosity":
+        if self.reward_source == "caregiver":
+            from step.cortex.reward import CaregiverReward
+            topology.set_reward_source(CaregiverReward())
+        elif self.reward_source == "curiosity":
             from step.cortex.reward import CuriosityReward
             topology.set_reward_source(CuriosityReward())
         elif self.reward_source == "word":
@@ -170,20 +173,20 @@ SENSORY_STAGE = TrainingStage(
 
 BABBLING_STAGE = TrainingStage(
     name="babbling",
-    description="Motor babbling with curiosity reward (M1→S1→M1, S1 frozen)",
+    description="Motor babbling with caregiver reward (curiosity + word recognition)",
     n_tokens=200_000,
     learning_regions=["M1"],
     connections=_babbling_connections(),
     load_checkpoint="stage1_sensory",
     save_checkpoint="stage2_babbling",
-    babbling_noise=0.5,  # Start with exploration, adaptive from there
+    babbling_noise=0.5,
     force_motor_active=True,
-    reward_source="curiosity",  # RPE drives learning from step 1
+    reward_source="caregiver",
 )
 
 GUIDED_BABBLING_STAGE = TrainingStage(
     name="guided_babbling",
-    description="Continued motor learning with curiosity + S2 context",
+    description="Continued motor learning with caregiver reward + S2 context",
     n_tokens=500_000,
     learning_regions=["M1"],
     connections=_guided_connections(),
@@ -191,5 +194,5 @@ GUIDED_BABBLING_STAGE = TrainingStage(
     save_checkpoint="stage3_guided",
     babbling_noise=0.5,
     force_motor_active=True,
-    reward_source="curiosity",
+    reward_source="caregiver",
 )

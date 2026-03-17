@@ -1315,9 +1315,9 @@ class Topology:
         self, char: str | None, entry_region,
     ) -> float:
         """Compute reward from pluggable source with appropriate context."""
-        from step.cortex.reward import CuriosityReward
-        if isinstance(self._reward_source, CuriosityReward):
-            # Curiosity/S1-prediction: pass S1 burst fraction
+        from step.cortex.reward import CaregiverReward, CuriosityReward
+        if isinstance(self._reward_source, (CuriosityReward, CaregiverReward)):
+            # Curiosity/Caregiver: pass S1 burst fraction
             n_active = max(int(entry_region.active_columns.sum()), 1)
             n_bursting = int(entry_region.bursting_columns.sum())
             burst_frac = n_bursting / n_active

@@ -1,10 +1,11 @@
 """Reward sources for BG-gated motor learning.
 
 Each reward source computes a scalar signal that trains the basal ganglia
-to gate motor output. Different training stages use different reward sources.
+to gate motor output.
 
-Stage 1 (turn-taking): Did M1 speak at the right time?
-Stage 3 (guided babbling): Is M1 producing word-like sequences?
+Two biological reward pathways modeled:
+  Intrinsic (curiosity/RPE): dopamine from VTA for prediction improvement
+  Extrinsic (caregiver): social reward when M1 produces a recognized word
 """
 
 import numpy as np
@@ -80,6 +81,117 @@ class CuriosityReward:
         self._prev_char = None
         # Keep learned expectations — they transfer across dialogues
 
+
+class CaregiverReward:
+    """Combined intrinsic (curiosity) + extrinsic (word recognition) reward.
+
+    Models infant speech development:
+    - Curiosity (VTA/SNc dopamine RPE): drives exploration of new bigrams
+    - Caregiver (social reward): bonus when M1 output forms a known word
+
+    The caregiver signal guides M1 toward actual language patterns.
+    Without it, curiosity alone discovers all chars but doesn't converge
+    on English — any predictable pattern is equally rewarding.
+
+    Word detection: accumulates M1's chars, checks at word boundaries
+    (space, punctuation) against a known vocabulary seeded from S2's
+    word patterns learned during Stage 1 sensory training.
+    """
+
+    def __init__(
+        self,
+        known_words: set[str] | None = None,
+        *,
+        curiosity_scale: float = 1.0,
+        word_bonus: float = 2.0,
+        min_word_length: int = 2,
+        baseline_decay: float = 0.99,
+    ):
+        self._curiosity = CuriosityReward(
+            scale=curiosity_scale, baseline_decay=baseline_decay,
+        )
+        self.word_bonus = word_bonus
+        self.min_word_length = min_word_length
+
+        # Known vocabulary (seeded from corpus or S2 probe)
+        self._known_words = known_words or set()
+
+        # Current word accumulator
+        self._current_word: list[str] = []
+
+        # Stats
+        self.words_attempted: int = 0
+        self.words_recognized: int = 0
+
+    def seed_vocabulary(self, words: set[str]) -> None:
+        """Add words to known vocabulary and build prefix index."""
+        self._known_words |= words
+        # Build prefix set for fast partial matching
+        self._prefixes: set[str] = set()
+        for w in self._known_words:
+            for i in range(2, len(w) + 1):
+                self._prefixes.add(w[:i])
+
+    def step(self, char, s1_burst_fraction: float) -> float:
+        """Compute combined reward for one M1-produced character."""
+        # Base: curiosity RPE (always active)
+        reward = self._curiosity.step(char, s1_burst_fraction)
+
+        if char is None:
+            return reward
+
+        # Track current word
+        is_boundary = char in (" ", ".", ",", "!", "?", "'", "-")
+
+        if is_boundary:
+            # Word boundary: check if accumulated chars form a known word
+            bonus = self._check_word()
+            reward += bonus
+            self._current_word.clear()
+        else:
+            self._current_word.append(char)
+
+        return reward
+
+    def _check_word(self) -> float:
+        """Check accumulated chars against vocabulary, return bonus.
+
+        Full word match: full bonus. Prefix match: partial bonus
+        proportional to how much of a known word was produced.
+        This gives gradient before full words emerge — producing "th"
+        gets partial credit if "the" is in vocabulary.
+        """
+        if len(self._current_word) < self.min_word_length:
+            return 0.0
+
+        word = "".join(self._current_word)
+        self.words_attempted += 1
+
+        # Full match
+        if word in self._known_words:
+            self.words_recognized += 1
+            return self.word_bonus
+
+        # Prefix match: is this word the start of a known word?
+        if hasattr(self, '_prefixes') and word in self._prefixes:
+            return self.word_bonus * 0.3  # Partial credit for valid prefix
+
+        return 0.0
+
+    def reset(self):
+        self._curiosity.reset()
+        self._current_word.clear()
+
+    def summary(self) -> dict:
+        return {
+            "words_attempted": self.words_attempted,
+            "words_recognized": self.words_recognized,
+            "known_vocabulary": len(self._known_words),
+            "recognition_rate": (
+                self.words_recognized / max(self.words_attempted, 1)
+            ),
+            "bigrams_tracked": len(self._curiosity._expected_burst),
+        }
 
 class WordReward:
     """Stage 3: continuous reward based on S2 pattern coherence.
