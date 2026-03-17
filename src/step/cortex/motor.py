@@ -32,6 +32,7 @@ class MotorRegion(SensoryRegion):
         *,
         n_columns: int = 32,
         n_output_tokens: int = 128,
+        output_vocab: list[int] | None = None,
         output_lr: float = 0.05,
         output_sparsity: float = 0.5,
         output_threshold: float = 0.3,
@@ -46,6 +47,15 @@ class MotorRegion(SensoryRegion):
             **kwargs,
         )
         self.output_threshold = output_threshold
+
+        # Vocabulary: maps L5 output index → token_id.
+        # If provided, L5 only produces valid tokens.
+        # If None, output index IS the token_id (raw ASCII).
+        if output_vocab is not None:
+            self._output_vocab = np.array(output_vocab, dtype=np.int64)
+            n_output_tokens = len(output_vocab)
+        else:
+            self._output_vocab = None
 
         # Babbling mode: mix random sparse drive with normal feedforward.
         # 0.0 = normal (no noise), 1.0 = pure random babbling.
@@ -237,7 +247,7 @@ class MotorRegion(SensoryRegion):
         np.clip(self.output_weights, 0, 1, out=self.output_weights)
 
     def observe_token(self, token_id: int) -> None:
-        """Learn output weights: L2/3 → token association.
+        """Learn L5 output weights: L2/3 → token association.
 
         Three-factor Hebbian on output weights:
         - Record L2/3→token coincidence in eligibility trace
@@ -245,8 +255,16 @@ class MotorRegion(SensoryRegion):
         Also does direct Hebbian strengthening (two-factor baseline)
         so the mapping develops even without reward signal.
         """
-        if token_id < 0 or token_id >= self.n_output_tokens:
-            return
+        # Map token_id → L5 output index
+        if self._output_vocab is not None:
+            matches = np.where(self._output_vocab == token_id)[0]
+            if len(matches) == 0:
+                return  # Token not in vocabulary
+            out_idx = int(matches[0])
+        else:
+            if token_id < 0 or token_id >= self.n_output_tokens:
+                return
+            out_idx = token_id
 
         # Decay output eligibility trace
         self._output_eligibility *= self._eligibility_decay
@@ -256,12 +274,11 @@ class MotorRegion(SensoryRegion):
         if not active.any():
             return
 
-        self._output_eligibility[:, token_id] += active
+        self._output_eligibility[:, out_idx] += active
 
         # Baseline two-factor Hebbian: small direct weight update
-        # so output mapping develops during corpus-free babbling
-        self.output_weights[:, token_id] += (
-            self.output_lr * 0.1 * active * self.output_mask[:, token_id]
+        self.output_weights[:, out_idx] += (
+            self.output_lr * 0.1 * active * self.output_mask[:, out_idx]
         )
         np.clip(self.output_weights, 0, 1, out=self.output_weights)
 
@@ -294,9 +311,14 @@ class MotorRegion(SensoryRegion):
         if token_scores.max() <= 0:
             return (-1, 0.0)
 
-        best_token = int(token_scores.argmax())
+        best_idx = int(token_scores.argmax())
+        # Map L5 output index → actual token_id
+        if self._output_vocab is not None:
+            best_token = int(self._output_vocab[best_idx])
+        else:
+            best_token = best_idx
         # Confidence: normalized score (softmax-like)
-        confidence = float(token_scores[best_token] / max(token_scores.sum(), 1e-10))
+        confidence = float(token_scores[best_idx] / max(token_scores.sum(), 1e-10))
         return (best_token, confidence)
 
     def get_decoded_output(self, decoder) -> tuple[int, float]:
