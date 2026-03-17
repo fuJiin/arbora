@@ -107,7 +107,7 @@ class TrainingStage:
 # ------------------------------------------------------------------
 
 def _sensory_connections():
-    """Sensory stage: S1→S2→S3 + M1 listening (S1→M1 feedforward)."""
+    """Sensory stage: S1→S2→S3 + M1 listening + PFC listening."""
     return [
         # Sensory feedforward + surprise: on
         StageConnection("S1", "S2", "feedforward", enabled=True),
@@ -117,29 +117,33 @@ def _sensory_connections():
         # Apical feedback: on
         StageConnection("S2", "S1", "apical", enabled=True),
         StageConnection("S3", "S2", "apical", enabled=True),
-        # M1 listening: receives S1 input, learns internal representations
-        # and L5 token mapping. Does not produce output or feed back.
+        # M1 listening
         StageConnection("S1", "M1", "feedforward", enabled=True),
         StageConnection("S1", "M1", "surprise", enabled=True),
         StageConnection("M1", "S1", "apical", enabled=False),
+        # PFC listening: observes S3 output, builds goal representations
+        StageConnection("S3", "PFC", "feedforward", enabled=True),
+        StageConnection("PFC", "M1", "apical", enabled=False),
     ]
 
 
 def _babbling_connections():
-    """Babbling stage: S1→M1 active, everything else off."""
+    """Babbling stage: full hierarchy for listening + PFC→M1 for goal biasing."""
     return [
-        # S1→M1: on
+        # Sensory hierarchy: on (interleaved listening)
+        StageConnection("S1", "S2", "feedforward", enabled=True),
+        StageConnection("S1", "S2", "surprise", enabled=True),
+        StageConnection("S2", "S3", "feedforward", enabled=True),
+        StageConnection("S2", "S3", "surprise", enabled=True),
+        StageConnection("S2", "S1", "apical", enabled=True),
+        StageConnection("S3", "S2", "apical", enabled=True),
+        # M1 input
         StageConnection("S1", "M1", "feedforward", enabled=True),
         StageConnection("S1", "M1", "surprise", enabled=True),
-        # M1→S1 apical: off (M1 not useful yet)
         StageConnection("M1", "S1", "apical", enabled=False),
-        # Higher regions: off
-        StageConnection("S1", "S2", "feedforward", enabled=False),
-        StageConnection("S1", "S2", "surprise", enabled=False),
-        StageConnection("S2", "S3", "feedforward", enabled=False),
-        StageConnection("S2", "S3", "surprise", enabled=False),
-        StageConnection("S2", "S1", "apical", enabled=False),
-        StageConnection("S3", "S2", "apical", enabled=False),
+        # PFC: receives S3, biases M1
+        StageConnection("S3", "PFC", "feedforward", enabled=True),
+        StageConnection("PFC", "M1", "apical", enabled=True),
     ]
 
 
@@ -165,9 +169,9 @@ def _guided_connections():
 
 SENSORY_STAGE = TrainingStage(
     name="sensory",
-    description="Sensory learning + M1 listening (S1→S2→S3, M1 observes)",
+    description="Sensory learning + M1/PFC listening (S1→S2→S3, M1+PFC observe)",
     n_tokens=1_000_000,
-    learning_regions=["S1", "S2", "S3", "M1"],
+    learning_regions=["S1", "S2", "S3", "M1", "PFC"],
     connections=_sensory_connections(),
     save_checkpoint="stage1_sensory",
 )

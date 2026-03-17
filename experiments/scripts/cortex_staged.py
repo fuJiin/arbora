@@ -27,10 +27,12 @@ import numpy as np
 import step.env  # noqa: F401
 from step.config import (
     _default_motor_config,
+    _default_pfc_config,
     _default_region2_config,
     _default_region3_config,
     _default_s1_config,
     make_motor_region,
+    make_pfc_region,
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
@@ -107,10 +109,17 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     )
     cortex.add_region("M1", m1, basal_ganglia=bg)
 
+    # PFC: receives S3 output (topic/phrase level, already integrates S2 word context)
+    pfc_cfg = _default_pfc_config()
+    pfc = make_pfc_region(pfc_cfg, s3.n_l23_total, n_stripes=4, seed=999)
+    cortex.add_region("PFC", pfc)
+
     # Feedforward
     cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
     cortex.connect("S2", "S3", "feedforward", buffer_depth=8, burst_gate=True)
     cortex.connect("S1", "M1", "feedforward")
+    # PFC receives concatenated S2+S3 (no buffer — PFC sees current state)
+    cortex.connect("S3", "PFC", "feedforward")
 
     # Surprise
     cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
@@ -121,6 +130,8 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
+    # PFC → M1 apical: goal biases motor output
+    cortex.connect("PFC", "M1", "apical", thalamic_gate=ThalamicGate())
 
     return cortex
 

@@ -176,6 +176,51 @@ def make_sensory_region(
     )
 
 
+def _default_pfc_config() -> CortexConfig:
+    """PFC defaults: slow decay for working memory, slow learning for stability.
+
+    16 columns (small — PFC is fewer columns than sensory regions).
+    k=4 gives denser activation than sensory (mixed selectivity).
+    voltage_decay=0.97 sustains activity ~30 steps (working memory).
+    Slow learning rate — goals should be stable, not rapidly tracking.
+    Longer eligibility traces for temporal credit assignment.
+    """
+    return CortexConfig(
+        n_columns=16,
+        k_columns=4,
+        voltage_decay=0.97,
+        eligibility_decay=0.98,
+        synapse_decay=0.999,
+        learning_rate=0.02,
+        ltd_rate=0.02,
+    )
+
+
+def make_pfc_region(
+    cfg: CortexConfig,
+    input_dim: int,
+    n_stripes: int = 4,
+    seed: int | None = None,
+):
+    """Create a PFCRegion from a CortexConfig."""
+    from step.cortex.pfc import PFCRegion
+
+    d = asdict(cfg)
+    s = d.pop("seed")
+    d.pop("ltd_rate")
+    d.pop("n_columns")
+    d.pop("k_columns")
+    return PFCRegion(
+        input_dim=input_dim,
+        n_columns=cfg.n_columns,
+        k_columns=cfg.k_columns,
+        n_stripes=n_stripes,
+        ltd_rate=cfg.ltd_rate,
+        seed=seed if seed is not None else s,
+        **d,
+    )
+
+
 def make_motor_region(
     cfg: CortexConfig,
     input_dim: int,
