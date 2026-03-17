@@ -966,6 +966,10 @@ class Topology:
         current_token_id = ord(seed_char)
         current_token_str = seed_char
 
+        # Noise annealing: linearly decay from initial noise to floor
+        initial_noise = motor_region.babbling_noise
+        noise_floor = 0.1  # Always keep some exploration
+
         # Metrics
         rewards = []
         gate_values = []
@@ -975,6 +979,13 @@ class Topology:
         start = time.monotonic()
 
         for t in range(n_steps):
+            # Anneal noise: linear decay from initial to floor
+            if n_steps > 1 and initial_noise > noise_floor:
+                progress = t / n_steps
+                motor_region.babbling_noise = (
+                    initial_noise + (noise_floor - initial_noise) * progress
+                )
+
             # 1. Encode current token (M1's last output or seed)
             encoding = self._encoder.encode(current_token_str)
 
@@ -1104,14 +1115,18 @@ class Topology:
                     / max(entry_region.n_columns, 1)
                 )
                 elapsed = time.monotonic() - start
+                # Show last 30 chars M1 produced
+                tail = "".join(recent_tok[-30:])
+                sample = repr(tail) if tail else "(empty)"
+                noise = motor_region.babbling_noise
                 print(
                     f"  [babble] t={t:,} "
                     f"r={avg_r:+.3f} "
-                    f"gate={avg_g:.2f} "
+                    f"noise={noise:.2f} "
                     f"burst={burst_pct:.1%} "
-                    f"chars={len(recent_tok)}/{log_interval} "
                     f"unique={n_unique} "
-                    f"total_vocab={len(unique_tokens)} "
+                    f"vocab={len(unique_tokens)} "
+                    f"out={sample} "
                     f"({elapsed:.1f}s)"
                 )
 
