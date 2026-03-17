@@ -1064,12 +1064,21 @@ class Topology:
             # 7. Compute reward
             m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
             if self._reward_source is not None:
-                s2_cols = np.zeros(0)
-                for _rn, _rs in self._regions.items():
-                    if _rn == "S2":
-                        s2_cols = _rs.region.active_columns
-                        break
-                reward = self._reward_source.step(m_char, s2_cols)
+                from step.cortex.reward import S1PredictionReward
+                if isinstance(self._reward_source, S1PredictionReward):
+                    # S1 burst rate as reward signal
+                    n_active = max(int(entry_region.active_columns.sum()), 1)
+                    n_bursting = int(entry_region.bursting_columns.sum())
+                    burst_frac = n_bursting / n_active
+                    reward = self._reward_source.step(m_char, burst_frac)
+                else:
+                    # S2-based reward (WordReward)
+                    s2_cols = np.zeros(0)
+                    for _rn, _rs in self._regions.items():
+                        if _rn == "S2":
+                            s2_cols = _rs.region.active_columns
+                            break
+                    reward = self._reward_source.step(m_char, s2_cols)
             else:
                 reward = 0.0
 

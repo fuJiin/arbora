@@ -74,9 +74,11 @@ class TrainingStage:
         topology.force_gate_open = self.force_motor_active
 
         # Reward source configuration
-        if self.reward_source == "word":
-            # Find S2 to get column count
-            s2_cols = 32  # default
+        if self.reward_source == "s1_prediction":
+            from step.cortex.reward import S1PredictionReward
+            topology.set_reward_source(S1PredictionReward())
+        elif self.reward_source == "word":
+            s2_cols = 32
             for name, state in topology._regions.items():
                 if name == "S2":
                     s2_cols = state.region.n_columns
@@ -180,7 +182,7 @@ BABBLING_STAGE = TrainingStage(
 
 GUIDED_BABBLING_STAGE = TrainingStage(
     name="guided_babbling",
-    description="RL motor training with S2 word-level reward",
+    description="RL motor training with S1 prediction reward",
     n_tokens=500_000,
     learning_regions=["M1"],
     connections=_guided_connections(),
@@ -188,5 +190,5 @@ GUIDED_BABBLING_STAGE = TrainingStage(
     save_checkpoint="stage3_guided",
     babbling_noise=0.5,  # 50% random exploration, 50% learned
     force_motor_active=True,
-    reward_source="word",
+    reward_source="s1_prediction",
 )
