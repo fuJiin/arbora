@@ -103,7 +103,7 @@ class CaregiverReward:
         known_words: set[str] | None = None,
         *,
         curiosity_scale: float = 1.0,
-        word_bonus: float = 2.0,
+        word_bonus: float = 0.5,
         min_word_length: int = 2,
         baseline_decay: float = 0.99,
     ):
@@ -191,9 +191,10 @@ class CaregiverReward:
             length_bonus = len(prefix) / 5.0  # normalize by typical word length
             return self.word_bonus * 0.1 * min(length_bonus, 1.0)
 
-        # Dead end: no words start with this sequence
-        # Penalty scales with how long we've been going nowhere
-        return -self.word_bonus * 0.1 * min(len(prefix) / 3.0, 1.0)
+        # Dead end: no penalty. Curiosity handles exploration pressure.
+        # Penalizing dead ends caused attractor collapse — M1 learned
+        # to repeat one safe char rather than risk penalty.
+        return 0.0
 
     def reset(self):
         self._curiosity.reset()
