@@ -548,6 +548,8 @@ class Topology:
                 for conn in self._connections:
                     if conn.kind == "reward" and conn.reward_modulator is not None:
                         conn.reward_modulator.reset()
+                if self._reward_source is not None and hasattr(self._reward_source, 'reset'):
+                    self._reward_source.reset()
                 continue
 
             # -- EOM token: signal turn boundary for motor RL --
@@ -700,18 +702,12 @@ class Topology:
                         # -- Motor reward --
                         spoke = m_id >= 0
                         if self._reward_source is not None:
-                            # Pluggable reward replaces turn-taking entirely
                             m_char = (
                                 chr(m_id) if spoke and 32 <= m_id < 127
                                 else None
                             )
-                            s2_cols = np.zeros(0)
-                            for _rn, _rs in self._regions.items():
-                                if _rn == "S2":
-                                    s2_cols = _rs.region.active_columns
-                                    break
-                            reward = self._reward_source.step(
-                                m_char, s2_cols,
+                            reward = self._compute_pluggable_reward(
+                                m_char, entry_region,
                             )
                         else:
                             reward = self._compute_turn_reward(
@@ -966,7 +962,6 @@ class Topology:
         motor_region = motor_state.region
 
         # Start with a random seed token
-        import string
         seed_char = " "
         current_token_id = ord(seed_char)
         current_token_str = seed_char
@@ -1064,21 +1059,9 @@ class Topology:
             # 7. Compute reward
             m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
             if self._reward_source is not None:
-                from step.cortex.reward import S1PredictionReward
-                if isinstance(self._reward_source, S1PredictionReward):
-                    # S1 burst rate as reward signal
-                    n_active = max(int(entry_region.active_columns.sum()), 1)
-                    n_bursting = int(entry_region.bursting_columns.sum())
-                    burst_frac = n_bursting / n_active
-                    reward = self._reward_source.step(m_char, burst_frac)
-                else:
-                    # S2-based reward (WordReward)
-                    s2_cols = np.zeros(0)
-                    for _rn, _rs in self._regions.items():
-                        if _rn == "S2":
-                            s2_cols = _rs.region.active_columns
-                            break
-                    reward = self._reward_source.step(m_char, s2_cols)
+                reward = self._compute_pluggable_reward(
+                    m_char, entry_region,
+                )
             else:
                 reward = 0.0
 
@@ -1304,6 +1287,25 @@ class Topology:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _compute_pluggable_reward(
+        self, char: str | None, entry_region,
+    ) -> float:
+        """Compute reward from pluggable source with appropriate context."""
+        from step.cortex.reward import S1PredictionReward
+        if isinstance(self._reward_source, S1PredictionReward):
+            n_active = max(int(entry_region.active_columns.sum()), 1)
+            n_bursting = int(entry_region.bursting_columns.sum())
+            burst_frac = n_bursting / n_active
+            return self._reward_source.step(char, burst_frac)
+        else:
+            # Generic reward source (e.g., WordReward)
+            s2_cols = np.zeros(0)
+            for _rn, _rs in self._regions.items():
+                if _rn == "S2":
+                    s2_cols = _rs.region.active_columns
+                    break
+            return self._reward_source.step(char, s2_cols)
 
     @staticmethod
     def _compute_turn_reward(

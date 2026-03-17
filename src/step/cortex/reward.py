@@ -10,20 +10,6 @@ Stage 3 (guided babbling): Is M1 producing word-like sequences?
 import numpy as np
 
 
-class TurnTakingReward:
-    """Stage 1: reward for speaking during EOM, silence during input."""
-
-    def compute(
-        self, spoke: bool, in_eom: bool, eom_steps: int, max_speak_steps: int,
-    ) -> float:
-        if in_eom:
-            if eom_steps > max_speak_steps and spoke:
-                return -1.0  # Rambling
-            return 0.5 if spoke else -0.3
-        else:
-            return -0.5 if spoke else 0.2
-
-
 class S1PredictionReward:
     """Stage 3: reward for natural character transitions.
 
@@ -240,10 +226,14 @@ class WordReward:
                 self._known_words[word] = list(col_sets[-10:])
 
     def reset_word(self) -> None:
-        """Reset at story/dialogue boundary."""
+        """Reset word accumulator."""
         self._current_chars.clear()
         self._current_col_sets.clear()
         self._prev_cols = frozenset()
+
+    def reset(self) -> None:
+        """Reset at story/dialogue boundary."""
+        self.reset_word()
 
     def summary(self) -> dict:
         return {
