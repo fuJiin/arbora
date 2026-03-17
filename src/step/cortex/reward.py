@@ -162,6 +162,10 @@ class CaregiverReward:
             # Live prefix tracking: reward based on remaining completions
             if len(self._current_word) >= self.min_word_length:
                 reward += self._prefix_signal()
+            # Caregiver attention span: reset after max word length.
+            # Long babbles without boundaries lose caregiver engagement.
+            if len(self._current_word) > 8:
+                self._current_word.clear()
 
         return reward
 
