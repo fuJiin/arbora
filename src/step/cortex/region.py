@@ -119,6 +119,11 @@ class CorticalRegion:
         self.n_l4_total: int = n_columns * n_l4
         self.n_l23_total = n_columns * n_l23
 
+        # Pre-allocated source pools for segment growth (avoids per-call arange)
+        self._fb_source_pool = np.arange(self.n_l23_total)
+        self._lat_source_pool = np.arange(self.n_l4_total)
+        self._l23_source_pool = np.arange(self.n_l23_total)
+
         # Per-neuron state
         self.voltage_l4 = np.zeros(self.n_l4_total)
         self.voltage_l23 = np.zeros(self.n_l23_total)
@@ -414,8 +419,8 @@ class CorticalRegion:
     def _get_source_pool(self, neuron: int, seg_type: str) -> np.ndarray:
         """Get valid source neuron indices for growing synapses."""
         if seg_type == "fb":
-            return np.arange(self.n_l23_total)
-        return np.arange(self.n_l4_total)
+            return self._fb_source_pool
+        return self._lat_source_pool
 
     def reset_working_memory(self):
         """Reset transient state, preserving learned synaptic weights and segments."""
@@ -1127,7 +1132,7 @@ class CorticalRegion:
 
     def _get_l23_source_pool(self, neuron: int) -> np.ndarray:
         """Get valid L2/3 source neuron indices for growing synapses."""
-        return np.arange(self.n_l23_total)
+        return self._l23_source_pool
 
     def _update_traces(self):
         """Set active neuron traces to 1, decay the rest."""
