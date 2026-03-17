@@ -68,7 +68,8 @@ def surprise_color(bits: float, vocab_size: int = 65) -> str:
 
 
 def build_model(alphabet: str):
-    """Build full hierarchy with tuned S1 config."""
+    """Build full hierarchy matching staged topology (S1+S2+S3+M1)."""
+    from step.config import _default_region3_config
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
 
     s1_cfg = _default_s1_config()
@@ -77,34 +78,50 @@ def build_model(alphabet: str):
     )
 
     r2_cfg = _default_region2_config()
-    r2_input_dim = region1.n_l23_total * 4
-    region2 = make_sensory_region(r2_cfg, r2_input_dim, seed=123)
+    region2 = make_sensory_region(r2_cfg, region1.n_l23_total * 4, seed=123)
+
+    r3_cfg = _default_region3_config()
+    region3 = make_sensory_region(r3_cfg, region2.n_l23_total * 8, seed=789)
 
     m1_cfg = _default_motor_config()
     motor = make_motor_region(m1_cfg, region1.n_l23_total, seed=456)
+    # Vocabulary-constrained L5
+    output_vocab = [ord(ch) for ch in encoder._char_to_idx]
+    motor._output_vocab = np.array(output_vocab, dtype=np.int64)
+    motor.n_output_tokens = len(output_vocab)
+    n_l23 = motor.n_l23_total
+    motor.output_weights = motor._rng.uniform(
+        0, 0.01, size=(n_l23, len(output_vocab)),
+    )
+    motor.output_mask = (
+        motor._rng.random((n_l23, len(output_vocab))) < 0.5
+    ).astype(np.float64)
+    motor.output_weights *= motor.output_mask
+    motor._output_eligibility = np.zeros((n_l23, len(output_vocab)))
 
     bg = BasalGanglia(
         context_dim=region1.n_columns + 1,
-        learning_rate=0.1,
+        learning_rate=0.05,
         seed=789,
     )
 
     cortex = Topology(encoder, diagnostics_interval=999999)
     cortex.add_region("S1", region1, entry=True)
     cortex.add_region("S2", region2)
-    cortex.connect(
-        "S1", "S2", "feedforward", buffer_depth=4, burst_gate=True,
-    )
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
+    cortex.add_region("S3", region3)
     cortex.add_region("M1", motor, basal_ganglia=bg)
-    cortex.connect("S1", "M1", "feedforward")
-    cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
-    if motor.n_l23_total == region2.n_l23_total:
-        cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
 
-    entry_state = cortex._regions["S1"]
-    decoder = entry_state.dendritic_decoder
+    cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
+    cortex.connect("S2", "S3", "feedforward", buffer_depth=8, burst_gate=True)
+    cortex.connect("S1", "M1", "feedforward")
+    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
+    cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
+    cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
+    cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
+
+    decoder = cortex._regions["S1"].dendritic_decoder
 
     return cortex, encoder, region1, motor, decoder
 
@@ -228,6 +245,14 @@ def print_help():
         f"{DIM}  /load [name]     "
         f"Load checkpoint (default: repl_default){RESET}"
     )
+    print(
+        f"{DIM}  /babble [N]     "
+        f"Watch M1 babble N chars (default 200){RESET}"
+    )
+    print(
+        f"{DIM}  /probe          "
+        f"Show S1/S2/S3/M1 representation quality{RESET}"
+    )
     print(f"{DIM}  /quit, /q        Exit{RESET}")
     print()
     print(f"{DIM}Type text to feed it through S1→S2→M1+BG.{RESET}")
@@ -318,6 +343,154 @@ def reset_state(cortex, encoder):
         encoder.reset()
 
 
+def run_babble(cortex, encoder, region1, motor, n_chars=200):
+    """Watch M1 babble in real time."""
+    print(f"\n{DIM}  M1 babbling {n_chars} chars...{RESET}")
+    print(f"  {BOLD}", end="", flush=True)
+
+    # Force gate open, set babbling noise for exploration
+    old_gate = cortex.force_gate_open
+    old_noise = motor.babbling_noise
+    cortex.force_gate_open = True
+    motor.babbling_noise = 0.3  # Mostly learned policy, some exploration
+
+    current_char = " "
+    produced = []
+    word_buf = []
+
+    for i in range(n_chars):
+        # Encode and process through S1
+        encoding = encoder.encode(current_char)
+        region1.process(encoding)
+
+        # Propagate to M1
+        for conn in cortex._connections:
+            if (conn.target == "M1" and conn.kind == "feedforward"
+                    and conn.enabled):
+                motor.process(cortex._get_ff_signal(conn))
+                break
+
+        # M1 output
+        pop_id, pop_conf = motor.get_population_output()
+        if pop_id >= 0 and 32 <= pop_id < 127:
+            ch = chr(pop_id)
+            produced.append(ch)
+
+            # Color: green for high confidence, yellow for low
+            color = GREEN if pop_conf > 0.1 else YELLOW
+            sys.stdout.write(f"{color}{ch}{RESET}{BOLD}")
+            sys.stdout.flush()
+
+            # Track words
+            if ch in " .!?'-,":
+                if len(word_buf) >= 2:
+                    word = "".join(word_buf)
+                    # Highlight recognized words
+                    # (visual only, printed after)
+                word_buf.clear()
+            else:
+                word_buf.append(ch)
+
+            motor.observe_token(pop_id)
+            current_char = ch
+        else:
+            sys.stdout.write(f"{DIM}_{RESET}{BOLD}")
+            sys.stdout.flush()
+
+    print(f"{RESET}")
+
+    # Summary stats
+    from collections import Counter
+    chars = Counter(produced)
+    n_unique = len(chars)
+    bigrams = Counter(
+        produced[i] + produced[i + 1]
+        for i in range(len(produced) - 1)
+    )
+    # Find real words
+    text = "".join(produced)
+    import re
+    words = re.split(r"[ .!?',\-]+", text)
+    words = [w for w in words if len(w) >= 2]
+
+    burst_pct = (
+        float(region1.bursting_columns.sum())
+        / max(region1.n_columns, 1)
+    )
+    print(
+        f"\n{DIM}  {len(produced)} chars, {n_unique} unique, "
+        f"burst={burst_pct:.0%}, "
+        f"words: {len(words)} attempts{RESET}"
+    )
+    if bigrams:
+        english_bg = ['th', 'he', 'in', 'er', 'an', 'at', 'is', 'it', 'to', 'st', 'ha']
+        found = [(bg, bigrams[bg]) for bg in english_bg if bg in bigrams]
+        if found:
+            bg_str = ", ".join(f"{bg}:{c}" for bg, c in found[:6])
+            print(f"{DIM}  English bigrams: {bg_str}{RESET}")
+
+    # Restore
+    cortex.force_gate_open = old_gate
+    motor.babbling_noise = old_noise
+    print()
+
+
+def run_probe(cortex):
+    """Show representation quality for all regions."""
+    print(f"\n{BOLD}=== Region Probe ==={RESET}\n")
+    for name, state in cortex._regions.items():
+        r = state.region
+        n_active = int(r.active_columns.sum())
+        n_bursting = int(r.bursting_columns.sum())
+        burst_pct = n_bursting / max(n_active, 1)
+
+        # Weight stats
+        ff_mean = float(r.ff_weights.mean())
+        ff_max = float(r.ff_weights.max())
+        ff_sparsity = float((r.ff_weights == 0).mean())
+
+        frozen = "frozen" if not r.learning_enabled else "learning"
+
+        print(
+            f"  {BOLD}{name}{RESET} ({frozen}): "
+            f"burst={burst_pct:.0%} "
+            f"ff_sparse={ff_sparsity:.1%} "
+            f"ff_max={ff_max:.3f}"
+        )
+
+        # Motor-specific: L5 output weight stats
+        if hasattr(r, 'output_weights'):
+            l5_mean = float(r.output_weights.mean())
+            l5_max = float(r.output_weights.max())
+            n_tokens = r.n_output_tokens
+            # Which tokens have strongest weights?
+            col_maxes = r.output_weights.max(axis=0)
+            top_idx = col_maxes.argsort()[-5:][::-1]
+            if hasattr(r, '_output_vocab') and r._output_vocab is not None:
+                top_chars = [
+                    chr(int(r._output_vocab[i]))
+                    if 32 <= int(r._output_vocab[i]) < 127 else "?"
+                    for i in top_idx
+                ]
+            else:
+                top_chars = [chr(i) if 32 <= i < 127 else "?" for i in top_idx]
+            print(
+                f"    L5: {n_tokens} tokens, "
+                f"max={l5_max:.3f}, "
+                f"top chars: {' '.join(top_chars)}"
+            )
+
+        # Apical gain stats
+        if r.has_apical and r._apical_gain_weights is not None:
+            gain_mean = float(r._apical_gain_weights.mean())
+            gain_max = float(r._apical_gain_weights.max())
+            print(
+                f"    Apical gain: mean={gain_mean:.4f} max={gain_max:.3f}"
+            )
+
+    print()
+
+
 def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
     """Main REPL loop with full M1+BG turn-taking."""
     print(f"{BOLD}=== STEP Cortex REPL ==={RESET}")
@@ -392,6 +565,13 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                 else:
                     cortex.load_checkpoint(path)
                     print(f"{DIM}Loaded checkpoint: {path}{RESET}")
+                continue
+            elif cmd == "/babble":
+                n = int(parts[1]) if len(parts) > 1 else 200
+                run_babble(cortex, encoder, region1, motor, n)
+                continue
+            elif cmd == "/probe":
+                run_probe(cortex)
                 continue
             else:
                 print(f"{DIM}Unknown command: {cmd} (try /help){RESET}")
