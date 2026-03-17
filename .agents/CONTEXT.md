@@ -1,63 +1,64 @@
 # Context: STEP (Sparse Temporal Eligibility Propagation)
 
 ## Overview
-Biologically-plausible cortical learning for next-token prediction. Minicolumn model with L4/L2/3 layers, dendritic segments, per-neuron feedforward weights, apical gain feedback. NumPy + Numba, Python 3.12+, uv.
+Biologically-plausible cortical learning for next-token prediction. Minicolumn model with L4/L2/3 layers, dendritic segments, per-neuron ff_weights, apical gain feedback. NumPy + Numba, Python 3.12+, uv.
 
 ## Architecture
 - **S1**: 128 cols, k=8. Char-level. **S2**: 32 cols, k=4, buf=4. Word-level. **S3**: 32 cols, k=4, buf=8. Topic-level.
-- **M1**: 32 cols, k=4. Motor output with direct column forcing for babbling.
-- **Apical**: Per-neuron gain (BAC firing). Near no-op at 1M (decay tuning deferred).
+- **M1**: 32 cols, k=4. Motor output. Three-factor learning (eligibility trace + reward on ff_weights). Direct column forcing for babbling.
 
 ## Key Files
-- `src/step/cortex/topology.py` — `run()` (corpus), `run_babbling()` (autoregressive), freeze/enable APIs
-- `src/step/cortex/stages.py` — `TrainingStage`, predefined SENSORY/BABBLING/GUIDED stages
-- `src/step/cortex/motor.py` — `_babble_direct()` (random k-hot columns + ff_weight training)
-- `src/step/cortex/reward.py` — `WordReward` (continuous S2 stability + word boundary bonus)
+- `src/step/cortex/topology.py` — `run()`, `run_babbling()` (autoregressive), freeze/enable APIs
+- `src/step/cortex/stages.py` — `TrainingStage`, SENSORY/BABBLING/GUIDED stages
+- `src/step/cortex/motor.py` — `_babble_direct()`, `_learn_ff()` (three-factor), `apply_reward()`
+- `src/step/cortex/reward.py` — `S1PredictionReward` (burst rate + repetition penalty + diversity bonus)
 - `src/step/probes/centroid_bpc.py` — non-learned BPC probe (primary metric)
-- `experiments/scripts/cortex_staged.py` — staged runner with checkpoint chaining
-- `experiments/scripts/cortex_repl.py` — REPL with /info guardrails, BabyLM default
+- `experiments/scripts/cortex_staged.py` — staged runner, autoregressive babbling mode
+- `experiments/scripts/cortex_repl.py` — REPL with /info guardrails
 
-## Session Results
+## This Session's Achievements (16 commits)
 
-### Centroid BPC (replaces dendritic decoder)
-- 1M sensory: cbpc 4.79→4.59→4.79. Plateaus at ~300k. Random baseline ~5.0.
-- Dendritic decoder was broken thermometer. Representations were learning all along.
+### Observability
+- **Centroid BPC probe**: Non-learned (EMA centroids + dot product). Confirmed model learns monotonically at 1M. Sensory plateau at ~300k (cbpc 4.59).
+- **Timeline downsampling** (`--timeline-interval`): Fixes OOM on long runs.
 
-### Autoregressive Babbling Pipeline (Stages 2+3)
-- **Stage 2 works**: M1 babbles random chars, hears itself through frozen S1. All 32 chars discovered. ff_weights trained during forced column activation.
-- **Stage 3 problem — attractor collapse**: M1 gets stuck producing same char repeatedly. Once col_token_map assigns 'e' to dominant columns, M1→S1→M1 loop creates stable attractor. Reward is consistently -0.300 (S2 sees incoherent repetition). BG receives negative signal but **penalty doesn't break the attractor** — current investigation.
+### Training Infrastructure
+- **Stage system**: `region.learning_enabled`, `connection.enabled`, `TrainingStage.configure()`.
+- **Staged runner** (`cortex_staged.py`): Checkpoint chaining, auto-detects babbling vs corpus mode.
+- **Autoregressive babbling loop** (`run_babbling`): M1 drives, hears itself through frozen S1. No corpus.
 
-### Bugs Found and Fixed This Session
-- Timeline OOM: per-step frames accumulated ~13GB at 1M. Fixed with `--timeline-interval`.
-- Dendritic decoder staleness: no forgetting mechanism. Added `perm_decay` (optional).
-- BG missing from staged topology: reward computed but nowhere to send it.
-- Turn-taking reward drowning word reward: pluggable source now replaces entirely.
-- `--tokens` override lost babbling_noise/force_motor_active/reward_source fields.
-- M1 produced 0 chars: col_token_map empty at cold start. Added bootstrap fallback.
+### Motor Learning (Stages 2-3)
+- **Direct column forcing**: Random k-hot activations + ff_weight training. Breaks frequency collapse.
+- **Three-factor learning on M1**: Eligibility trace records Hebbian changes; reward consolidates or reverses. Breaks attractor collapse (unique chars: 1→20/window).
+- **S1 prediction reward**: S1 burst rate as reward signal (natural transitions rewarded). Plus repetition penalty and diversity bonus.
+- **Result**: Reward trends upward -0.144→-0.110 over 100k. M1 genuinely learning via RL to produce diverse, S1-predicted character transitions.
 
-## Training Stages (implemented)
-1. **Sensory** (S1→S2→S3): Corpus-driven, 300k sufficient (plateau). ✅
-2. **Babbling** (M1→S1→M1): Autoregressive, direct column forcing. 32/32 chars discovered. ✅
-3. **Guided babbling** (M1+BG+S2): Autoregressive + word reward. Attractor collapse blocks learning. **Active investigation.**
-4. **Imitation** (S1→S2→M2→M1): Needs M2 region. Not started.
-5. **Generation** (PFC→M2→M1): Needs PFC region. Not started.
+### Problems Solved
+- Dendritic decoder broken thermometer → centroid BPC
+- Timeline OOM → downsampling
+- BG missing from topology → added
+- Turn-taking reward drowning word reward → pluggable, replaces entirely
+- Attractor collapse (M1 repeats one char) → three-factor learning
+- S2 word reward uniformly -0.3 → S1 prediction reward with variance
+- Flat reward from prediction alone → repetition penalty creates gradient
 
-## Active Problem: Why doesn't negative reward break M1 attractor?
-- M1 repeats same char → reward is -0.300 every step → BG gets consistent negative signal
-- But BG gate stays 1.0 (force_gate_open=True) so negative reward can't close the gate
-- Even if gate could close, M1 would just stop producing — not diversify
-- The reward signal needs to change M1's *column activations*, not just the gate
-- Possible fixes: anneal noise, exploration bonus for novel patterns, or reward needs to modulate M1's ff_weights/segments directly (three-factor learning)
+## Training Stages
+1. **Sensory** (S1→S2→S3): Corpus-driven, 300k. cbpc 4.59. ✅
+2. **Babbling** (M1→S1→M1): Autoregressive, direct forcing, 50k. 32/32 chars. ✅
+3. **Guided babbling** (M1 + S1 reward): Autoregressive + three-factor RL. Reward trending up. ✅ Learning signal confirmed.
+4. **Imitation** (S1→S2→M2→M1): Needs M2. Not started.
+5. **Generation** (PFC→M2→M1): Needs PFC. Not started.
 
 ## Checkpoints
-- `stage1_sensory.ckpt` — 300k sensory (32-char alphabet, consistent dims)
+- `stage1_sensory.ckpt` — 300k sensory (32-char BabyLM alphabet)
 - `stage2_babbling.ckpt` — 50k autoregressive babbling
-- `stage3_guided.ckpt` — 50k guided babbling (attractor-collapsed)
-- `babylm_s3_1m_v2.ckpt` — 1M sensory (old alphabet, incompatible with staged runner)
+- `stage3_guided.ckpt` — 100k guided babbling with S1 prediction reward
 
 ## Next Steps
-- [ ] **Debug reward→M1 learning pathway** — why doesn't -0.300 change M1's behavior?
-- [ ] **Exploration pressure** — noise annealing, novelty bonus, or diversity reward
-- [ ] **Three-factor learning on M1 ff_weights** — reward should modulate weight updates
-- [ ] **Col_token_map normalization** — frequency-dominated, needs recency weighting
-- [ ] **Apical gain tuning** — deferred until motor pipeline works
+- [ ] **Longer Stage 3 / noise annealing** — reward plateaus at -0.11. Lower noise (0.5→0.2) to let learned policy dominate. May need 500k+.
+- [ ] **Inspect M1 output sequences** — what bigrams/trigrams is M1 actually producing? Are they language-like?
+- [ ] **REPL babbling mode** — interactive mode where you watch M1 babble and see reward in real time
+- [ ] **Col_token_map improvement** — recency-weighted counts, frequency normalization
+- [ ] **Noise annealing schedule** — curriculum: high noise early, anneal to low noise as reward improves
+- [ ] **M2 design** — once M1 produces ~10 recognizable bigrams/trigrams, add sequencing layer
+- [ ] **Apical gain tuning** — deferred, use centroid BPC to A/B
