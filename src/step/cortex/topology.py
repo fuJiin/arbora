@@ -1073,9 +1073,12 @@ class Topology:
             else:
                 reward = 0.0
 
-            # 8. Send reward to BG
+            # 8. Send reward to BG + M1 three-factor learning
             if motor_state.basal_ganglia is not None:
                 motor_state.basal_ganglia.reward(reward)
+            # Three-factor: consolidate M1 ff_weight eligibility trace
+            if hasattr(motor_region, 'apply_reward'):
+                motor_region.apply_reward(reward)
 
             # 9. Update col_token_map
             if pop_id >= 0:
