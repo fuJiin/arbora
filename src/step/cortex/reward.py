@@ -133,50 +133,67 @@ class CaregiverReward:
                 self._prefixes.add(w[:i])
 
     def step(self, char, s1_burst_fraction: float) -> float:
-        """Compute combined reward for one M1-produced character."""
+        """Compute combined reward for one M1-produced character.
+
+        Live word tracking: every char gets feedback based on how many
+        word completions remain. Like a caregiver's face as baby babbles:
+        "t" → mild interest, "th" → excited, "the" → thrilled,
+        "thq" → disappointed (no words start with "thq").
+        """
         # Base: curiosity RPE (always active)
         reward = self._curiosity.step(char, s1_burst_fraction)
 
         if char is None:
             return reward
 
-        # Track current word
         is_boundary = char in (" ", ".", ",", "!", "?", "'", "-")
 
         if is_boundary:
-            # Word boundary: check if accumulated chars form a known word
-            bonus = self._check_word()
-            reward += bonus
+            # Word boundary: check for full word match
+            if len(self._current_word) >= self.min_word_length:
+                word = "".join(self._current_word)
+                self.words_attempted += 1
+                if word in self._known_words:
+                    self.words_recognized += 1
+                    reward += self.word_bonus  # Full word! Big reward.
             self._current_word.clear()
         else:
             self._current_word.append(char)
+            # Live prefix tracking: reward based on remaining completions
+            if len(self._current_word) >= self.min_word_length:
+                reward += self._prefix_signal()
 
         return reward
 
-    def _check_word(self) -> float:
-        """Check accumulated chars against vocabulary, return bonus.
+    def _prefix_signal(self) -> float:
+        """Live reward signal based on word completion optionality.
 
-        Full word match: full bonus. Prefix match: partial bonus
-        proportional to how much of a known word was produced.
-        This gives gradient before full words emerge — producing "th"
-        gets partial credit if "the" is in vocabulary.
+        Checks current accumulated chars against prefix index:
+        - Valid prefix (many completions possible): positive signal
+        - Dead end (no completions): negative signal
+        - Full word exists: extra bonus
+
+        The signal scales with prefix length — longer valid prefixes
+        are more impressive (harder to achieve by chance).
         """
-        if len(self._current_word) < self.min_word_length:
+        if not hasattr(self, '_prefixes'):
             return 0.0
 
-        word = "".join(self._current_word)
-        self.words_attempted += 1
+        prefix = "".join(self._current_word)
 
-        # Full match
-        if word in self._known_words:
-            self.words_recognized += 1
-            return self.word_bonus
+        if prefix in self._known_words:
+            # This IS a complete word (even mid-sequence)
+            return self.word_bonus * 0.5
 
-        # Prefix match: is this word the start of a known word?
-        if hasattr(self, '_prefixes') and word in self._prefixes:
-            return self.word_bonus * 0.3  # Partial credit for valid prefix
+        if prefix in self._prefixes:
+            # Valid prefix: reward scales with length
+            # "t" → small, "th" → medium, "the" → large
+            length_bonus = len(prefix) / 5.0  # normalize by typical word length
+            return self.word_bonus * 0.1 * min(length_bonus, 1.0)
 
-        return 0.0
+        # Dead end: no words start with this sequence
+        # Penalty scales with how long we've been going nowhere
+        return -self.word_bonus * 0.1 * min(len(prefix) / 3.0, 1.0)
 
     def reset(self):
         self._curiosity.reset()
