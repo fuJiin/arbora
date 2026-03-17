@@ -25,26 +25,56 @@ class TurnTakingReward:
 
 
 class S1PredictionReward:
-    """Stage 3: reward based on S1's prediction accuracy (burst rate).
+    """Stage 3: reward for natural character transitions.
 
-    S1 was trained on real text and knows which character transitions
-    are natural. When M1 produces a char that S1 predicted (low burst),
-    it's producing natural language-like sequences. High burst means
-    M1 produced something S1 didn't expect — an unnatural transition.
+    Combines S1 prediction quality with a repetition penalty. S1 knows
+    which bigrams are natural (from corpus training). Reward is positive
+    when M1 produces a predicted char that DIFFERS from the previous —
+    this specifically reinforces natural transitions (th, he, an) while
+    penalizing repetition (ee, ss) even though S1 predicts repetition well.
 
-    Reward = scale * (1 - 2 * burst_fraction)
-      burst_fraction=0.0 (all predicted) → +scale
-      burst_fraction=0.5 (half bursting)  → 0.0
-      burst_fraction=1.0 (all bursting)   → -scale
+    Reward components:
+      prediction: scale * (1 - 2*burst_fraction)  [-scale, +scale]
+      repetition: -penalty if same char as previous
+      diversity:  +bonus if char hasn't been seen recently
     """
 
-    def __init__(self, scale: float = 0.5):
+    def __init__(
+        self,
+        scale: float = 0.5,
+        repetition_penalty: float = 0.3,
+    ):
         self.scale = scale
+        self.repetition_penalty = repetition_penalty
+        self._prev_char: str | None = None
+        self._recent_chars: list[str] = []
+        self._recent_window: int = 10
 
     def step(self, char, s1_burst_fraction: float) -> float:
         if char is None:
             return 0.0
-        return self.scale * (1.0 - 2.0 * s1_burst_fraction)
+
+        # Base: S1 prediction quality
+        reward = self.scale * (1.0 - 2.0 * s1_burst_fraction)
+
+        # Repetition penalty: discourage same char as previous
+        if char == self._prev_char:
+            reward -= self.repetition_penalty
+
+        # Diversity bonus: reward chars not seen in recent window
+        if char not in self._recent_chars:
+            reward += 0.1
+
+        self._prev_char = char
+        self._recent_chars.append(char)
+        if len(self._recent_chars) > self._recent_window:
+            self._recent_chars.pop(0)
+
+        return reward
+
+    def reset(self):
+        self._prev_char = None
+        self._recent_chars.clear()
 
 
 class WordReward:
