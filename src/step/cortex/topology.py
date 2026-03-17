@@ -966,9 +966,15 @@ class Topology:
         current_token_id = ord(seed_char)
         current_token_str = seed_char
 
-        # Noise annealing: linearly decay from initial noise to floor
-        initial_noise = motor_region.babbling_noise
-        noise_floor = 0.1  # Always keep some exploration
+        # Adaptive noise: tracks reward EMA. When reward improves,
+        # noise decreases (exploit). When reward stagnates or drops,
+        # noise increases (explore). Models tonic dopamine regulation.
+        noise_floor = 0.05
+        noise_ceiling = motor_region.babbling_noise  # initial value as max
+        noise = noise_ceiling
+        reward_ema = 0.0
+        reward_ema_slow = 0.0
+        noise_adapt_rate = 0.001  # How fast noise responds to reward changes
 
         # Metrics
         rewards = []
@@ -979,12 +985,15 @@ class Topology:
         start = time.monotonic()
 
         for t in range(n_steps):
-            # Anneal noise: linear decay from initial to floor
-            if n_steps > 1 and initial_noise > noise_floor:
-                progress = t / n_steps
-                motor_region.babbling_noise = (
-                    initial_noise + (noise_floor - initial_noise) * progress
-                )
+            # Adaptive noise: compare fast vs slow reward EMA
+            # Fast EMA rising above slow → things are improving → exploit
+            # Fast EMA falling below slow → stagnating → explore
+            if t > 100:
+                reward_delta = reward_ema - reward_ema_slow
+                # Positive delta → reduce noise, negative → increase
+                noise -= noise_adapt_rate * reward_delta
+                noise = max(noise_floor, min(noise_ceiling, noise))
+            motor_region.babbling_noise = noise
 
             # 1. Encode current token (M1's last output or seed)
             encoding = self._encoder.encode(current_token_str)
@@ -1079,6 +1088,10 @@ class Topology:
             # 9. Update col_token_map
             if pop_id >= 0:
                 motor_region.observe_token(pop_id)
+
+            # Update reward EMAs for adaptive noise
+            reward_ema = 0.99 * reward_ema + 0.01 * reward  # fast
+            reward_ema_slow = 0.999 * reward_ema_slow + 0.001 * reward  # slow
 
             # Track metrics
             rewards.append(reward)
