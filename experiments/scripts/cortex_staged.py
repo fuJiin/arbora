@@ -22,6 +22,8 @@ import argparse
 import os
 import time
 
+import numpy as np
+
 import step.env  # noqa: F401
 from step.config import (
     _default_motor_config,
@@ -72,7 +74,18 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     s3 = make_sensory_region(r3_cfg, s2.n_l23_total * 8, seed=789)
 
     m1_cfg = _default_motor_config()
+    # Build M1 vocabulary from encoder's character set
+    output_vocab = [ord(ch) for ch in encoder._char_to_idx]
     m1 = make_motor_region(m1_cfg, s1.n_l23_total, seed=456)
+    # Set vocabulary for L5 output mapping
+    m1._output_vocab = np.array(output_vocab, dtype=np.int64)
+    m1.n_output_tokens = len(output_vocab)
+    # Reinitialize L5 weights with correct vocab size
+    n_l23 = m1.n_l23_total
+    m1.output_weights = m1._rng.uniform(0, 0.01, size=(n_l23, len(output_vocab)))
+    m1.output_mask = (m1._rng.random((n_l23, len(output_vocab))) < 0.5).astype(np.float64)
+    m1.output_weights *= m1.output_mask
+    m1._output_eligibility = np.zeros((n_l23, len(output_vocab)))
 
     cortex = Topology(
         encoder,
