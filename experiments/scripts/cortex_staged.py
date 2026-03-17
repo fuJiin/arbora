@@ -205,10 +205,10 @@ def run_stage(
     is_babbling = stage.babbling_noise > 0 or stage.force_motor_active
 
     if is_babbling:
-        # Autoregressive babbling: M1 drives, hears itself through S1
-        print(f"  Mode: autoregressive babbling (noise={stage.babbling_noise})")
-        result = cortex.run_babbling(
-            stage.n_tokens, log_interval=log_interval,
+        # Interleaved: alternate listening (corpus) and babbling (autoregressive)
+        print(f"  Mode: interleaved listen+babble (noise={stage.babbling_noise})")
+        result = cortex.run_interleaved(
+            tokens, stage.n_tokens, log_interval=log_interval,
         )
         elapsed = result["elapsed_seconds"]
     else:
