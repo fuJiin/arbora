@@ -24,6 +24,29 @@ class TurnTakingReward:
             return -0.5 if spoke else 0.2
 
 
+class S1PredictionReward:
+    """Stage 3: reward based on S1's prediction accuracy (burst rate).
+
+    S1 was trained on real text and knows which character transitions
+    are natural. When M1 produces a char that S1 predicted (low burst),
+    it's producing natural language-like sequences. High burst means
+    M1 produced something S1 didn't expect — an unnatural transition.
+
+    Reward = scale * (1 - 2 * burst_fraction)
+      burst_fraction=0.0 (all predicted) → +scale
+      burst_fraction=0.5 (half bursting)  → 0.0
+      burst_fraction=1.0 (all bursting)   → -scale
+    """
+
+    def __init__(self, scale: float = 0.5):
+        self.scale = scale
+
+    def step(self, char, s1_burst_fraction: float) -> float:
+        if char is None:
+            return 0.0
+        return self.scale * (1.0 - 2.0 * s1_burst_fraction)
+
+
 class WordReward:
     """Stage 3: continuous reward based on S2 pattern coherence.
 
