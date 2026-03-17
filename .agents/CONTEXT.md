@@ -1,57 +1,59 @@
 # Context: STEP (Sparse Temporal Eligibility Propagation)
 
 ## Overview
-Biologically-plausible cortical learning for next-token prediction. Minicolumn model with L4/L2/3 layers, dendritic segments, per-neuron ff_weights, apical gain feedback. NumPy + Numba, Python 3.12+, uv.
+Biologically-plausible cortical learning for next-token prediction. Minicolumn model with L4/L2/3 layers, dendritic segments, per-neuron ff_weights, apical gain feedback, L5 output layer. NumPy + Numba, Python 3.12+, uv.
 
 ## Architecture
-- **S1**: 128 cols, k=8. Char-level. **S2**: 32 cols, k=4, buf=4. Word-level. **S3**: 32 cols, k=4, buf=8. Topic-level.
-- **M1**: 32 cols, k=4. L5 output layer (learned weights, sparse, three-factor). Direct column forcing for babbling.
+- **S1**: 128 cols, k=8. Char-level. **S2**: 32 cols, k=4, buf=4. Word-level. **S3**: 32 cols, k=4, buf=8.
+- **M1**: 32 cols, k=4. L5 output weights (learned, sparse, three-factor). Direct column forcing for babbling.
 
-## Key Achievements This Session
+## Reward Architecture (biologically grounded)
+- **Curiosity (VTA dopamine RPE)**: per-bigram expected vs actual S1 burst. Drives exploration — known patterns stop being rewarding.
+- **Caregiver (social reward)**: live prefix tracking against BabyLM vocabulary. Positive-only signal for word-like sequences. No dead-end penalty (caused attractor collapse). Attention span auto-reset at 8 chars.
+- Combined in `CaregiverReward`: curiosity as base + word recognition as gentle bias toward English.
 
-### Centroid BPC (non-learned observability)
-- Replaced broken dendritic decoder. Confirmed sensory learning plateaus at ~300k (cbpc 4.59).
+## Key Results This Session
 
-### L5 Output Layer
-- Replaced frequency-counting col_token_map with learned L5 weights (L2/3 → token scores)
-- Structural sparsity, three-factor Hebbian (eligibility trace + reward consolidation)
-- Vocabulary-constrained: L5 only outputs valid BabyLM chars
-- Same architecture as ff_weights — biologically grounded L5 pyramidal projection
+### What worked:
+- **Centroid BPC**: Non-learned observability. Sensory plateau at 300k (cbpc 4.59).
+- **L5 output weights**: Replaced frequency-counting col_token_map. Same architecture as ff_weights. No more 'a' dominance.
+- **Three-factor learning**: Eligibility trace + reward on both ff_weights and L5. Breaks attractor collapse.
+- **Curiosity reward (RPE)**: Discovers all 32 chars. Natural explore→exploit cycle.
+- **Adaptive noise**: Self-regulating via reward EMA delta. No hardcoded schedule.
+- **Caregiver positive-only prefix**: "th" gets credit (prefix of "the"). No collapse. 28 instances of "th" bigram at 100k. Real words "go", "to" emerging.
 
-### Curiosity Reward (Dopamine RPE)
-- Tracks expected S1 burst per bigram. Reward = expected - actual (prediction improvement)
-- Known bigrams stop being rewarding → naturally drives exploration of new ones
-- Result: **32/32 chars discovered** in 100k steps. No explicit diversity bonus needed.
-- Explore→exploit cycle emerges: M1 expands to full vocab, then contracts to best bigrams
-- Output evolves: `'itttiti'` → `"osko-forjxk"` → `"alfs.afaslsl"` → `'ii.riiriii.rr'`
+### What failed:
+- **S1 prediction reward alone**: Flat reward, no differentiation between repetition and diversity.
+- **S2 word stability reward**: Uniformly -0.3 (single chars carry no word info).
+- **Dead-end penalty in caregiver**: Collapsed M1 to single-char repetition at 55k. Penalty overwhelmed curiosity.
+- **Repetition penalty**: Worked short-term but hacky, replaced by curiosity RPE.
 
-### Adaptive Noise (Tonic Dopamine Model)
-- Self-regulating: fast vs slow reward EMA drives noise up/down
-- Stagnation detection: small |delta| → gentle noise increase
-- Replaces hardcoded linear schedule
+### Current bottleneck:
+L5 random initialization biases M1 toward arbitrary chars (q, f, x). Caregiver prefix nudges toward English (28 "th" instances) but can't overcome init bias in 100k. Need either longer runs or L5 pre-training from listening phase.
 
-### Training Pipeline
-1. **Sensory** (300k corpus): S1→S2→S3 representation learning. ✅
-2. **Babbling** (autoregressive + curiosity): M1→S1→M1 with RPE reward. Full vocab discovered. ✅
-3. Stages 2 and 3 collapsed — both use curiosity reward, L5 weights make them functionally identical.
-4. **Imitation**: Needs M2. Not started.
-5. **Generation**: Needs PFC. Not started.
+## Reward Design Lessons
+- Curiosity (intrinsic) = exploration engine. Essential, never remove.
+- Caregiver (extrinsic) = convergence toward language. Positive-only. Gentle nudge.
+- Penalties cause collapse. Only reward progress, never punish.
+- Reward asymmetry matters: positive caregiver + zero for non-matches >> positive + negative.
 
-## Key Files
-- `src/step/cortex/motor.py` — L5 output weights, three-factor learning, `_babble_direct()`
-- `src/step/cortex/reward.py` — `CuriosityReward` (RPE), `WordReward` (S2-based, backup)
-- `src/step/cortex/topology.py` — `run_babbling()`, adaptive noise, pluggable reward
-- `src/step/cortex/stages.py` — `TrainingStage`, SENSORY/BABBLING/GUIDED definitions
-- `src/step/probes/centroid_bpc.py` — non-learned BPC probe
-
-## Checkpoints
-- `stage1_sensory.ckpt` — 300k sensory (32-char BabyLM)
-- `stage2_babbling.ckpt` — 100k curiosity-driven babbling
+## Training Pipeline
+1. **Sensory** (300k corpus): S1→S2→S3. ✅
+2. **Babbling** (100k autoregressive): Curiosity + caregiver reward. 32 chars discovered, "th"/"go" emerging. ✅
+3. Stages 2/3 collapsed into one (both use caregiver + curiosity).
 
 ## Next Steps
-- [ ] **Longer babbling run (500k+)** — does M1 discover common English bigrams (th, he, in)?
-- [ ] **Inspect bigram frequencies** — what transitions is M1 actually learning?
+- [ ] **L5 pre-training via listening** — run corpus through M1 with L5 learning only (observe_token). Gives L5 a map to real chars before babbling starts. Biologically: infants hear language before babbling.
+- [ ] **Longer babbling (500k)** — does gentle caregiver signal accumulate enough to shift L5 toward English?
+- [ ] **Inspect L5 weight structure** — which L2/3 patterns map to which tokens? Is there any char clustering?
 - [ ] **REPL babbling mode** — watch M1 babble interactively
-- [ ] **M2 design** — once M1 produces recognizable sequences, add sequencing layer
-- [ ] **PFC design** — working memory, per-stripe BG gating, three-factor learning
-- [ ] **Apical gain tuning** — deferred, use centroid BPC to A/B
+- [ ] **M2 sequencing** — once M1 reliably produces common bigrams
+- [ ] **PFC design** — working memory, per-stripe BG, three-factor learning
+
+## Key Files
+- `src/step/cortex/motor.py` — L5, three-factor, `_babble_direct()`
+- `src/step/cortex/reward.py` — `CuriosityReward`, `CaregiverReward`, `WordReward`
+- `src/step/cortex/topology.py` — `run_babbling()`, adaptive noise, pluggable reward
+- `src/step/cortex/stages.py` — stage definitions
+- `src/step/probes/centroid_bpc.py` — non-learned BPC
+- `experiments/scripts/cortex_staged.py` — staged runner
