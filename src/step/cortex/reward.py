@@ -8,6 +8,8 @@ Two biological reward pathways modeled:
   Extrinsic (caregiver): social reward when M1 produces a recognized word
 """
 
+from collections import deque
+
 import numpy as np
 
 
@@ -235,6 +237,119 @@ class CaregiverReward:
             ),
             "bigrams_tracked": len(self._curiosity._expected_burst),
         }
+
+class EchoReward:
+    """Reward for reproducing heard input (echolalia).
+
+    During listen phase: accumulates the input characters.
+    During speak phase: rewards M1 for producing matching characters
+    in the same order.
+
+    Models infant echolalia — hearing "hi" and reproducing "hi".
+    Builds the sensorimotor mapping that connects S1 representations
+    to M1 output patterns. First PFC-gated behavior.
+
+    Combines with curiosity as base signal.
+    """
+
+    def __init__(
+        self,
+        *,
+        match_bonus: float = 2.0,
+        position_tolerance: int = 1,
+        curiosity_scale: float = 0.5,
+        baseline_decay: float = 0.99,
+    ):
+        self._curiosity = CuriosityReward(
+            scale=curiosity_scale, baseline_decay=baseline_decay,
+        )
+        self.match_bonus = match_bonus
+        self.position_tolerance = position_tolerance
+
+        # Listen phase: chars heard
+        self._heard: list[str] = []
+        # Speak phase: position in heard sequence
+        self._echo_pos: int = 0
+        self._in_speak_phase: bool = False
+
+        # Stats
+        self.chars_heard: int = 0
+        self.chars_echoed: int = 0
+        self.exact_matches: int = 0
+
+    def hear(self, char: str) -> None:
+        """Record a character during listen phase."""
+        if char and char not in (" ", ".", ",", "!", "?", "'", "-"):
+            self._heard.append(char)
+            self.chars_heard += 1
+
+    def start_speak(self) -> None:
+        """Transition from listen to speak phase."""
+        self._in_speak_phase = True
+        self._echo_pos = 0
+
+    def step(self, char, s1_burst_fraction: float) -> float:
+        """Compute reward during speak phase.
+
+        Rewards character matches against the heard sequence.
+        Partial credit for near-position matches.
+        """
+        # Base: curiosity RPE
+        reward = self._curiosity.step(char, s1_burst_fraction)
+
+        if char is None or not self._in_speak_phase:
+            return reward
+
+        self.chars_echoed += 1
+
+        if not self._heard:
+            return reward  # Nothing to echo
+
+        # Check for match at current position (with tolerance window)
+        matched = False
+        start = max(0, self._echo_pos - self.position_tolerance)
+        end = min(len(self._heard), self._echo_pos + self.position_tolerance + 1)
+
+        for i in range(start, end):
+            if self._heard[i] == char:
+                # Match! Reward scales inversely with distance from expected pos
+                distance = abs(i - self._echo_pos)
+                scale = 1.0 / (1.0 + distance)
+                reward += self.match_bonus * scale
+                matched = True
+                if distance == 0:
+                    self.exact_matches += 1
+                break
+
+        if not matched:
+            # Wrong char — small penalty
+            reward -= self.match_bonus * 0.1
+
+        self._echo_pos += 1
+
+        # If we've echoed past the heard sequence, stop rewarding
+        if self._echo_pos >= len(self._heard):
+            self._in_speak_phase = False
+
+        return reward
+
+    def reset(self):
+        """Reset for next listen-speak cycle."""
+        self._curiosity.reset()
+        self._heard.clear()
+        self._echo_pos = 0
+        self._in_speak_phase = False
+
+    def summary(self) -> dict:
+        return {
+            "chars_heard": self.chars_heard,
+            "chars_echoed": self.chars_echoed,
+            "exact_matches": self.exact_matches,
+            "echo_accuracy": (
+                self.exact_matches / max(self.chars_echoed, 1)
+            ),
+        }
+
 
 class WordReward:
     """Stage 3: continuous reward based on S2 pattern coherence.

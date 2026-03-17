@@ -1228,6 +1228,164 @@ class Topology:
         }
 
     # ------------------------------------------------------------------
+    # Echo training (listen → PFC holds → M1 reproduces)
+    # ------------------------------------------------------------------
+
+    def run_echo(
+        self,
+        tokens: list[tuple[int, str]],
+        n_episodes: int,
+        *,
+        max_word_len: int = 6,
+        log_interval: int = 10,
+    ) -> dict:
+        """Echo training: hear a word, reproduce it.
+
+        For each episode:
+        1. Listen: process chars of a word through hierarchy, PFC open
+        2. PFC snapshots goal and closes gate
+        3. Speak: M1 produces chars, rewarded for matching heard word
+        4. Reset for next word
+
+        Args:
+            tokens: Corpus for extracting words.
+            n_episodes: Number of listen→echo episodes.
+            max_word_len: Max word length to echo (start small).
+            log_interval: Episodes between log lines.
+        """
+        from step.cortex.pfc import PFCRegion
+        from step.cortex.reward import EchoReward
+
+        entry_name = self._entry_name
+        entry_region = self._regions[entry_name].region
+
+        # Find PFC and motor regions
+        pfc_region = None
+        motor_region = None
+        for name, s in self._regions.items():
+            if isinstance(s.region, PFCRegion):
+                pfc_region = s.region
+            if s.motor:
+                motor_region = s.region
+
+        if pfc_region is None:
+            raise ValueError("No PFC region for echo training.")
+        if motor_region is None:
+            raise ValueError("No motor region for echo training.")
+
+        # Extract words from corpus
+        words = []
+        current = []
+        for token_id, ch in tokens:
+            if token_id < 0 or ch in (" ", ".", ",", "!", "?", "'", "-", ""):
+                if 2 <= len(current) <= max_word_len:
+                    words.append(current[:])
+                current.clear()
+            else:
+                current.append(ch)
+        if not words:
+            raise ValueError("No words found in corpus.")
+
+        echo_reward = EchoReward()
+        old_reward = self._reward_source
+        self._reward_source = echo_reward
+
+        # Metrics
+        rewards = []
+        matches = []
+        start = time.monotonic()
+
+        for ep in range(n_episodes):
+            # Pick a random word
+            word = words[ep % len(words)]
+
+            # -- LISTEN phase: PFC gate open, process word chars --
+            pfc_region.gate_open = True
+            echo_reward.reset()
+
+            for ch in word:
+                encoding = self._encoder.encode(ch)
+                topo_order = self._topo_order()
+                self._propagate_feedforward(topo_order, entry_name, encoding)
+                self._propagate_signals()
+                echo_reward.hear(ch)
+
+            # PFC snapshots and closes gate
+            pfc_region.snapshot_goal()
+            pfc_region.gate_open = False
+
+            # -- SPEAK phase: M1 tries to reproduce --
+            echo_reward.start_speak()
+            self.force_gate_open = True  # M1 active
+            motor_region.babbling_noise = 0.2  # Mostly learned, some explore
+            episode_reward = 0.0
+            produced = []
+
+            for step_i in range(len(word) + 2):  # Allow a couple extra chars
+                # Feed last produced char (or space as seed)
+                seed = produced[-1] if produced else " "
+                encoding = self._encoder.encode(seed)
+                topo_order = self._topo_order()
+                self._propagate_feedforward(topo_order, entry_name, encoding)
+                self._propagate_signals()
+
+                pop_id, reward = self._step_motor_reward(entry_region)
+                episode_reward += reward
+
+                m_char = (
+                    chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127
+                    else None
+                )
+                if m_char:
+                    produced.append(m_char)
+
+                self._total_steps += 1
+
+            self.force_gate_open = False
+
+            # Score: how many chars matched?
+            n_match = sum(
+                1 for i, ch in enumerate(produced[:len(word)])
+                if i < len(word) and ch == word[i]
+            )
+            match_rate = n_match / max(len(word), 1)
+            rewards.append(episode_reward)
+            matches.append(match_rate)
+
+            # Reset for next episode
+            for s in self._regions.values():
+                s.region.reset_working_memory()
+
+            # Logging
+            if (ep + 1) % log_interval == 0:
+                recent_r = rewards[-log_interval:]
+                recent_m = matches[-log_interval:]
+                avg_r = sum(recent_r) / len(recent_r)
+                avg_m = sum(recent_m) / len(recent_m)
+                heard = "".join(word)
+                said = "".join(produced[:len(word)])
+                elapsed = time.monotonic() - start
+                print(
+                    f"  [echo] ep={ep+1:,} "
+                    f"r={avg_r:+.3f} "
+                    f"match={avg_m:.0%} "
+                    f"heard={heard!r} "
+                    f"said={said!r} "
+                    f"({elapsed:.1f}s)"
+                )
+
+        self._reward_source = old_reward
+        elapsed = time.monotonic() - start
+
+        return {
+            "rewards": rewards,
+            "matches": matches,
+            "avg_match": sum(matches) / max(len(matches), 1),
+            "echo_summary": echo_reward.summary(),
+            "elapsed_seconds": elapsed,
+        }
+
+    # ------------------------------------------------------------------
     # Checkpointing
     # ------------------------------------------------------------------
 
@@ -1503,8 +1661,8 @@ class Topology:
         self, char: str | None, entry_region,
     ) -> float:
         """Compute reward from pluggable source with appropriate context."""
-        from step.cortex.reward import CaregiverReward, CuriosityReward
-        if isinstance(self._reward_source, (CuriosityReward, CaregiverReward)):
+        from step.cortex.reward import CaregiverReward, CuriosityReward, EchoReward
+        if isinstance(self._reward_source, (CuriosityReward, CaregiverReward, EchoReward)):
             # Curiosity/Caregiver: pass S1 burst fraction
             n_active = max(int(entry_region.active_columns.sum()), 1)
             n_bursting = int(entry_region.bursting_columns.sum())
