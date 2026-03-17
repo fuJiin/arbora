@@ -48,6 +48,13 @@ class MotorRegion(SensoryRegion):
         # Models brainstem pattern generators in early infant vocalization.
         self.babbling_noise: float = 0.0
 
+        # Three-factor learning: eligibility trace on ff_weights.
+        # Records recent Hebbian weight changes. When reward arrives,
+        # positive reward consolidates the trace (keep changes),
+        # negative reward reverses it (undo changes).
+        self._ff_eligibility = np.zeros_like(self.ff_weights)
+        self._eligibility_decay = 0.95  # ~20-step window
+
         # L5 output state (updated each step in process())
         self.output_scores = np.zeros(n_columns)
 
@@ -149,6 +156,62 @@ class MotorRegion(SensoryRegion):
         self.firing_rate_l23[self.active_l23] += 1.0 - self.voltage_decay
 
         return np.nonzero(self.active_l4)[0]
+
+    def _learn_ff(self, flat_input: np.ndarray):
+        """Three-factor Hebbian learning on ff_weights.
+
+        Instead of applying weight changes immediately (two-factor Hebbian),
+        records changes in an eligibility trace. Changes are consolidated
+        when apply_reward() is called with the reward signal.
+
+        This lets reward determine whether recent motor activations were
+        good (consolidate) or bad (reverse).
+        """
+        # Decay eligibility trace
+        self._ff_eligibility *= self._eligibility_decay
+
+        # Compute what the standard Hebbian update WOULD be
+        active_cols = np.nonzero(self.active_columns)[0]
+        if len(active_cols) == 0:
+            return
+
+        # Find winner neurons
+        voltage_by_col = self.voltage_l4.reshape(self.n_columns, self.n_l4)
+        active_by_col = self.active_l4.reshape(self.n_columns, self.n_l4)
+        is_burst = self.bursting_columns[active_cols]
+
+        winner_indices = np.empty(len(active_cols), dtype=np.intp)
+        if is_burst.any():
+            winner_indices[is_burst] = active_cols[
+                is_burst
+            ] * self.n_l4 + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
+        precise = ~is_burst
+        if precise.any():
+            winner_indices[precise] = active_cols[
+                precise
+            ] * self.n_l4 + active_by_col[active_cols[precise]].argmax(axis=1)
+
+        # Record Hebbian coincidence in eligibility trace (not weights)
+        # LTP direction: input * post-activity
+        self._ff_eligibility[:, winner_indices] += (
+            self.learning_rate * flat_input[:, np.newaxis]
+        )
+
+    def apply_reward(self, reward: float) -> None:
+        """Consolidate eligibility trace into ff_weights using reward signal.
+
+        Three-factor rule: dw = reward * eligibility_trace
+        Positive reward → keep recent changes (strengthen active pathways)
+        Negative reward → reverse them (weaken pathways that led to bad output)
+        """
+        if abs(reward) < 1e-6:
+            return  # No signal, don't modify weights
+
+        # Apply: positive reward consolidates, negative reverses
+        self.ff_weights += reward * self._ff_eligibility
+        # Enforce structural mask and bounds
+        self.ff_weights *= self.ff_mask
+        np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
 
     def observe_token(self, token_id: int) -> None:
         """Update column→token mapping based on current activation.
