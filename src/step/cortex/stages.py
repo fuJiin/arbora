@@ -107,7 +107,7 @@ class TrainingStage:
 # ------------------------------------------------------------------
 
 def _sensory_connections():
-    """Sensory stage: S1→S2→S3 active, M1 disconnected."""
+    """Sensory stage: S1→S2→S3 + M1 listening (S1→M1 feedforward)."""
     return [
         # Sensory feedforward + surprise: on
         StageConnection("S1", "S2", "feedforward", enabled=True),
@@ -117,9 +117,10 @@ def _sensory_connections():
         # Apical feedback: on
         StageConnection("S2", "S1", "apical", enabled=True),
         StageConnection("S3", "S2", "apical", enabled=True),
-        # M1: off
-        StageConnection("S1", "M1", "feedforward", enabled=False),
-        StageConnection("S1", "M1", "surprise", enabled=False),
+        # M1 listening: receives S1 input, learns internal representations
+        # and L5 token mapping. Does not produce output or feed back.
+        StageConnection("S1", "M1", "feedforward", enabled=True),
+        StageConnection("S1", "M1", "surprise", enabled=True),
         StageConnection("M1", "S1", "apical", enabled=False),
     ]
 
@@ -164,9 +165,9 @@ def _guided_connections():
 
 SENSORY_STAGE = TrainingStage(
     name="sensory",
-    description="Self-supervised sensory representation learning (S1→S2→S3)",
+    description="Sensory learning + M1 listening (S1→S2→S3, M1 observes)",
     n_tokens=1_000_000,
-    learning_regions=["S1", "S2", "S3"],
+    learning_regions=["S1", "S2", "S3", "M1"],
     connections=_sensory_connections(),
     save_checkpoint="stage1_sensory",
 )
