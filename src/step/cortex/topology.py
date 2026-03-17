@@ -1042,15 +1042,8 @@ class Topology:
                             conn.thalamic_gate.update(tgt_burst_rate)
                         tgt.set_apical_context(signal)
 
-            # 5. M1 output: get produced token
+            # 5. M1 output: get produced token via L5 output weights
             pop_id, pop_conf = motor_region.get_population_output()
-            # During babbling, if M1 has no token mapping yet, pick a
-            # random printable char. This bootstraps the explore loop —
-            # M1 "babbles" a random sound and hears itself through S1.
-            if pop_id < 0 and motor_region.babbling_noise > 0:
-                _babble_chars = "abcdefghijklmnopqrstuvwxyz .!?'-"
-                pop_id = ord(_babble_chars[t % len(_babble_chars)])
-                pop_conf = 0.5
 
             # 6. BG gating
             gate = 1.0
@@ -1171,8 +1164,8 @@ class Topology:
                 region_data["apical_gain_weights"] = r._apical_gain_weights
 
             if isinstance(r, MotorRegion):
-                region_data["_col_token_counts"] = r._col_token_counts
-                region_data["_col_token_map"] = r._col_token_map
+                region_data["output_weights"] = r.output_weights
+                region_data["output_mask"] = r.output_mask
 
             if s.basal_ganglia is not None:
                 region_data["bg_go_weights"] = s.basal_ganglia.go_weights
@@ -1240,12 +1233,10 @@ class Topology:
             if "apical_gain_weights" in region_data and r._apical_gain_weights is not None:
                 r._apical_gain_weights[:] = region_data["apical_gain_weights"]
 
-            if (
-                isinstance(r, MotorRegion)
-                and "_col_token_counts" in region_data
-            ):
-                r._col_token_counts = region_data["_col_token_counts"]
-                r._col_token_map[:] = region_data["_col_token_map"]
+            if isinstance(r, MotorRegion):
+                if "output_weights" in region_data:
+                    r.output_weights[:] = region_data["output_weights"]
+                    r.output_mask[:] = region_data["output_mask"]
 
             if (
                 s.basal_ganglia is not None
