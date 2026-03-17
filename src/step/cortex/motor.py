@@ -11,14 +11,14 @@ most frequently activates it, forming a self-organizing motor map.
 
 import numpy as np
 
-from step.cortex.sensory import SensoryRegion
+from step.cortex.region import CorticalRegion
 
 
-class MotorRegion(SensoryRegion):
+class MotorRegion(CorticalRegion):
     """Cortical region with L5 output layer for token production.
 
-    Like S2, receives S1's L2/3 firing rate as input (encoding_width=0).
-    Unlike S2, adds:
+    Receives S1's L2/3 firing rate as input (full connectivity, no
+    encoding-width structure). Adds:
     - L5 output layer: learned weights mapping L2/3 → token scores
     - Output weights have structural sparsity (like ff_weights)
     - Three-factor learning: Hebbian + reward modulation on both
@@ -41,7 +41,6 @@ class MotorRegion(SensoryRegion):
     ):
         super().__init__(
             input_dim=input_dim,
-            encoding_width=0,
             n_columns=n_columns,
             seed=seed,
             **kwargs,

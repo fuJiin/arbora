@@ -42,8 +42,9 @@ def motor(region1):
 
 
 class TestMotorRegion:
-    def test_is_sensory_subclass(self, motor):
-        assert isinstance(motor, SensoryRegion)
+    def test_is_cortical_subclass(self, motor):
+        from step.cortex.region import CorticalRegion
+        assert isinstance(motor, CorticalRegion)
 
     def test_output_starts_silent(self, motor):
         token_id, conf = motor.get_output()

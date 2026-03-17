@@ -184,7 +184,8 @@ def make_motor_region(
 ) -> MotorRegion:
     """Create a MotorRegion from a CortexConfig.
 
-    Motor regions use encoding_width=0 (no positional structure in input).
+    Motor regions inherit directly from CorticalRegion (not SensoryRegion)
+    with full connectivity (no encoding-width spatial structure).
     """
     from step.cortex.motor import MotorRegion
 
