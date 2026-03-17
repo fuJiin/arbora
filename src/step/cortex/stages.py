@@ -74,9 +74,9 @@ class TrainingStage:
         topology.force_gate_open = self.force_motor_active
 
         # Reward source configuration
-        if self.reward_source == "s1_prediction":
-            from step.cortex.reward import S1PredictionReward
-            topology.set_reward_source(S1PredictionReward())
+        if self.reward_source == "curiosity":
+            from step.cortex.reward import CuriosityReward
+            topology.set_reward_source(CuriosityReward())
         elif self.reward_source == "word":
             s2_cols = 32
             for name, state in topology._regions.items():
@@ -170,25 +170,26 @@ SENSORY_STAGE = TrainingStage(
 
 BABBLING_STAGE = TrainingStage(
     name="babbling",
-    description="Self-supervised motor babbling (M1→S1→M1, S1 frozen)",
+    description="Motor babbling with curiosity reward (M1→S1→M1, S1 frozen)",
     n_tokens=200_000,
     learning_regions=["M1"],
     connections=_babbling_connections(),
     load_checkpoint="stage1_sensory",
     save_checkpoint="stage2_babbling",
-    babbling_noise=1.0,  # Pure random exploration
-    force_motor_active=True,  # M1 processes every step, not just EOM
+    babbling_noise=0.5,  # Start with exploration, adaptive from there
+    force_motor_active=True,
+    reward_source="curiosity",  # RPE drives learning from step 1
 )
 
 GUIDED_BABBLING_STAGE = TrainingStage(
     name="guided_babbling",
-    description="RL motor training with S1 prediction reward",
+    description="Continued motor learning with curiosity + S2 context",
     n_tokens=500_000,
     learning_regions=["M1"],
     connections=_guided_connections(),
     load_checkpoint="stage2_babbling",
     save_checkpoint="stage3_guided",
-    babbling_noise=0.5,  # 50% random exploration, 50% learned
+    babbling_noise=0.5,
     force_motor_active=True,
-    reward_source="s1_prediction",
+    reward_source="curiosity",
 )
