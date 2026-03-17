@@ -109,17 +109,18 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     )
     cortex.add_region("M1", m1, basal_ganglia=bg)
 
-    # PFC: receives S3 output (topic/phrase level, already integrates S2 word context)
+    # PFC: receives S2 output (word-level patterns — needed for echo/goal specificity)
+    # S3 topic context can come via apical in the future.
     pfc_cfg = _default_pfc_config()
-    pfc = make_pfc_region(pfc_cfg, s3.n_l23_total, seed=999)
+    pfc = make_pfc_region(pfc_cfg, s2.n_l23_total, seed=999)
     cortex.add_region("PFC", pfc)
 
     # Feedforward
     cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
     cortex.connect("S2", "S3", "feedforward", buffer_depth=8, burst_gate=True)
     cortex.connect("S1", "M1", "feedforward")
-    # PFC receives concatenated S2+S3 (no buffer — PFC sees current state)
-    cortex.connect("S3", "PFC", "feedforward")
+    # PFC receives S2 word-level patterns (specific enough for echo mode)
+    cortex.connect("S2", "PFC", "feedforward")
 
     # Surprise
     cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())

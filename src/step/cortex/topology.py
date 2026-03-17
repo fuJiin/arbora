@@ -1352,6 +1352,23 @@ class Topology:
             rewards.append(episode_reward)
             matches.append(match_rate)
 
+            # Route reward to PFC: modulate its learning rate.
+            # Then re-process the heard word so PFC's ff_weights
+            # are updated with reward-scaled Hebbian learning.
+            # Good echo → PFC's word representation strengthened.
+            # Bad echo → learning suppressed, representation drifts.
+            avg_episode_reward = episode_reward / max(len(word), 1)
+            # Map reward to modulator range [0.5, 2.0]
+            pfc_region.reward_modulator = max(0.5, min(2.0,
+                1.0 + avg_episode_reward
+            ))
+            pfc_region.gate_open = True
+            for ch in word:
+                encoding = self._encoder.encode(ch)
+                topo_order = self._topo_order()
+                self._propagate_feedforward(topo_order, entry_name, encoding)
+            pfc_region.reward_modulator = 1.0  # Reset modulator
+
             # Reset for next episode
             for s in self._regions.values():
                 s.region.reset_working_memory()

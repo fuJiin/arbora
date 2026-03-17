@@ -122,7 +122,7 @@ def _sensory_connections():
         StageConnection("S1", "M1", "surprise", enabled=True),
         StageConnection("M1", "S1", "apical", enabled=False),
         # PFC listening: observes S3 output, builds goal representations
-        StageConnection("S3", "PFC", "feedforward", enabled=True),
+        StageConnection("S2", "PFC", "feedforward", enabled=True),
         StageConnection("PFC", "M1", "apical", enabled=False),
     ]
 
@@ -142,7 +142,7 @@ def _babbling_connections():
         StageConnection("S1", "M1", "surprise", enabled=True),
         StageConnection("M1", "S1", "apical", enabled=False),
         # PFC: receives S3, biases M1
-        StageConnection("S3", "PFC", "feedforward", enabled=True),
+        StageConnection("S2", "PFC", "feedforward", enabled=True),
         StageConnection("PFC", "M1", "apical", enabled=True),
     ]
 
