@@ -119,6 +119,12 @@ class CaregiverReward:
         # Current word accumulator
         self._current_word: list[str] = []
 
+        # Word completion habituation: caregiver excitement decays
+        # with repetition. First time saying "the" → massive bonus.
+        # 10th time → much smaller. Models caregiver habituation.
+        self._word_counts: dict[str, int] = {}
+        self._habituation_rate: float = 0.7  # Bonus *= rate^count
+
         # Stats
         self.words_attempted: int = 0
         self.words_recognized: int = 0
@@ -162,10 +168,13 @@ class CaregiverReward:
                 self.words_attempted += 1
                 if word in self._known_words:
                     self.words_recognized += 1
-                    # Caregiver goes WILD. This is the biggest reward
-                    # in the system — completing a real word. Scales
-                    # with word length (longer words = harder = more reward).
-                    reward += self.word_bonus * max(len(word), 2)
+                    # Caregiver excitement with habituation:
+                    # First "the" → huge bonus. 10th "the" → smaller.
+                    # New words always exciting. Prevents attractor lock.
+                    count = self._word_counts.get(word, 0)
+                    self._word_counts[word] = count + 1
+                    habituation = self._habituation_rate ** count
+                    reward += self.word_bonus * max(len(word), 2) * habituation
             self._current_word.clear()
         else:
             self._current_word.append(char)
@@ -197,9 +206,10 @@ class CaregiverReward:
         prefix = "".join(self._current_word)
 
         if prefix in self._known_words:
-            # This IS a complete word — strong signal to produce a space.
-            # Caregiver is thrilled: "did you just say 'the'?!"
-            return self.word_bonus * 1.0
+            # Complete word — signal to produce a space. Habituated.
+            count = self._word_counts.get(prefix, 0)
+            habituation = self._habituation_rate ** count
+            return self.word_bonus * 1.0 * habituation
 
         if prefix in self._prefixes:
             # Valid prefix: scale by how many next-chars continue a word.
