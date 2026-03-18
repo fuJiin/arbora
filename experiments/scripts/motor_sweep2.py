@@ -114,22 +114,70 @@ def main():
     cortex_cfg = CortexConfig(ltd_rate=0.05)
 
     # k=1 with variations
+    _k1 = {"k_columns": 1, "voltage_decay": 0.5, "output_threshold": 0.3}
+    _k2 = {"k_columns": 2, "voltage_decay": 0.5, "output_threshold": 0.3}
     configs = [
-        ("k1 baseline",        {"k_columns": 1, "learning_rate": 0.15, "ltd_rate": 0.15, "voltage_decay": 0.5, "output_threshold": 0.3}),
-        ("k1 lr=0.10",         {"k_columns": 1, "learning_rate": 0.10, "ltd_rate": 0.15, "voltage_decay": 0.5, "output_threshold": 0.3}),
-        ("k1 lr=0.20",         {"k_columns": 1, "learning_rate": 0.20, "ltd_rate": 0.15, "voltage_decay": 0.5, "output_threshold": 0.3}),
-        ("k1 lr=0.30",         {"k_columns": 1, "learning_rate": 0.30, "ltd_rate": 0.15, "voltage_decay": 0.5, "output_threshold": 0.3}),
-        ("k1 ltd=0.10",        {"k_columns": 1, "learning_rate": 0.15, "ltd_rate": 0.10, "voltage_decay": 0.5, "output_threshold": 0.3}),
-        ("k1 ltd=0.20",        {"k_columns": 1, "learning_rate": 0.15, "ltd_rate": 0.20, "voltage_decay": 0.5, "output_threshold": 0.3}),
-        ("k1 ltd=0.30",        {"k_columns": 1, "learning_rate": 0.15, "ltd_rate": 0.30, "voltage_decay": 0.5, "output_threshold": 0.3}),
-        ("k1 vd=0.3",          {"k_columns": 1, "learning_rate": 0.15, "ltd_rate": 0.15, "voltage_decay": 0.3, "output_threshold": 0.3}),
-        ("k1 vd=0.7",          {"k_columns": 1, "learning_rate": 0.15, "ltd_rate": 0.15, "voltage_decay": 0.7, "output_threshold": 0.3}),
-        ("k1 thresh=0.1",      {"k_columns": 1, "learning_rate": 0.15, "ltd_rate": 0.15, "voltage_decay": 0.5, "output_threshold": 0.1}),
+        ("k1 baseline", {**_k1, "learning_rate": 0.15, "ltd_rate": 0.15}),
+        ("k1 lr=0.10", {**_k1, "learning_rate": 0.10, "ltd_rate": 0.15}),
+        ("k1 lr=0.20", {**_k1, "learning_rate": 0.20, "ltd_rate": 0.15}),
+        ("k1 lr=0.30", {**_k1, "learning_rate": 0.30, "ltd_rate": 0.15}),
+        ("k1 ltd=0.10", {**_k1, "learning_rate": 0.15, "ltd_rate": 0.10}),
+        ("k1 ltd=0.20", {**_k1, "learning_rate": 0.15, "ltd_rate": 0.20}),
+        ("k1 ltd=0.30", {**_k1, "learning_rate": 0.15, "ltd_rate": 0.30}),
+        (
+            "k1 vd=0.3",
+            {
+                **_k1,
+                "learning_rate": 0.15,
+                "ltd_rate": 0.15,
+                "voltage_decay": 0.3,
+            },
+        ),
+        (
+            "k1 vd=0.7",
+            {
+                **_k1,
+                "learning_rate": 0.15,
+                "ltd_rate": 0.15,
+                "voltage_decay": 0.7,
+            },
+        ),
+        (
+            "k1 thresh=0.1",
+            {
+                **_k1,
+                "learning_rate": 0.15,
+                "ltd_rate": 0.15,
+                "output_threshold": 0.1,
+            },
+        ),
         # Combos
-        ("k1 lr=0.20 ltd=0.20", {"k_columns": 1, "learning_rate": 0.20, "ltd_rate": 0.20, "voltage_decay": 0.5, "output_threshold": 0.3}),
-        ("k1 lr=0.20 vd=0.7",  {"k_columns": 1, "learning_rate": 0.20, "ltd_rate": 0.15, "voltage_decay": 0.7, "output_threshold": 0.3}),
-        ("k2 baseline",        {"k_columns": 2, "learning_rate": 0.15, "ltd_rate": 0.15, "voltage_decay": 0.5, "output_threshold": 0.3}),
-        ("k2 lr=0.20 ltd=0.20", {"k_columns": 2, "learning_rate": 0.20, "ltd_rate": 0.20, "voltage_decay": 0.5, "output_threshold": 0.3}),
+        (
+            "k1 lr=0.20 ltd=0.20",
+            {
+                **_k1,
+                "learning_rate": 0.20,
+                "ltd_rate": 0.20,
+            },
+        ),
+        (
+            "k1 lr=0.20 vd=0.7",
+            {
+                **_k1,
+                "learning_rate": 0.20,
+                "ltd_rate": 0.15,
+                "voltage_decay": 0.7,
+            },
+        ),
+        ("k2 baseline", {**_k2, "learning_rate": 0.15, "ltd_rate": 0.15}),
+        (
+            "k2 lr=0.20 ltd=0.20",
+            {
+                **_k2,
+                "learning_rate": 0.20,
+                "ltd_rate": 0.20,
+            },
+        ),
     ]
 
     print(f"Running {len(configs)} configs on {len(tokens):,} tokens\n")

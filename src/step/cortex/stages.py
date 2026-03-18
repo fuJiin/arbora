@@ -68,7 +68,7 @@ class TrainingStage:
                     topology.freeze_region(name)
 
         # Motor babbling configuration
-        for name, state in topology._regions.items():
+        for _name, state in topology._regions.items():
             if state.motor:
                 state.region.babbling_noise = self.babbling_noise
         topology.force_gate_open = self.force_motor_active
@@ -76,9 +76,11 @@ class TrainingStage:
         # Reward source configuration
         if self.reward_source == "caregiver":
             from step.cortex.reward import CaregiverReward
+
             topology.set_reward_source(CaregiverReward())
         elif self.reward_source == "curiosity":
             from step.cortex.reward import CuriosityReward
+
             topology.set_reward_source(CuriosityReward())
         elif self.reward_source == "word":
             s2_cols = 32
@@ -87,6 +89,7 @@ class TrainingStage:
                     s2_cols = state.region.n_columns
                     break
             from step.cortex.reward import WordReward
+
             topology.set_reward_source(WordReward(s2_cols))
         else:
             topology.set_reward_source(None)  # default turn-taking
@@ -105,6 +108,7 @@ class TrainingStage:
 # ------------------------------------------------------------------
 # Predefined stages
 # ------------------------------------------------------------------
+
 
 def _sensory_connections():
     """Sensory stage: full hierarchy + M1/M2/PFC listening."""

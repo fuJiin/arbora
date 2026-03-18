@@ -86,7 +86,9 @@ class MotorRegion(CorticalRegion):
 
         # L5 weights: (n_l23_total, n_output_tokens)
         self.output_weights = self._rng.uniform(
-            0, 0.01, size=(n_l23, n_output_tokens),
+            0,
+            0.01,
+            size=(n_l23, n_output_tokens),
         )
         # Structural sparsity: each L2/3 neuron connects to ~50% of tokens
         self.output_mask = (
@@ -109,10 +111,12 @@ class MotorRegion(CorticalRegion):
         map PFC's L2/3 firing rate to additive M1 neuron drive.
         """
         self._goal_weights = self._rng.uniform(
-            0, 0.01, size=(source_dim, self.n_l4_total),
+            0,
+            0.01,
+            size=(source_dim, self.n_l4_total),
         )
         # Structural sparsity: ~50% connectivity
-        goal_mask = (self._rng.random((source_dim, self.n_l4_total)) < 0.5)
+        goal_mask = self._rng.random((source_dim, self.n_l4_total)) < 0.5
         self._goal_weights *= goal_mask
         self._goal_eligibility = np.zeros_like(self._goal_weights)
         self._goal_drive = None
@@ -155,32 +159,28 @@ class MotorRegion(CorticalRegion):
             goal_drive = goal_signal @ self._goal_weights
             neuron_drive += goal_drive
 
-            # Record goal eligibility (three-factor: PFC activity × M1 winners)
-            if hasattr(self, '_goal_eligibility'):
+            # Record goal eligibility (three-factor: PFC activity x M1 winners)
+            if hasattr(self, "_goal_eligibility"):
                 self._goal_eligibility *= self._eligibility_decay
                 # Will be populated after step() determines winners
                 self._pending_goal_signal = goal_signal
 
             self._goal_drive = None  # Consumed
 
-        self.last_column_drive = neuron_drive.reshape(
-            self.n_columns, self.n_l4
-        ).max(axis=1)
+        self.last_column_drive = neuron_drive.reshape(self.n_columns, self.n_l4).max(
+            axis=1
+        )
         active = self.step(neuron_drive)
 
         # Record goal eligibility for winner neurons
-        if (hasattr(self, '_goal_eligibility')
-                and hasattr(self, '_pending_goal_signal')):
+        if hasattr(self, "_goal_eligibility") and hasattr(self, "_pending_goal_signal"):
             winner_cols = np.nonzero(self.active_columns)[0]
             if len(winner_cols) > 0:
                 winner_neurons = []
                 for col in winner_cols:
-                    winner_neurons.extend(
-                        range(col * self.n_l4, (col + 1) * self.n_l4)
-                    )
+                    winner_neurons.extend(range(col * self.n_l4, (col + 1) * self.n_l4))
                 self._goal_eligibility[:, winner_neurons] += (
-                    self.learning_rate
-                    * self._pending_goal_signal[:, np.newaxis]
+                    self.learning_rate * self._pending_goal_signal[:, np.newaxis]
                 )
             del self._pending_goal_signal
 
@@ -279,9 +279,9 @@ class MotorRegion(CorticalRegion):
             ] * self.n_l4 + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
         precise = ~is_burst
         if precise.any():
-            winner_indices[precise] = active_cols[
-                precise
-            ] * self.n_l4 + active_by_col[active_cols[precise]].argmax(axis=1)
+            winner_indices[precise] = active_cols[precise] * self.n_l4 + active_by_col[
+                active_cols[precise]
+            ].argmax(axis=1)
 
         # Record Hebbian coincidence in eligibility trace (not weights)
         # LTP direction: input * post-activity
@@ -316,7 +316,7 @@ class MotorRegion(CorticalRegion):
         np.clip(self.output_weights, 0, 1, out=self.output_weights)
 
         # Consolidate goal_weights (PFC→M1 feedforward)
-        if self._goal_weights is not None and hasattr(self, '_goal_eligibility'):
+        if self._goal_weights is not None and hasattr(self, "_goal_eligibility"):
             self._goal_weights += reward * self._goal_eligibility
             np.clip(self._goal_weights, 0, 1, out=self._goal_weights)
 

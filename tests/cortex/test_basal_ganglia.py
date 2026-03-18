@@ -122,11 +122,15 @@ class TestBasalGangliaIntegration:
         """BG gate values are tracked through EOM phases."""
         bg = BasalGanglia(context_dim=region1.n_columns + 1)
         tokens = [
-            (0, "a"), (1, "b"), (2, "c"),
+            (0, "a"),
+            (1, "b"),
+            (2, "c"),
             (EOM_TOKEN, ""),
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
             (STORY_BOUNDARY, ""),
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
         ]
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
@@ -139,7 +143,8 @@ class TestBasalGangliaIntegration:
         """Story boundary resets BG transient state."""
         bg = BasalGanglia(context_dim=region1.n_columns + 1)
         tokens = [
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
             (STORY_BOUNDARY, ""),
             (0, "a"),
         ]

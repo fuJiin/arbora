@@ -1,15 +1,13 @@
 """Quick sweep of efference copy gain values in REPL-like generation."""
 
-import contextlib
-import io
 import sys
 
 sys.path.insert(0, "src")
 
-from step.cortex.topology import Topology
-from step.config import CortexConfig, make_sensory_region, make_motor_region
-from step.cortex.modulators import SurpriseTracker, ThalamicGate, RewardModulator
+from step.config import CortexConfig, make_motor_region, make_sensory_region
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
+from step.cortex.topology import Topology
 from step.data import EOM_TOKEN, prepare_tokens_personachat
 from step.encoders.positional import PositionalCharEncoder
 
@@ -17,19 +15,38 @@ from step.encoders.positional import PositionalCharEncoder
 def build_model(alphabet):
     encoder = PositionalCharEncoder(alphabet)
     cfg_s1 = CortexConfig(
-        n_columns=128, n_l4=4, n_l23=4, k_columns=8,
-        ltd_rate=0.05, synapse_decay=1.0, learning_rate=0.05,
+        n_columns=128,
+        n_l4=4,
+        n_l23=4,
+        k_columns=8,
+        ltd_rate=0.05,
+        synapse_decay=1.0,
+        learning_rate=0.05,
     )
     cfg_m1 = CortexConfig(
-        n_columns=32, n_l4=4, n_l23=4, k_columns=4,
-        ltd_rate=0.05, synapse_decay=1.0, learning_rate=0.05,
+        n_columns=32,
+        n_l4=4,
+        n_l23=4,
+        k_columns=4,
+        ltd_rate=0.05,
+        synapse_decay=1.0,
+        learning_rate=0.05,
     )
     cfg_s2 = CortexConfig(
-        n_columns=32, n_l4=4, n_l23=4, k_columns=4,
-        ltd_rate=0.05, synapse_decay=1.0, learning_rate=0.05,
+        n_columns=32,
+        n_l4=4,
+        n_l23=4,
+        k_columns=4,
+        ltd_rate=0.05,
+        synapse_decay=1.0,
+        learning_rate=0.05,
     )
 
-    s1 = make_sensory_region(cfg_s1, encoder.input_dim, encoding_width=encoder.encoding_width)
+    s1 = make_sensory_region(
+        cfg_s1,
+        encoder.input_dim,
+        encoding_width=encoder.encoding_width,
+    )
     s2 = make_sensory_region(cfg_s2, s1.n_l23_total * 4, seed=1)  # *4 for buffer_depth
     m1 = make_motor_region(cfg_m1, s1.n_l23_total, seed=2)
 
@@ -70,7 +87,7 @@ def generate(cortex, s1, m1, encoder, prompt, max_steps=30):
 
     for _ in range(max_steps + 10):
         step_token(cortex, last_token[0], last_token[1])
-        m_id, m_conf = m1.last_output
+        m_id, _m_conf = m1.last_output
 
         if m_id >= 0:
             ch = chr(m_id) if 32 <= m_id < 127 else "?"
@@ -99,9 +116,9 @@ def main():
     prompts = ["hello how are you", "i like to play guitar", "what do you do"]
 
     for gain in gains:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  efference_gain = {gain}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # Build fresh model + load checkpoint for each gain
         cortex, encoder, s1, m1 = build_model(alphabet)

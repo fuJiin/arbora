@@ -87,10 +87,7 @@ def list_runs(runs_dir: Path = RUNS_DIR) -> list[Path]:
     """List all run directories, newest first."""
     if not runs_dir.exists():
         return []
-    dirs = [
-        d for d in runs_dir.iterdir()
-        if d.is_dir() and (d / "meta.json").exists()
-    ]
+    dirs = [d for d in runs_dir.iterdir() if d.is_dir() and (d / "meta.json").exists()]
     dirs.sort(key=lambda d: d.name, reverse=True)
     return dirs
 

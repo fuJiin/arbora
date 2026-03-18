@@ -46,7 +46,9 @@ def run_config(cfg, tokens, encoder):
         ltd_rate=0.05,
     )
     region1 = make_sensory_region(
-        s1_cfg, encoder.input_dim, encoder.encoding_width,
+        s1_cfg,
+        encoder.input_dim,
+        encoder.encoding_width,
     )
 
     # S2
@@ -75,14 +77,21 @@ def run_config(cfg, tokens, encoder):
     cortex.add_region("S1", region1, entry=True)
     cortex.add_region("S2", region2)
     cortex.connect(
-        "S1", "S2", "feedforward", buffer_depth=4, burst_gate=True,
+        "S1",
+        "S2",
+        "feedforward",
+        buffer_depth=4,
+        burst_gate=True,
     )
     cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.add_region("M1", motor, basal_ganglia=bg)
     cortex.connect("S1", "M1", "feedforward")
     cortex.connect(
-        "S1", "M1", "surprise", surprise_tracker=SurpriseTracker(),
+        "S1",
+        "M1",
+        "surprise",
+        surprise_tracker=SurpriseTracker(),
     )
     # M1→S1 apical only if M1 n_l23_total matches S2's (S2→S1 already set)
     if motor.n_l23_total == region2.n_l23_total:
@@ -97,12 +106,12 @@ def run_config(cfg, tokens, encoder):
 
     # M1 accuracy (last 20%)
     accs = m1.motor_accuracies
-    tail = accs[int(len(accs) * 0.8):] if accs else []
+    tail = accs[int(len(accs) * 0.8) :] if accs else []
     m1_acc = sum(tail) / len(tail) if tail else 0.0
 
     # Dendritic accuracy (last 20%)
     den = s1.dendritic_accuracies
-    den_tail = den[int(len(den) * 0.8):] if den else []
+    den_tail = den[int(len(den) * 0.8) :] if den else []
     den_acc = sum(den_tail) / len(den_tail) if den_tail else 0.0
 
     # Turn-taking
@@ -129,23 +138,39 @@ def generate_configs(mode):
         return [
             # Baseline
             {
-                "s1_cols": 32, "s1_k": 4, "s1_lr": 0.05,
-                "m1_cols": 32, "m1_lr": 0.15, "label": "baseline",
+                "s1_cols": 32,
+                "s1_k": 4,
+                "s1_lr": 0.05,
+                "m1_cols": 32,
+                "m1_lr": 0.15,
+                "label": "baseline",
             },
             # More S1 capacity
             {
-                "s1_cols": 64, "s1_k": 4, "s1_lr": 0.05,
-                "m1_cols": 32, "m1_lr": 0.15, "label": "s1_64col",
+                "s1_cols": 64,
+                "s1_k": 4,
+                "s1_lr": 0.05,
+                "m1_cols": 32,
+                "m1_lr": 0.15,
+                "label": "s1_64col",
             },
             # More M1 capacity
             {
-                "s1_cols": 32, "s1_k": 4, "s1_lr": 0.05,
-                "m1_cols": 64, "m1_lr": 0.15, "label": "m1_64col",
+                "s1_cols": 32,
+                "s1_k": 4,
+                "s1_lr": 0.05,
+                "m1_cols": 64,
+                "m1_lr": 0.15,
+                "label": "m1_64col",
             },
             # Both expanded
             {
-                "s1_cols": 64, "s1_k": 4, "s1_lr": 0.05,
-                "m1_cols": 64, "m1_lr": 0.15, "label": "both_64col",
+                "s1_cols": 64,
+                "s1_k": 4,
+                "s1_lr": 0.05,
+                "m1_cols": 64,
+                "m1_lr": 0.15,
+                "label": "both_64col",
             },
         ]
 
@@ -153,55 +178,90 @@ def generate_configs(mode):
 
     # Phase 1: S1 column count (capacity for 56 chars)
     for s1_cols in [32, 48, 64]:
-        configs.append({
-            "s1_cols": s1_cols, "s1_k": 4, "s1_lr": 0.05,
-            "m1_cols": 32, "m1_lr": 0.15,
-            "label": f"s1_{s1_cols}col",
-        })
+        configs.append(
+            {
+                "s1_cols": s1_cols,
+                "s1_k": 4,
+                "s1_lr": 0.05,
+                "m1_cols": 32,
+                "m1_lr": 0.15,
+                "label": f"s1_{s1_cols}col",
+            }
+        )
 
     # Phase 2: S1 sparsity (k_columns)
     for s1_k in [2, 4, 6]:
-        configs.append({
-            "s1_cols": 32, "s1_k": s1_k, "s1_lr": 0.05,
-            "m1_cols": 32, "m1_lr": 0.15,
-            "label": f"s1_k{s1_k}",
-        })
+        configs.append(
+            {
+                "s1_cols": 32,
+                "s1_k": s1_k,
+                "s1_lr": 0.05,
+                "m1_cols": 32,
+                "m1_lr": 0.15,
+                "label": f"s1_k{s1_k}",
+            }
+        )
 
     # Phase 3: S1 learning rate
     for s1_lr in [0.03, 0.05, 0.10]:
-        configs.append({
-            "s1_cols": 32, "s1_k": 4, "s1_lr": s1_lr,
-            "m1_cols": 32, "m1_lr": 0.15,
-            "label": f"s1_lr{s1_lr}",
-        })
+        configs.append(
+            {
+                "s1_cols": 32,
+                "s1_k": 4,
+                "s1_lr": s1_lr,
+                "m1_cols": 32,
+                "m1_lr": 0.15,
+                "label": f"s1_lr{s1_lr}",
+            }
+        )
 
     # Phase 4: M1 column count
     for m1_cols in [32, 48, 64]:
-        configs.append({
-            "s1_cols": 32, "s1_k": 4, "s1_lr": 0.05,
-            "m1_cols": m1_cols, "m1_lr": 0.15,
-            "label": f"m1_{m1_cols}col",
-        })
+        configs.append(
+            {
+                "s1_cols": 32,
+                "s1_k": 4,
+                "s1_lr": 0.05,
+                "m1_cols": m1_cols,
+                "m1_lr": 0.15,
+                "label": f"m1_{m1_cols}col",
+            }
+        )
 
     # Phase 5: M1 learning rate
     for m1_lr in [0.10, 0.15, 0.25]:
-        configs.append({
-            "s1_cols": 32, "s1_k": 4, "s1_lr": 0.05,
-            "m1_cols": 32, "m1_lr": m1_lr,
-            "label": f"m1_lr{m1_lr}",
-        })
+        configs.append(
+            {
+                "s1_cols": 32,
+                "s1_k": 4,
+                "s1_lr": 0.05,
+                "m1_cols": 32,
+                "m1_lr": m1_lr,
+                "label": f"m1_lr{m1_lr}",
+            }
+        )
 
     # Phase 6: Best combos (hypothesized)
-    configs.append({
-        "s1_cols": 64, "s1_k": 4, "s1_lr": 0.05,
-        "m1_cols": 64, "m1_lr": 0.15,
-        "label": "both_64col",
-    })
-    configs.append({
-        "s1_cols": 64, "s1_k": 4, "s1_lr": 0.10,
-        "m1_cols": 64, "m1_lr": 0.25,
-        "label": "both_64_fastlr",
-    })
+    configs.append(
+        {
+            "s1_cols": 64,
+            "s1_k": 4,
+            "s1_lr": 0.05,
+            "m1_cols": 64,
+            "m1_lr": 0.15,
+            "label": "both_64col",
+        }
+    )
+    configs.append(
+        {
+            "s1_cols": 64,
+            "s1_k": 4,
+            "s1_lr": 0.10,
+            "m1_cols": 64,
+            "m1_lr": 0.25,
+            "label": "both_64_fastlr",
+        }
+    )
 
     # Deduplicate
     seen = set()
@@ -254,13 +314,21 @@ def main():
         description="Sweep S1/M1 params on TinyDialogues",
     )
     parser.add_argument(
-        "--quick", action="store_true", help="Run quick subset",
+        "--quick",
+        action="store_true",
+        help="Run quick subset",
     )
     parser.add_argument(
-        "--tokens", type=int, default=10000, help="Chars per run",
+        "--tokens",
+        type=int,
+        default=10000,
+        help="Chars per run",
     )
     parser.add_argument(
-        "--speak-window", type=int, default=10, help="EOM speak window",
+        "--speak-window",
+        type=int,
+        default=10,
+        help="EOM speak window",
     )
     args = parser.parse_args()
 
@@ -270,7 +338,8 @@ def main():
 
     # Load tokens once
     tokens = prepare_tokens_tinydialogues(
-        args.tokens, speak_window=args.speak_window,
+        args.tokens,
+        speak_window=args.speak_window,
     )
     alphabet = sorted({ch for _, ch in tokens if _ >= 0})
     encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)

@@ -37,10 +37,15 @@ import numpy as np
 
 try:
     from step.cortex._numba_kernels import (
-        predict_segments as _nb_predict,
-        grow_segment as _nb_grow,
         adapt_segments_batch as _nb_adapt,
     )
+    from step.cortex._numba_kernels import (
+        grow_segment as _nb_grow,
+    )
+    from step.cortex._numba_kernels import (
+        predict_segments as _nb_predict,
+    )
+
     _HAS_NUMBA = True
 except ImportError:
     _HAS_NUMBA = False
@@ -389,7 +394,9 @@ class CorticalRegion:
         # Per-neuron gain weights: (source_dim, n_l4_total)
         # Initialized small positive — slight uniform gain initially
         self._apical_gain_weights = self._rng.uniform(
-            0.0, 0.1, (source_dim, self.n_l4_total),
+            0.0,
+            0.1,
+            (source_dim, self.n_l4_total),
         )
 
     # Keep old name as alias for backward compat (topology.connect uses it)
@@ -457,13 +464,19 @@ class CorticalRegion:
             predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
             if self.active_l23.any():
                 predicted |= _nb_predict(
-                    self.active_l23, self.fb_seg_indices, self.fb_seg_perm,
-                    self.perm_threshold, self.seg_activation_threshold,
+                    self.active_l23,
+                    self.fb_seg_indices,
+                    self.fb_seg_perm,
+                    self.perm_threshold,
+                    self.seg_activation_threshold,
                 )
             if self.active_l4.any():
                 predicted |= _nb_predict(
-                    self.active_l4, self.lat_seg_indices, self.lat_seg_perm,
-                    self.perm_threshold, self.seg_activation_threshold,
+                    self.active_l4,
+                    self.lat_seg_indices,
+                    self.lat_seg_perm,
+                    self.perm_threshold,
+                    self.seg_activation_threshold,
                 )
             return predicted
 
@@ -573,8 +586,11 @@ class CorticalRegion:
         """
         if _HAS_NUMBA and self.active_l23.any():
             return _nb_predict(
-                self.active_l23, self.l23_seg_indices, self.l23_seg_perm,
-                self.perm_threshold, self.seg_activation_threshold,
+                self.active_l23,
+                self.l23_seg_indices,
+                self.l23_seg_perm,
+                self.perm_threshold,
+                self.seg_activation_threshold,
             )
 
         predicted = np.zeros(self.n_l23_total, dtype=np.bool_)
@@ -746,7 +762,7 @@ class CorticalRegion:
         ctx_nz = np.flatnonzero(ctx)
         active_nz = np.flatnonzero(active)
         if len(ctx_nz) > 0 and len(active_nz) > 0:
-            # LTP: outer product of active context × active neurons
+            # LTP: outer product of active context x active neurons
             delta = apical_lr * ctx[ctx_nz, np.newaxis] * active[np.newaxis, active_nz]
             self._apical_gain_weights[np.ix_(ctx_nz, active_nz)] += delta
 
@@ -850,9 +866,14 @@ class CorticalRegion:
 
         if _HAS_NUMBA:
             _nb_grow(
-                neuron, seg_indices, seg_perm, ctx,
+                neuron,
+                seg_indices,
+                seg_perm,
+                ctx,
                 pool.astype(np.int32) if pool.dtype != np.int32 else pool,
-                inc, dec, self.perm_init,
+                inc,
+                dec,
+                self.perm_init,
             )
             return
 
@@ -923,9 +944,14 @@ class CorticalRegion:
         if _HAS_NUMBA:
             _nb_adapt(
                 neurons.astype(np.intp),
-                seg_indices, seg_perm, ctx,
-                self.perm_threshold, self.seg_activation_threshold,
-                inc, dec, reinforce,
+                seg_indices,
+                seg_perm,
+                ctx,
+                self.perm_threshold,
+                self.seg_activation_threshold,
+                inc,
+                dec,
+                reinforce,
             )
             return
 

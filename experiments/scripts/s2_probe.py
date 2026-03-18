@@ -15,16 +15,16 @@ sys.path.insert(0, "src")
 
 import numpy as np
 
-from step.cortex.topology import Topology
-from step.cortex.modulators import SurpriseTracker, ThalamicGate, RewardModulator
-from step.cortex.basal_ganglia import BasalGanglia
 from step.config import (
-    _default_s1_config,
-    _default_region2_config,
     _default_motor_config,
-    make_sensory_region,
+    _default_region2_config,
+    _default_s1_config,
     make_motor_region,
+    make_sensory_region,
 )
+from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
+from step.cortex.topology import Topology
 from step.data import EOM_TOKEN, STORY_BOUNDARY, prepare_tokens_personachat
 from step.decoders.dendritic import DendriticDecoder
 from step.encoders.positional import PositionalCharEncoder
@@ -65,15 +65,19 @@ def main():
 
     parser = argparse.ArgumentParser(description="Probe S2 representations")
     parser.add_argument(
-        "--checkpoint", default="personachat_k4_100k",
+        "--checkpoint",
+        default="personachat_k4_100k",
         help="Checkpoint name to load",
     )
     parser.add_argument(
-        "--chars", type=int, default=20000,
+        "--chars",
+        type=int,
+        default=20000,
         help="Number of corpus chars to run through",
     )
     parser.add_argument(
-        "--dataset", default="personachat",
+        "--dataset",
+        default="personachat",
         choices=["personachat", "babylm"],
         help="Dataset to probe with",
     )
@@ -82,6 +86,7 @@ def main():
     # Load data — vocab must match checkpoint's training dataset
     if args.dataset == "babylm":
         from step.data import prepare_tokens_charlevel
+
         print("Loading BabyLM vocabulary + probe data...")
         vocab_tokens = prepare_tokens_charlevel(100000, dataset="babylm")
         alphabet = sorted({ch for _, ch in vocab_tokens if _ >= 0})
@@ -93,7 +98,7 @@ def main():
         tokens = prepare_tokens_personachat(args.chars, speak_window=5)
 
     # Build model and load checkpoint
-    cortex, encoder, s1, s2, m1 = build_model(alphabet)
+    cortex, _encoder, s1, s2, _m1 = build_model(alphabet)
     ckpt_path = f"experiments/checkpoints/{args.checkpoint}.ckpt"
     print(f"Loading checkpoint: {ckpt_path}")
     cortex.load_checkpoint(ckpt_path)
@@ -116,10 +121,12 @@ def main():
 
     def capturing_process(encoding):
         result = original_s2_process(encoding)
-        snapshots.append({
-            "active_columns": s2.active_columns.copy(),
-            "l23": s2.active_l23.copy(),
-        })
+        snapshots.append(
+            {
+                "active_columns": s2.active_columns.copy(),
+                "l23": s2.active_l23.copy(),
+            }
+        )
         return result
 
     s2.process = capturing_process
@@ -130,10 +137,12 @@ def main():
 
     def capturing_s1_process(encoding):
         result = original_s1_process(encoding)
-        s1_snapshots.append({
-            "active_columns": s1.active_columns.copy(),
-            "l23": s1.active_l23.copy(),
-        })
+        s1_snapshots.append(
+            {
+                "active_columns": s1.active_columns.copy(),
+                "l23": s1.active_l23.copy(),
+            }
+        )
         return result
 
     s1.process = capturing_s1_process
@@ -149,7 +158,8 @@ def main():
 
     # Build token list excluding EOM/STORY_BOUNDARY
     content_tokens = [
-        (tid, tstr) for tid, tstr in tokens
+        (tid, tstr)
+        for tid, tstr in tokens
         if tid != EOM_TOKEN and tid != STORY_BOUNDARY
     ]
 
@@ -201,24 +211,18 @@ def main():
         print(f"\n--- {name} ---")
         print(f"  Words observed: {s['total_words']} ({s['unique_words']} unique)")
         print(f"  Columns with word data: {s['columns_with_words']}")
-        print(
-            f"  Selective columns (entropy < 0.7): "
-            f"{s['selective_columns']}"
-        )
+        print(f"  Selective columns (entropy < 0.7): {s['selective_columns']}")
         print(f"  Mean selectivity (0=perfect, 1=uniform): {s['mean_selectivity']:.3f}")
-        print(
-            f"  Consistent words (Jaccard > 0.3): "
-            f"{s['consistent_words']}"
-        )
+        print(f"  Consistent words (Jaccard > 0.3): {s['consistent_words']}")
         print(f"  Mean word consistency: {s['mean_consistency']:.3f}")
 
         if s["top_selective"]:
-            print(f"\n  Most selective columns:")
+            print("\n  Most selective columns:")
             for col, ent, word in s["top_selective"]:
                 print(f"    col {col:3d}: entropy={ent:.3f}, best word='{word}'")
 
         if s["top_consistent"]:
-            print(f"\n  Most consistent words:")
+            print("\n  Most consistent words:")
             for word, jacc, n in s["top_consistent"][:10]:
                 print(f"    '{word}': Jaccard={jacc:.3f} ({n} occurrences)")
 

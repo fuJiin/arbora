@@ -20,17 +20,16 @@ sys.path.insert(0, "src")
 import numpy as np
 
 from step.config import (
-    CortexConfig,
-    _default_s1_config,
-    _default_region2_config,
     _default_motor_config,
-    make_sensory_region,
+    _default_region2_config,
+    _default_s1_config,
     make_motor_region,
+    make_sensory_region,
 )
-from step.cortex.topology import Topology
-from step.cortex.modulators import SurpriseTracker, ThalamicGate, RewardModulator
 from step.cortex.basal_ganglia import BasalGanglia
-from step.data import prepare_tokens_charlevel, inject_eom_tokens
+from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
+from step.cortex.topology import Topology
+from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.decoders.dendritic import DendriticDecoder
 from step.encoders.positional import PositionalCharEncoder
 from step.probes.bpc import BPCProbe
@@ -59,8 +58,11 @@ def build_model(alphabet, s2_cols, s2_k, buffer_depth, burst_gate):
     cortex.add_region("M1", m1, basal_ganglia=bg)
 
     cortex.connect(
-        "S1", "S2", "feedforward",
-        buffer_depth=buffer_depth, burst_gate=burst_gate,
+        "S1",
+        "S2",
+        "feedforward",
+        buffer_depth=buffer_depth,
+        burst_gate=burst_gate,
     )
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S1", "M1", "feedforward")
@@ -76,7 +78,9 @@ def build_model(alphabet, s2_cols, s2_k, buffer_depth, burst_gate):
 def probe(cortex, encoder, s1, s2, tokens):
     """Run probe on trained model, return summary dict."""
     s2_decoder = DendriticDecoder(
-        source_dim=s2.n_l23_total, n_segments=16, n_synapses=48,
+        source_dim=s2.n_l23_total,
+        n_segments=16,
+        n_synapses=48,
     )
     s1_bpc = BPCProbe()
     s2_bpc = BPCProbe()
@@ -109,6 +113,7 @@ def probe(cortex, encoder, s1, s2, tokens):
 
     # Analyze
     from step.data import EOM_TOKEN, STORY_BOUNDARY
+
     content = [(t, s) for t, s in tokens if t != EOM_TOKEN and t != STORY_BOUNDARY]
     s1_dec = cortex._regions["S1"].dendritic_decoder
 
@@ -161,25 +166,29 @@ def main():
 
     # Sweep configs: (name, s2_cols, s2_k, buffer_depth, burst_gate)
     configs = [
-        ("32c/k4/buf4/burst",   32,  4, 4, True),   # baseline
-        ("64c/k8/buf4/burst",   64,  8, 4, True),
+        ("32c/k4/buf4/burst", 32, 4, 4, True),  # baseline
+        ("64c/k8/buf4/burst", 64, 8, 4, True),
         ("128c/k16/buf4/burst", 128, 16, 4, True),
-        ("64c/k4/buf4/burst",   64,  4, 4, True),   # sparse k
-        ("64c/k8/buf8/burst",   64,  8, 8, True),   # deeper buffer
-        ("64c/k8/buf4/noburst", 64,  8, 4, False),  # no burst gate
+        ("64c/k4/buf4/burst", 64, 4, 4, True),  # sparse k
+        ("64c/k8/buf8/burst", 64, 8, 8, True),  # deeper buffer
+        ("64c/k8/buf4/noburst", 64, 8, 4, False),  # no burst gate
     ]
 
     results = []
     for name, s2_cols, s2_k, buf_depth, burst in configs:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  {name}")
         print(f"  S2: {s2_cols} cols, k={s2_k}, buf={buf_depth}, burst={burst}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # Build and train
         t0 = time.monotonic()
         cortex, encoder, s1, s2 = build_model(
-            alphabet, s2_cols, s2_k, buf_depth, burst,
+            alphabet,
+            s2_cols,
+            s2_k,
+            buf_depth,
+            burst,
         )
         print(f"  Training on {len(train_tokens)} tokens...")
         with contextlib.redirect_stdout(io.StringIO()):
@@ -199,17 +208,23 @@ def main():
         bpc_cmp = "S2 WINS" if r["s2_beats_s1"] else "S1 wins"
         print(f"  S1 BPC: {r['s1_bpc']:.3f}  S2 BPC: {r['s2_bpc']:.3f}  ({bpc_cmp})")
         print(f"  S1 consistent words: {r['s1_consistent']}  S2: {r['s2_consistent']}")
-        print(f"  S2 selective cols: {r['s2_selective']}  mean entropy: {r['s2_mean_selectivity']:.3f}")
+        print(
+            f"  S2 selective cols: {r['s2_selective']}"
+            f"  mean entropy: {r['s2_mean_selectivity']:.3f}"
+        )
         if r["s2_top_words"]:
             top = ", ".join(f"'{w}'({j:.2f})" for w, j, _ in r["s2_top_words"])
             print(f"  Top S2 words: {top}")
         print(f"  ({probe_time:.0f}s probe)")
 
     # Summary table
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  SUMMARY")
-    print(f"{'='*60}")
-    print(f"{'Config':<25} {'S2 BPC':>7} {'S2>S1':>6} {'S2 cons':>8} {'S2 sel':>7} {'Time':>6}")
+    print(f"{'=' * 60}")
+    print(
+        f"{'Config':<25} {'S2 BPC':>7} {'S2>S1':>6} "
+        f"{'S2 cons':>8} {'S2 sel':>7} {'Time':>6}"
+    )
     print("-" * 65)
     for r in results:
         win = "YES" if r["s2_beats_s1"] else "no"

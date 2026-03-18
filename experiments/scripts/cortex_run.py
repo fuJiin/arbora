@@ -101,7 +101,8 @@ def main():
     parser.add_argument(
         "--no-s3-feedback",
         action="store_true",
-        help="Disable S3→S2 apical feedback (keeps S2→S1). Feedback hurts S2 at 100k scale.",
+        help="Disable S3->S2 apical feedback (keeps S2->S1). "
+        "Feedback hurts S2 at 100k scale.",
     )
     parser.add_argument(
         "--eom",
@@ -137,7 +138,8 @@ def main():
         "--decoder-decay",
         type=float,
         default=0.9999,
-        help="Dendritic decoder permanence decay per step (default: 0.9999, 1.0 = no decay)",
+        help="Dendritic decoder permanence decay per step "
+        "(default: 0.9999, 1.0 = no decay)",
     )
     parser.add_argument(
         "--checkpoint",
@@ -168,7 +170,8 @@ def main():
 
     if args.dataset == "tinydialogues":
         tokens = prepare_tokens_tinydialogues(
-            args.tokens, speak_window=args.speak_window,
+            args.tokens,
+            speak_window=args.speak_window,
         )
         alphabet = sorted({ch for _, ch in tokens if _ >= 0})
         encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
@@ -177,7 +180,8 @@ def main():
         cortex_cfg = _default_s1_config()
     elif args.dataset == "personachat":
         tokens = prepare_tokens_personachat(
-            args.tokens, speak_window=args.speak_window,
+            args.tokens,
+            speak_window=args.speak_window,
         )
         alphabet = sorted({ch for _, ch in tokens if _ >= 0})
         encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
@@ -272,6 +276,7 @@ def main():
     # Save checkpoint if requested
     if args.checkpoint:
         import os
+
         ckpt_dir = "experiments/checkpoints"
         os.makedirs(ckpt_dir, exist_ok=True)
         ckpt_path = args.checkpoint
@@ -338,8 +343,11 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
         region3 = make_sensory_region(r3_cfg, r3_input_dim, seed=789)
         cortex.add_region("S3", region3)
         cortex.connect(
-            "S2", "S3", "feedforward",
-            buffer_depth=args.s3_buffer_depth, burst_gate=args.burst_gate,
+            "S2",
+            "S3",
+            "feedforward",
+            buffer_depth=args.s3_buffer_depth,
+            burst_gate=args.burst_gate,
         )
         cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
         if args.apical and not args.no_s3_feedback:
@@ -349,10 +357,14 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
     if args.motor:
         m1_cfg = _default_motor_config()
         motor = make_motor_region(m1_cfg, region1.n_l23_total, seed=456)
-        bg = BasalGanglia(
-            context_dim=region1.n_columns + 1,  # per-col burst + overall burst frac
-            seed=789,
-        ) if args.reward else None
+        bg = (
+            BasalGanglia(
+                context_dim=region1.n_columns + 1,  # per-col burst + overall burst frac
+                seed=789,
+            )
+            if args.reward
+            else None
+        )
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect("S1", "M1", "feedforward")
         cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())

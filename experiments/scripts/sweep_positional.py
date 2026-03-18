@@ -17,13 +17,16 @@ tokens = prepare_tokens_charlevel(20000)
 alphabet = sorted({ch for _, ch in tokens if _ != STORY_BOUNDARY})
 
 total_non_boundary = sum(1 for tid, _ in tokens if tid != STORY_BOUNDARY)
-majority_frac = Counter(
-    tid for tid, _ in tokens if tid != STORY_BOUNDARY
-).most_common(1)[0][1] / total_non_boundary
+majority_frac = (
+    Counter(tid for tid, _ in tokens if tid != STORY_BOUNDARY).most_common(1)[0][1]
+    / total_non_boundary
+)
 
 print(f"Majority baseline: {majority_frac:.4f}")
-print(f"Alphabet: {len(alphabet)} chars, Positional dim: "
-      f"{PositionalCharEncoder(''.join(alphabet)).input_dim}")
+print(
+    f"Alphabet: {len(alphabet)} chars, Positional dim: "
+    f"{PositionalCharEncoder(''.join(alphabet)).input_dim}"
+)
 print()
 
 configs = [
@@ -47,7 +50,9 @@ print("-" * 62)
 
 for n_cols, k_cols, ltd_rate in configs:
     cfg = CortexConfig(
-        n_columns=n_cols, k_columns=k_cols, ltd_rate=ltd_rate,
+        n_columns=n_cols,
+        k_columns=k_cols,
+        ltd_rate=ltd_rate,
     )
     enc = PositionalCharEncoder("".join(alphabet), max_positions=8)
 

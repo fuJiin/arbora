@@ -55,12 +55,11 @@ class DendriticDecoder:
 
     def _alloc_neuron(self, token_id: int) -> tuple[np.ndarray, np.ndarray]:
         """Allocate segment arrays for a new token."""
-        indices = np.zeros(
-            (self.n_segments, self.n_synapses), dtype=np.int32
-        )
+        indices = np.zeros((self.n_segments, self.n_synapses), dtype=np.int32)
         for s in range(self.n_segments):
             indices[s] = self._rng.choice(
-                self._source_pool, self.n_synapses,
+                self._source_pool,
+                self.n_synapses,
                 replace=self.source_dim < self.n_synapses,
             )
         perm = np.zeros((self.n_segments, self.n_synapses))
@@ -100,7 +99,8 @@ class DendriticDecoder:
 
         # Batch all neurons: stack indices/perm, compute overlaps in one shot
         token_ids = list(self._neurons.keys())
-        all_indices = np.stack([self._neurons[t][0] for t in token_ids])  # (N, n_seg, n_syn)
+        # (N, n_seg, n_syn)
+        all_indices = np.stack([self._neurons[t][0] for t in token_ids])
         all_perm = np.stack([self._neurons[t][1] for t in token_ids])
         active_at_syn = ctx[all_indices]  # (N, n_seg, n_syn)
         connected = all_perm > self.perm_threshold

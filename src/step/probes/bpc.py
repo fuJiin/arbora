@@ -38,7 +38,7 @@ class BPCProbe:
         self._steady_chars: int = 0
         self._dialogue_bpcs: list[float] = []
         self._boundary_bpcs: list[float] = []  # BPC of first N chars after reset
-        self._steady_bpcs: list[float] = []    # BPC after boundary window
+        self._steady_bpcs: list[float] = []  # BPC after boundary window
 
     @property
     def bpc(self) -> float:
@@ -134,17 +134,11 @@ class BPCProbe:
         and steady-state. Does NOT reset the overall accumulators.
         """
         if self._dialogue_chars > 0:
-            self._dialogue_bpcs.append(
-                self._dialogue_bits / self._dialogue_chars
-            )
+            self._dialogue_bpcs.append(self._dialogue_bits / self._dialogue_chars)
         if self._boundary_chars > 0:
-            self._boundary_bpcs.append(
-                self._boundary_bits / self._boundary_chars
-            )
+            self._boundary_bpcs.append(self._boundary_bits / self._boundary_chars)
         if self._steady_chars > 0:
-            self._steady_bpcs.append(
-                self._steady_bits / self._steady_chars
-            )
+            self._steady_bpcs.append(self._steady_bits / self._steady_chars)
         self._dialogue_bits = 0.0
         self._dialogue_chars = 0
         self._boundary_bits = 0.0

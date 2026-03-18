@@ -34,16 +34,25 @@ CONFIGS = {
     "quick": [
         # Quick sanity check: 3 configs
         {
-            "bg_lr": 0.01, "tokens": 5000,
-            "segment": 100, "window": 10, "dataset": "babylm",
+            "bg_lr": 0.01,
+            "tokens": 5000,
+            "segment": 100,
+            "window": 10,
+            "dataset": "babylm",
         },
         {
-            "bg_lr": 0.1, "tokens": 5000,
-            "segment": 100, "window": 10, "dataset": "babylm",
+            "bg_lr": 0.1,
+            "tokens": 5000,
+            "segment": 100,
+            "window": 10,
+            "dataset": "babylm",
         },
         {
-            "bg_lr": 0.1, "tokens": 5000,
-            "segment": 0, "window": 10, "dataset": "tinystories",
+            "bg_lr": 0.1,
+            "tokens": 5000,
+            "segment": 0,
+            "window": 10,
+            "dataset": "tinystories",
         },
     ],
     "full": None,  # generated below
@@ -56,54 +65,64 @@ def generate_full_configs():
 
     # Phase 1: BG learning rate sweep (babylm, synthetic boundaries)
     for bg_lr in [0.01, 0.05, 0.1, 0.2]:
-        configs.append({
-            "bg_lr": bg_lr,
-            "tokens": 10000,
-            "segment": 100,
-            "window": 10,
-            "dataset": "babylm",
-        })
+        configs.append(
+            {
+                "bg_lr": bg_lr,
+                "tokens": 10000,
+                "segment": 100,
+                "window": 10,
+                "dataset": "babylm",
+            }
+        )
 
     # Phase 2: segment_length sweep (best lr from phase 1, but run all)
     for segment in [50, 100, 200, 500]:
-        configs.append({
-            "bg_lr": 0.1,
-            "tokens": 10000,
-            "segment": segment,
-            "window": 10,
-            "dataset": "babylm",
-        })
+        configs.append(
+            {
+                "bg_lr": 0.1,
+                "tokens": 10000,
+                "segment": segment,
+                "window": 10,
+                "dataset": "babylm",
+            }
+        )
 
     # Phase 3: speak_window sweep
     for window in [5, 10, 20]:
-        configs.append({
-            "bg_lr": 0.1,
-            "tokens": 10000,
-            "segment": 100,
-            "window": window,
-            "dataset": "babylm",
-        })
+        configs.append(
+            {
+                "bg_lr": 0.1,
+                "tokens": 10000,
+                "segment": 100,
+                "window": window,
+                "dataset": "babylm",
+            }
+        )
 
     # Phase 4: TinyStories with natural boundaries
     for bg_lr in [0.05, 0.1, 0.2]:
         for n_tokens in [5000, 20000]:
-            configs.append({
-                "bg_lr": bg_lr,
-                "tokens": n_tokens,
-                "segment": 0,  # natural boundaries only
-                "window": 10,
-                "dataset": "tinystories",
-            })
+            configs.append(
+                {
+                    "bg_lr": bg_lr,
+                    "tokens": n_tokens,
+                    "segment": 0,  # natural boundaries only
+                    "window": 10,
+                    "dataset": "tinystories",
+                }
+            )
 
     # Phase 5: Scale test — longer runs
     for n_tokens in [20000, 50000]:
-        configs.append({
-            "bg_lr": 0.1,
-            "tokens": n_tokens,
-            "segment": 100,
-            "window": 10,
-            "dataset": "babylm",
-        })
+        configs.append(
+            {
+                "bg_lr": 0.1,
+                "tokens": n_tokens,
+                "segment": 100,
+                "window": 10,
+                "dataset": "babylm",
+            }
+        )
 
     # Deduplicate
     seen = set()
@@ -123,7 +142,9 @@ def run_config(cfg):
     """Run a single configuration and return metrics dict."""
     tokens = prepare_tokens_charlevel(cfg["tokens"], dataset=cfg["dataset"])
     tokens = inject_eom_tokens(
-        tokens, segment_length=cfg["segment"], speak_window=cfg["window"],
+        tokens,
+        segment_length=cfg["segment"],
+        speak_window=cfg["window"],
     )
 
     alphabet = sorted({ch for _, ch in tokens if _ >= 0})
@@ -131,7 +152,9 @@ def run_config(cfg):
 
     cortex_cfg = CortexConfig(ltd_rate=0.05)
     region1 = make_sensory_region(
-        cortex_cfg, encoder.input_dim, encoder.encoding_width,
+        cortex_cfg,
+        encoder.input_dim,
+        encoder.encoding_width,
     )
 
     r2_cfg = _default_region2_config()
@@ -180,7 +203,7 @@ def run_config(cfg):
 
     # M1 accuracy (last 20% of motor_accuracies)
     accs = m1.motor_accuracies
-    tail = accs[int(len(accs) * 0.8):] if accs else []
+    tail = accs[int(len(accs) * 0.8) :] if accs else []
     m1_acc = sum(tail) / len(tail) if tail else 0.0
 
     return {
@@ -204,10 +227,12 @@ def run_config(cfg):
 def print_results(results):
     """Print results as a formatted table."""
     print("\n" + "=" * 130)
-    print(f"{'dataset':<12} {'tokens':>6} {'seg':>4} {'win':>4} {'bg_lr':>6} "
-          f"| {'int%':>5} {'unr%':>5} {'spk%':>5} {'ram%':>5} "
-          f"| {'bg_mn':>5} {'bg_lo':>5} {'bg_hi':>5} "
-          f"| {'M1acc':>5} {'eom':>5} {'inp':>5} {'time':>5}")
+    print(
+        f"{'dataset':<12} {'tokens':>6} {'seg':>4} {'win':>4} {'bg_lr':>6} "
+        f"| {'int%':>5} {'unr%':>5} {'spk%':>5} {'ram%':>5} "
+        f"| {'bg_mn':>5} {'bg_lo':>5} {'bg_hi':>5} "
+        f"| {'M1acc':>5} {'eom':>5} {'inp':>5} {'time':>5}"
+    )
     print("-" * 130)
 
     for r in results:
@@ -243,13 +268,13 @@ def main():
     results = []
     for i, cfg in enumerate(configs):
         label = (
-            f"[{i+1}/{len(configs)}] "
+            f"[{i + 1}/{len(configs)}] "
             f"{cfg['dataset']} {cfg['tokens']}tok seg={cfg['segment']} "
             f"win={cfg['window']} bg_lr={cfg['bg_lr']}"
         )
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(label)
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         r = run_config(cfg)
         results.append(r)

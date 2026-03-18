@@ -61,8 +61,10 @@ def build_hierarchy_summary_cards(
     ctx2 = rep2.get("context_discrimination", 0)
     ctx_improved = ctx2 > ctx1
     ctx_color = (
-        "#06d6a0" if ctx_improved and ctx2 > 0.5
-        else "#ffd166" if ctx_improved
+        "#06d6a0"
+        if ctx_improved and ctx2 > 0.5
+        else "#ffd166"
+        if ctx_improved
         else "#e94560"
     )
 

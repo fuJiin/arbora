@@ -15,8 +15,6 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
-from step.decoders.dendritic import DendriticDecoder
-
 
 class WordSelectivityProbe:
     """Track word-level selectivity of a cortical region's columns.
@@ -49,9 +47,7 @@ class WordSelectivityProbe:
         # word → list of column sets (one per occurrence)
         self._word_columns: dict[str, list[frozenset[int]]] = defaultdict(list)
         # column → Counter of words it fired for
-        self._col_word_counts: list[Counter] = [
-            Counter() for _ in range(n_columns)
-        ]
+        self._col_word_counts: list[Counter] = [Counter() for _ in range(n_columns)]
         self._total_words: int = 0
 
     def step(
@@ -165,13 +161,11 @@ class WordSelectivityProbe:
             "columns_with_words": len(selectivity),
             "selective_columns": n_selective,
             "mean_selectivity": (
-                float(np.mean([e for _, e, _ in selectivity]))
-                if selectivity else 1.0
+                float(np.mean([e for _, e, _ in selectivity])) if selectivity else 1.0
             ),
             "consistent_words": n_consistent,
             "mean_consistency": (
-                float(np.mean([j for _, j, _ in consistency]))
-                if consistency else 0.0
+                float(np.mean([j for _, j, _ in consistency])) if consistency else 0.0
             ),
             "top_selective": selectivity[:5],
             "top_consistent": consistency[:10],

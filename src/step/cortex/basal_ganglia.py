@@ -98,9 +98,7 @@ class BasalGanglia:
           Positive reward (dopamine) → strengthen D1 (go) → open gate
           Negative reward (no dopamine) → strengthen D2 (no-go) → close gate
         """
-        self.go_weights += (
-            self.learning_rate * reward_signal * self._trace
-        )
+        self.go_weights += self.learning_rate * reward_signal * self._trace
 
     def reset(self) -> None:
         """Reset transient state at story boundaries."""

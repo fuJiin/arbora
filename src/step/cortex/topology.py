@@ -44,12 +44,12 @@ class RunMetrics:
     bg_gate_values: list[float] = field(default_factory=list)
     # Turn-taking behavioral metrics (Stage 1 RL)
     turn_interruptions: int = 0  # Spoke during input phase
-    turn_unresponsive: int = 0   # Silent during EOM phase
+    turn_unresponsive: int = 0  # Silent during EOM phase
     turn_correct_speak: int = 0  # Spoke during EOM phase
     turn_correct_silent: int = 0  # Silent during input phase
-    turn_rambles: int = 0        # Spoke past max_speak_steps
-    turn_eom_steps: int = 0      # Total steps in EOM phase
-    turn_input_steps: int = 0    # Total steps in input phase
+    turn_rambles: int = 0  # Spoke past max_speak_steps
+    turn_eom_steps: int = 0  # Total steps in EOM phase
+    turn_input_steps: int = 0  # Total steps in input phase
     # Bits-per-character (entry region only, uses dendritic decoder)
     bpc: float = 0.0
     bpc_recent: float = 0.0
@@ -257,8 +257,11 @@ class Topology:
             raise ValueError(f"Unknown connection kind: {kind!r}")
 
         conn = Connection(
-            source=source, target=target, kind=kind,
-            buffer_depth=buffer_depth, burst_gate=burst_gate,
+            source=source,
+            target=target,
+            kind=kind,
+            buffer_depth=buffer_depth,
+            burst_gate=burst_gate,
             thalamic_gate=thalamic_gate,
         )
         if kind == "surprise":
@@ -418,11 +421,10 @@ class Topology:
                     # BG gating: always step (learns from both phases)
                     gate = 1.0
                     if s.basal_ganglia is not None:
-                        precision = (
-                            ~entry_region.bursting_columns
-                        ).astype(np.float64)
+                        precision = (~entry_region.bursting_columns).astype(np.float64)
                         prec_frac = precision.sum() / max(
-                            entry_region.n_columns, 1,
+                            entry_region.n_columns,
+                            1,
                         )
                         ctx = self._build_bg_ctx(precision, prec_frac)
                         gate = s.basal_ganglia.step(ctx)
@@ -447,7 +449,10 @@ class Topology:
                         s.basal_ganglia.reward(gate_error)
                         spoke = m_id >= 0
                         reward = self._compute_turn_reward(
-                            spoke, self._in_eom, self._eom_steps, 20,
+                            spoke,
+                            self._in_eom,
+                            self._eom_steps,
+                            20,
                         )
                         motor_region.last_reward = reward
                         for conn in self._connections:
@@ -497,15 +502,15 @@ class Topology:
         k = entry_region.k_columns
 
         # Per-region metrics accumulators
-        metrics: dict[str, RunMetrics] = {
-            name: RunMetrics() for name in self._regions
-        }
+        metrics: dict[str, RunMetrics] = {name: RunMetrics() for name in self._regions}
         # BPC probes (entry region only)
         bpc_probe = None
         if entry_state.dendritic_decoder:
             from step.probes.bpc import BPCProbe
+
             bpc_probe = BPCProbe()
         from step.probes.centroid_bpc import CentroidBPCProbe
+
         centroid_probe = CentroidBPCProbe(source_dim=entry_region.n_l23_total)
         # Per-surprise-connection modulator lists, keyed by target name
         surprise_modulators: dict[str, list[float]] = {}
@@ -550,7 +555,9 @@ class Topology:
                 for conn in self._connections:
                     if conn.kind == "reward" and conn.reward_modulator is not None:
                         conn.reward_modulator.reset()
-                if self._reward_source is not None and hasattr(self._reward_source, 'reset'):
+                if self._reward_source is not None and hasattr(
+                    self._reward_source, "reset"
+                ):
                     self._reward_source.reset()
                 continue
 
@@ -598,8 +605,11 @@ class Topology:
                 else:
                     # Find feedforward source
                     for conn in self._connections:
-                        if (conn.target == name and conn.kind == "feedforward"
-                                and conn.enabled):
+                        if (
+                            conn.target == name
+                            and conn.kind == "feedforward"
+                            and conn.enabled
+                        ):
                             s.region.process(self._get_ff_signal(conn))
                             break
 
@@ -661,11 +671,12 @@ class Topology:
                         # BG gating: always step (learns from both phases)
                         gate = 1.0
                         if s.basal_ganglia is not None:
-                            precision = (
-                                ~entry_region.bursting_columns
-                            ).astype(np.float64)
+                            precision = (~entry_region.bursting_columns).astype(
+                                np.float64
+                            )
                             prec_frac = precision.sum() / max(
-                                entry_region.n_columns, 1,
+                                entry_region.n_columns,
+                                1,
                             )
                             ctx = self._build_bg_ctx(precision, prec_frac)
                             gate = s.basal_ganglia.step(ctx)
@@ -678,10 +689,8 @@ class Topology:
                             # M1 processed this step — compute output + metrics
                             pop_id, pop_conf = motor_region.get_population_output()
                             if s.motor_decoder is not None:
-                                dec_id, _dec_conf = (
-                                    motor_region.get_decoded_output(
-                                        s.motor_decoder,
-                                    )
+                                dec_id, _dec_conf = motor_region.get_decoded_output(
+                                    s.motor_decoder,
                                 )
                             else:
                                 dec_id = -1
@@ -709,16 +718,16 @@ class Topology:
                         # -- Motor reward --
                         spoke = m_id >= 0
                         if self._reward_source is not None:
-                            m_char = (
-                                chr(m_id) if spoke and 32 <= m_id < 127
-                                else None
-                            )
+                            m_char = chr(m_id) if spoke and 32 <= m_id < 127 else None
                             reward = self._compute_pluggable_reward(
-                                m_char, entry_region,
+                                m_char,
+                                entry_region,
                             )
                         else:
                             reward = self._compute_turn_reward(
-                                spoke, self._in_eom, self._eom_steps,
+                                spoke,
+                                self._in_eom,
+                                self._eom_steps,
                                 _max_speak_steps,
                             )
                         metrics[_name].motor_rewards.append(reward)
@@ -735,13 +744,8 @@ class Topology:
                                 s.basal_ganglia.reward(reward)
                             else:
                                 # Default: turn-taking gate error
-                                gate_target = (
-                                    1.0 if self._in_eom else 0.0
-                                )
-                                gate_error = (
-                                    gate_target
-                                    - s.basal_ganglia.gate_value
-                                )
+                                gate_target = 1.0 if self._in_eom else 0.0
+                                gate_error = gate_target - s.basal_ganglia.gate_value
                                 s.basal_ganglia.reward(gate_error)
 
                         # -- Turn-taking behavioral counters --
@@ -772,9 +776,7 @@ class Topology:
                                 mod = conn.reward_modulator.update(reward)
                                 tgt = self._regions[conn.target].region
                                 tgt.reward_modulator = mod
-                                reward_modulators[conn.target].append(
-                                    mod
-                                )
+                                reward_modulators[conn.target].append(mod)
 
                         # Efference copy: only during generation (gate forced open)
                         if m_id >= 0 and self.force_gate_open:
@@ -784,12 +786,10 @@ class Topology:
                             entry_region.set_efference_copy(ef_encoding)
 
                         # Train motor decoder: previous M1 L2/3 → current token
-                        if (
-                            s.motor_decoder is not None
-                            and _name in prev_motor_l23
-                        ):
+                        if s.motor_decoder is not None and _name in prev_motor_l23:
                             s.motor_decoder.observe(
-                                token_id, prev_motor_l23[_name],
+                                token_id,
+                                prev_motor_l23[_name],
                             )
 
             # -- Entry metrics (expensive decodes sampled at metric intervals) --
@@ -799,7 +799,8 @@ class Topology:
 
                 # Overlap
                 if len(active_l4_indices) > 0 and len(predicted_neurons) > 0:
-                    overlap = np.isin(active_l4_indices, predicted_neurons).sum() / len(active_l4_indices)
+                    n_hit = np.isin(active_l4_indices, predicted_neurons).sum()
+                    overlap = n_hit / len(active_l4_indices)
                 else:
                     overlap = 0.0
                 metrics[entry_name].overlaps.append(overlap)
@@ -854,7 +855,8 @@ class Topology:
             # BPC: measure prediction quality (sampled at metric intervals)
             if bpc_probe is not None and is_metric_step and t > 0:
                 bpc_probe.step(
-                    token_id, entry_region.active_l23,
+                    token_id,
+                    entry_region.active_l23,
                     entry_state.dendritic_decoder,
                 )
             if is_metric_step and t > 0:
@@ -881,9 +883,17 @@ class Topology:
                 and metrics[entry_name].dendritic_accuracies
             ):
                 self._log_step(
-                    t, start, entry_name, metrics, surprise_modulators,
-                    thalamic_readiness, reward_modulators, rolling_window,
-                    show_predictions, prediction_log, bpc_probe,
+                    t,
+                    start,
+                    entry_name,
+                    metrics,
+                    surprise_modulators,
+                    thalamic_readiness,
+                    reward_modulators,
+                    rolling_window,
+                    show_predictions,
+                    prediction_log,
+                    bpc_probe,
                     centroid_probe,
                 )
 
@@ -957,11 +967,9 @@ class Topology:
         entry_region = entry_state.region
 
         # Find motor region
-        motor_name = None
         motor_state = None
-        for name, s in self._regions.items():
+        for _name, s in self._regions.items():
             if s.motor:
-                motor_name = name
                 motor_state = s
                 break
         if motor_state is None:
@@ -970,7 +978,6 @@ class Topology:
 
         # Start with a random seed token
         seed_char = " "
-        current_token_id = ord(seed_char)
         current_token_str = seed_char
 
         # Adaptive noise: tracks reward EMA. When reward improves,
@@ -1023,14 +1030,13 @@ class Topology:
 
             # Track metrics
             rewards.append(reward)
-            gate_values.append(gate)
+            m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
             if m_char:
                 tokens_produced.append(m_char)
                 unique_tokens.add(m_char)
 
             # 10. Feed M1's output back as next input
             if m_char:
-                current_token_id = pop_id
                 current_token_str = m_char
             # else: keep previous token (M1 was silent)
 
@@ -1040,13 +1046,10 @@ class Topology:
             if t > 0 and t % log_interval == 0:
                 recent_r = rewards[-log_interval:]
                 avg_r = sum(recent_r) / len(recent_r)
-                recent_g = gate_values[-log_interval:]
-                avg_g = sum(recent_g) / len(recent_g)
                 recent_tok = tokens_produced[-log_interval:]
                 n_unique = len(set(recent_tok))
-                burst_pct = (
-                    float(entry_region.bursting_columns.sum())
-                    / max(entry_region.n_columns, 1)
+                burst_pct = float(entry_region.bursting_columns.sum()) / max(
+                    entry_region.n_columns, 1
                 )
                 elapsed = time.monotonic() - start
                 # Show last 30 chars M1 produced
@@ -1111,7 +1114,7 @@ class Topology:
 
         motor_state = None
         motor_region = None
-        for name, s in self._regions.items():
+        for _name, s in self._regions.items():
             if s.motor:
                 motor_state = s
                 motor_region = s.region
@@ -1149,7 +1152,9 @@ class Topology:
 
             # Process listening tokens through standard run loop
             # (M1 learning_enabled means it processes + learns)
-            import io, contextlib
+            import contextlib
+            import io
+
             with contextlib.redirect_stdout(io.StringIO()):
                 self.run(listen_tokens, log_interval=999999)
             total_listen += len(listen_tokens)
@@ -1158,7 +1163,7 @@ class Topology:
             seed_char = " "
             current_token_str = seed_char
 
-            for b in range(babble_chunk):
+            for _b in range(babble_chunk):
                 if total_babble >= n_babble_steps:
                     break
 
@@ -1177,10 +1182,7 @@ class Topology:
                 self._propagate_feedforward(topo_order, entry_name, encoding)
                 self._propagate_signals()
                 pop_id, reward = self._step_motor_reward(entry_region)
-                m_char = (
-                    chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127
-                    else None
-                )
+                m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
                 reward_ema = 0.99 * reward_ema + 0.01 * reward
                 reward_ema_slow = 0.999 * reward_ema_slow + 0.001 * reward
                 rewards.append(reward)
@@ -1200,9 +1202,8 @@ class Topology:
                 n_unique = len(set(recent_tok))
                 tail = "".join(recent_tok[-30:])
                 sample = repr(tail) if tail else "(empty)"
-                burst_pct = (
-                    float(entry_region.bursting_columns.sum())
-                    / max(entry_region.n_columns, 1)
+                burst_pct = float(entry_region.bursting_columns.sum()) / max(
+                    entry_region.n_columns, 1
                 )
                 elapsed = time.monotonic() - start
                 print(
@@ -1262,7 +1263,7 @@ class Topology:
         # Find PFC and motor regions
         pfc_region = None
         motor_region = None
-        for name, s in self._regions.items():
+        for _name, s in self._regions.items():
             if isinstance(s.region, PFCRegion):
                 pfc_region = s.region
             if s.motor:
@@ -1323,6 +1324,7 @@ class Topology:
 
             # Find M2 if it exists (PFC→M2→M1 pathway)
             from step.cortex.premotor import PremotorRegion
+
             m2_region = None
             for _n, _s in self._regions.items():
                 if isinstance(_s.region, PremotorRegion):
@@ -1332,9 +1334,13 @@ class Topology:
             # Init goal weights: PFC→M2 if M2 exists, else PFC→M1 direct
             goal_target = m2_region if m2_region is not None else motor_region
             if goal_target._goal_weights is None:
-                goal_target.init_goal_input(pfc_region.n_l23_total) if hasattr(goal_target, 'init_goal_input') else goal_target.init_goal_drive(pfc_region.n_l23_total)
+                n_pfc = pfc_region.n_l23_total
+                if hasattr(goal_target, "init_goal_input"):
+                    goal_target.init_goal_input(n_pfc)
+                else:
+                    goal_target.init_goal_drive(n_pfc)
 
-            for step_i in range(len(word) + 2):
+            for _step_i in range(len(word) + 2):
                 # Set PFC goal drive → M2 (or M1 direct if no M2)
                 goal_target.set_goal_drive(pfc_region.firing_rate_l23)
 
@@ -1348,10 +1354,7 @@ class Topology:
                 pop_id, reward = self._step_motor_reward(entry_region)
                 episode_reward += reward
 
-                m_char = (
-                    chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127
-                    else None
-                )
+                m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
                 if m_char:
                     produced.append(m_char)
 
@@ -1361,7 +1364,8 @@ class Topology:
 
             # Score: how many chars matched?
             n_match = sum(
-                1 for i, ch in enumerate(produced[:len(word)])
+                1
+                for i, ch in enumerate(produced[: len(word)])
                 if i < len(word) and ch == word[i]
             )
             match_rate = n_match / max(len(word), 1)
@@ -1375,9 +1379,7 @@ class Topology:
             # Bad echo → learning suppressed, representation drifts.
             avg_episode_reward = episode_reward / max(len(word), 1)
             # Map reward to modulator range [0.5, 2.0]
-            pfc_region.reward_modulator = max(0.5, min(2.0,
-                1.0 + avg_episode_reward
-            ))
+            pfc_region.reward_modulator = max(0.5, min(2.0, 1.0 + avg_episode_reward))
             pfc_region.gate_open = True
             for ch in word:
                 encoding = self._encoder.encode(ch)
@@ -1396,10 +1398,10 @@ class Topology:
                 avg_r = sum(recent_r) / len(recent_r)
                 avg_m = sum(recent_m) / len(recent_m)
                 heard = "".join(word)
-                said = "".join(produced[:len(word)])
+                said = "".join(produced[: len(word)])
                 elapsed = time.monotonic() - start
                 print(
-                    f"  [echo] ep={ep+1:,} "
+                    f"  [echo] ep={ep + 1:,} "
                     f"r={avg_r:+.3f} "
                     f"match={avg_m:.0%} "
                     f"heard={heard!r} "
@@ -1453,7 +1455,7 @@ class Topology:
 
         pfc_region = None
         motor_region = None
-        for name, s in self._regions.items():
+        for _name, s in self._regions.items():
             if isinstance(s.region, PFCRegion):
                 pfc_region = s.region
             if s.motor:
@@ -1523,7 +1525,7 @@ class Topology:
             episode_reward = 0.0
             produced = []
 
-            for step_i in range(max_response_len):
+            for _step_i in range(max_response_len):
                 motor_region.set_goal_drive(pfc_region.firing_rate_l23)
 
                 seed = produced[-1] if produced else " "
@@ -1535,10 +1537,7 @@ class Topology:
                 pop_id, reward = self._step_motor_reward(entry_region)
                 episode_reward += reward
 
-                m_char = (
-                    chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127
-                    else None
-                )
+                m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
                 if m_char:
                     produced.append(m_char)
 
@@ -1547,12 +1546,11 @@ class Topology:
             self.force_gate_open = False
 
             # Score against first word of utterance
-            first_word = "".join(
-                c for c in heard_word[:6] if c.isalpha()
-            )
-            response = "".join(produced[:len(first_word)])
+            first_word = "".join(c for c in heard_word[:6] if c.isalpha())
+            response = "".join(produced[: len(first_word)])
             n_match = sum(
-                1 for i, ch in enumerate(response)
+                1
+                for i, ch in enumerate(response)
                 if i < len(first_word) and ch == first_word[i]
             )
             match_rate = n_match / max(len(first_word), 1)
@@ -1583,7 +1581,7 @@ class Topology:
                 said = "".join(produced[:20])
                 elapsed = time.monotonic() - start
                 print(
-                    f"  [dialogue] turn={turn+1:,} "
+                    f"  [dialogue] turn={turn + 1:,} "
                     f"r={avg_r:+.3f} "
                     f"match={avg_m:.0%} "
                     f"heard={heard!r} "
@@ -1658,16 +1656,12 @@ class Topology:
                 "kind": conn.kind,
             }
             if conn.surprise_tracker is not None:
-                conn_data["surprise_burst_ema"] = (
-                    conn.surprise_tracker._burst_ema
-                )
+                conn_data["surprise_burst_ema"] = conn.surprise_tracker._burst_ema
                 conn_data["surprise_baseline"] = (
                     conn.surprise_tracker.baseline_burst_rate
                 )
             if conn.thalamic_gate is not None:
-                conn_data["thalamic_burst_ema"] = (
-                    conn.thalamic_gate._burst_ema
-                )
+                conn_data["thalamic_burst_ema"] = conn.thalamic_gate._burst_ema
             state["connections"].append(conn_data)
 
         with open(path, "wb") as f:
@@ -1701,7 +1695,10 @@ class Topology:
             r.l23_seg_perm[:] = region_data["l23_seg_perm"]
 
             # Load apical gain weights (new) or skip old segment data
-            if "apical_gain_weights" in region_data and r._apical_gain_weights is not None:
+            if (
+                "apical_gain_weights" in region_data
+                and r._apical_gain_weights is not None
+            ):
                 r._apical_gain_weights[:] = region_data["apical_gain_weights"]
 
             if isinstance(r, MotorRegion):
@@ -1713,30 +1710,15 @@ class Topology:
                 if "output_eligibility" in region_data:
                     r._output_eligibility[:] = region_data["output_eligibility"]
 
-            if (
-                s.basal_ganglia is not None
-                and "bg_go_weights" in region_data
-            ):
-                s.basal_ganglia.go_weights[:] = region_data[
-                    "bg_go_weights"
-                ]
+            if s.basal_ganglia is not None and "bg_go_weights" in region_data:
+                s.basal_ganglia.go_weights[:] = region_data["bg_go_weights"]
                 s.basal_ganglia._trace[:] = region_data["bg_trace"]
 
-            if (
-                s.dendritic_decoder is not None
-                and "decoder_neurons" in region_data
-            ):
-                s.dendritic_decoder._neurons = region_data[
-                    "decoder_neurons"
-                ]
+            if s.dendritic_decoder is not None and "decoder_neurons" in region_data:
+                s.dendritic_decoder._neurons = region_data["decoder_neurons"]
 
-            if (
-                s.motor_decoder is not None
-                and "motor_decoder_neurons" in region_data
-            ):
-                s.motor_decoder._neurons = region_data[
-                    "motor_decoder_neurons"
-                ]
+            if s.motor_decoder is not None and "motor_decoder_neurons" in region_data:
+                s.motor_decoder._neurons = region_data["motor_decoder_neurons"]
 
         # Restore connection modulator state
         for conn_data in state.get("connections", []):
@@ -1760,9 +1742,7 @@ class Topology:
                         conn.thalamic_gate is not None
                         and "thalamic_burst_ema" in conn_data
                     ):
-                        conn.thalamic_gate._burst_ema = conn_data[
-                            "thalamic_burst_ema"
-                        ]
+                        conn.thalamic_gate._burst_ema = conn_data["thalamic_burst_ema"]
                     break
 
     # ------------------------------------------------------------------
@@ -1776,13 +1756,17 @@ class Topology:
             if name == entry_name:
                 if encoding is not None:
                     s.region.process(encoding)
-            elif s.motor and not (self._in_eom or self.force_gate_open
-                                  or s.region.learning_enabled):
+            elif s.motor and not (
+                self._in_eom or self.force_gate_open or s.region.learning_enabled
+            ):
                 pass  # Skip idle motor region
             else:
                 for conn in self._connections:
-                    if (conn.target == name and conn.kind == "feedforward"
-                            and conn.enabled):
+                    if (
+                        conn.target == name
+                        and conn.kind == "feedforward"
+                        and conn.enabled
+                    ):
                         s.region.process(self._get_ff_signal(conn))
                         break
 
@@ -1829,14 +1813,12 @@ class Topology:
             if not s.motor:
                 continue
             motor_region = s.region
-            pop_id, pop_conf = motor_region.get_population_output()
+            pop_id, _pop_conf = motor_region.get_population_output()
 
             # BG gating
             gate = 1.0
             if s.basal_ganglia is not None:
-                precision = (
-                    ~entry_region.bursting_columns
-                ).astype(np.float64)
+                precision = (~entry_region.bursting_columns).astype(np.float64)
                 prec_frac = precision.sum() / max(entry_region.n_columns, 1)
                 ctx = self._build_bg_ctx(precision, prec_frac)
                 gate = s.basal_ganglia.step(ctx)
@@ -1845,10 +1827,7 @@ class Topology:
                 motor_region.output_scores *= gate
 
             # Reward
-            m_char = (
-                chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127
-                else None
-            )
+            m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
             if self._reward_source is not None:
                 reward = self._compute_pluggable_reward(m_char, entry_region)
             else:
@@ -1862,7 +1841,7 @@ class Topology:
                     gate_target = 1.0 if self._in_eom else 0.0
                     gate_error = gate_target - s.basal_ganglia.gate_value
                     s.basal_ganglia.reward(gate_error)
-            if hasattr(motor_region, 'apply_reward'):
+            if hasattr(motor_region, "apply_reward"):
                 motor_region.apply_reward(reward)
 
             # Update L5 output weights
@@ -1874,11 +1853,19 @@ class Topology:
         return -1, 0.0
 
     def _compute_pluggable_reward(
-        self, char: str | None, entry_region,
+        self,
+        char: str | None,
+        entry_region,
     ) -> float:
         """Compute reward from pluggable source with appropriate context."""
-        from step.cortex.reward import CaregiverReward, CuriosityReward, EchoReward
-        if isinstance(self._reward_source, (CuriosityReward, CaregiverReward, EchoReward)):
+        from step.cortex.reward import (
+            CaregiverReward,
+            CuriosityReward,
+            EchoReward,
+        )
+
+        reward_types = (CuriosityReward, CaregiverReward, EchoReward)
+        if isinstance(self._reward_source, reward_types):
             # Curiosity/Caregiver: pass S1 burst fraction
             n_active = max(int(entry_region.active_columns.sum()), 1)
             n_bursting = int(entry_region.bursting_columns.sum())
@@ -2048,22 +2035,15 @@ class Topology:
                     roll_m = sum(tail_m) / len(tail_m)
                     # Silence rate: steps with confidence 0 / total steps
                     tail_c = m.motor_confidences[-rolling_window:]
-                    silence = (
-                        sum(1 for c in tail_c if c == 0.0)
-                        / max(len(tail_c), 1)
-                    )
+                    silence = sum(1 for c in tail_c if c == 0.0) / max(len(tail_c), 1)
                     motor_str += f" M1={roll_m:.4f} sil={silence:.0%}"
                     # Compare decoder vs population accuracy
                     if m.motor_decoder_accuracies:
-                        tail_dec = m.motor_decoder_accuracies[
-                            -rolling_window:
-                        ]
+                        tail_dec = m.motor_decoder_accuracies[-rolling_window:]
                         roll_dec = sum(tail_dec) / len(tail_dec)
                         motor_str += f" dec={roll_dec:.4f}"
                     if m.motor_population_accuracies:
-                        tail_pop = m.motor_population_accuracies[
-                            -rolling_window:
-                        ]
+                        tail_pop = m.motor_population_accuracies[-rolling_window:]
                         roll_pop = sum(tail_pop) / len(tail_pop)
                         motor_str += f" pop={roll_pop:.4f}"
                     # Average reward
@@ -2075,18 +2055,9 @@ class Topology:
                     if m.turn_eom_steps > 0 or m.turn_input_steps > 0:
                         eom_t = m.turn_eom_steps
                         inp_t = m.turn_input_steps
-                        intr = (
-                            m.turn_interruptions / inp_t
-                            if inp_t > 0 else 0
-                        )
-                        unre = (
-                            m.turn_unresponsive / eom_t
-                            if eom_t > 0 else 0
-                        )
-                        motor_str += (
-                            f" int={intr:.0%}"
-                            f" unr={unre:.0%}"
-                        )
+                        intr = m.turn_interruptions / inp_t if inp_t > 0 else 0
+                        unre = m.turn_unresponsive / eom_t if eom_t > 0 else 0
+                        motor_str += f" int={intr:.0%} unr={unre:.0%}"
                         if m.turn_rambles > 0:
                             motor_str += f" ram={m.turn_rambles}"
                     # BG gate value
@@ -2131,8 +2102,7 @@ class Topology:
             for actual, den_p, idx_p, col_p, syn_p in samples:
                 fmt = lambda s: repr(s)[:12].ljust(12)  # noqa: E731
                 marks = [
-                    "*" if p == actual else " "
-                    for p in (den_p, idx_p, col_p, syn_p)
+                    "*" if p == actual else " " for p in (den_p, idx_p, col_p, syn_p)
                 ]
                 print(
                     f"    {fmt(actual)} "

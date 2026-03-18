@@ -8,8 +8,6 @@ Two biological reward pathways modeled:
   Extrinsic (caregiver): social reward when M1 produces a recognized word
 """
 
-from collections import deque
-
 import numpy as np
 
 
@@ -72,9 +70,7 @@ class CuriosityReward:
             self._expected_burst[bigram] = s1_burst_fraction
 
         # Update global baseline
-        self._global_burst_ema += alpha * (
-            s1_burst_fraction - self._global_burst_ema
-        )
+        self._global_burst_ema += alpha * (s1_burst_fraction - self._global_burst_ema)
 
         self._prev_char = char
         return self.scale * rpe
@@ -110,7 +106,8 @@ class CaregiverReward:
         baseline_decay: float = 0.99,
     ):
         self._curiosity = CuriosityReward(
-            scale=curiosity_scale, baseline_decay=baseline_decay,
+            scale=curiosity_scale,
+            baseline_decay=baseline_decay,
         )
         self.word_bonus = word_bonus
         self.min_word_length = min_word_length
@@ -143,8 +140,7 @@ class CaregiverReward:
         self._prefix_extensions: dict[str, int] = {}
         for p in self._prefixes:
             self._prefix_extensions[p] = sum(
-                1 for p2 in self._prefixes
-                if p2.startswith(p) and len(p2) == len(p) + 1
+                1 for p2 in self._prefixes if p2.startswith(p) and len(p2) == len(p) + 1
             )
 
     def step(self, char, s1_burst_fraction: float) -> float:
@@ -175,7 +171,7 @@ class CaregiverReward:
                     # New words always exciting. Prevents attractor lock.
                     count = self._word_counts.get(word, 0)
                     self._word_counts[word] = count + 1
-                    habituation = self._habituation_rate ** count
+                    habituation = self._habituation_rate**count
                     reward += self.word_bonus * max(len(word), 2) * habituation
             self._current_word.clear()
         else:
@@ -202,7 +198,7 @@ class CaregiverReward:
         Models caregiver excitement proportional to how word-like
         the babbling sounds.
         """
-        if not hasattr(self, '_prefixes'):
+        if not hasattr(self, "_prefixes"):
             return 0.0
 
         prefix = "".join(self._current_word)
@@ -210,7 +206,7 @@ class CaregiverReward:
         if prefix in self._known_words:
             # Complete word — signal to produce a space. Habituated.
             count = self._word_counts.get(prefix, 0)
-            habituation = self._habituation_rate ** count
+            habituation = self._habituation_rate**count
             return self.word_bonus * 1.0 * habituation
 
         if prefix in self._prefixes:
@@ -232,11 +228,10 @@ class CaregiverReward:
             "words_attempted": self.words_attempted,
             "words_recognized": self.words_recognized,
             "known_vocabulary": len(self._known_words),
-            "recognition_rate": (
-                self.words_recognized / max(self.words_attempted, 1)
-            ),
+            "recognition_rate": (self.words_recognized / max(self.words_attempted, 1)),
             "bigrams_tracked": len(self._curiosity._expected_burst),
         }
+
 
 class EchoReward:
     """Reward for reproducing heard input (echolalia).
@@ -261,7 +256,8 @@ class EchoReward:
         baseline_decay: float = 0.99,
     ):
         self._curiosity = CuriosityReward(
-            scale=curiosity_scale, baseline_decay=baseline_decay,
+            scale=curiosity_scale,
+            baseline_decay=baseline_decay,
         )
         self.match_bonus = match_bonus
         self.position_tolerance = position_tolerance
@@ -345,9 +341,7 @@ class EchoReward:
             "chars_heard": self.chars_heard,
             "chars_echoed": self.chars_echoed,
             "exact_matches": self.exact_matches,
-            "echo_accuracy": (
-                self.exact_matches / max(self.chars_echoed, 1)
-            ),
+            "echo_accuracy": (self.exact_matches / max(self.chars_echoed, 1)),
         }
 
 
@@ -457,14 +451,16 @@ class WordReward:
             known_sets = self._known_words[word]
             current_union = (
                 frozenset().union(*self._current_col_sets)
-                if self._current_col_sets else frozenset()
+                if self._current_col_sets
+                else frozenset()
             )
             similarities = []
             for known in known_sets:
                 if current_union or known:
                     j = (
                         len(current_union & known) / len(current_union | known)
-                        if (current_union | known) else 0.0
+                        if (current_union | known)
+                        else 0.0
                     )
                     similarities.append(j)
             best_match = max(similarities) if similarities else 0.0
@@ -499,7 +495,8 @@ class WordReward:
         """Store word's S2 pattern for future recognition."""
         union = (
             frozenset().union(*self._current_col_sets)
-            if self._current_col_sets else frozenset()
+            if self._current_col_sets
+            else frozenset()
         )
         if word not in self._known_words:
             self._known_words[word] = []
@@ -528,7 +525,5 @@ class WordReward:
             "words_produced": self.words_produced,
             "words_recognized": self.words_recognized,
             "known_vocabulary": len(self._known_words),
-            "recognition_rate": (
-                self.words_recognized / max(self.words_produced, 1)
-            ),
+            "recognition_rate": (self.words_recognized / max(self.words_produced, 1)),
         }

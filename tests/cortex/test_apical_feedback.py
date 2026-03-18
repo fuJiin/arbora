@@ -42,7 +42,11 @@ class TestGainModulation:
     def test_gain_amplifies_with_context(self):
         """Apical context > 0 should amplify voltage via gain."""
         r = CorticalRegion(
-            8, n_columns=4, n_l4=2, n_l23=2, k_columns=2,
+            8,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=2,
             prediction_gain=2.0,
         )
         r.init_apical_context(source_dim=8)
@@ -60,7 +64,11 @@ class TestGainModulation:
     def test_no_gain_without_context(self):
         """Zero apical context should apply no gain."""
         r = CorticalRegion(
-            8, n_columns=4, n_l4=2, n_l23=2, k_columns=2,
+            8,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=2,
             prediction_gain=2.0,
         )
         r.init_apical_context(source_dim=8)
@@ -72,7 +80,11 @@ class TestGainModulation:
     def test_no_gain_without_apical(self):
         """prediction_gain has no effect without apical init."""
         r = CorticalRegion(
-            8, n_columns=4, n_l4=2, n_l23=2, k_columns=2,
+            8,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=2,
             prediction_gain=2.0,
         )
         drive = np.ones(r.n_l4_total) * 0.5
@@ -82,7 +94,11 @@ class TestGainModulation:
     def test_gain_is_modulatory_not_additive(self):
         """With zero feedforward drive, apical context should NOT activate columns."""
         r = CorticalRegion(
-            8, n_columns=4, n_l4=2, n_l23=2, k_columns=2,
+            8,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=2,
             prediction_gain=3.0,
         )
         r.init_apical_context(source_dim=8)
@@ -151,13 +167,20 @@ class TestHierarchyApical:
         """Hierarchy with apical feedback runs without error."""
         r1, r2 = regions
         tokens = [
-            (0, "a"), (1, "b"), (2, "c"),
+            (0, "a"),
+            (1, "b"),
+            (2, "c"),
             (STORY_BOUNDARY, ""),
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
         ]
         metrics = run_hierarchy(
-            r1, r2, encoder, tokens,
-            enable_apical_feedback=True, log_interval=1000,
+            r1,
+            r2,
+            encoder,
+            tokens,
+            enable_apical_feedback=True,
+            log_interval=1000,
         )
         assert metrics.elapsed_seconds > 0
 
@@ -166,20 +189,34 @@ class TestHierarchyApical:
         r1, r2 = regions
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
         run_hierarchy(
-            r1, r2, encoder, tokens,
-            enable_apical_feedback=True, log_interval=1000,
+            r1,
+            r2,
+            encoder,
+            tokens,
+            enable_apical_feedback=True,
+            log_interval=1000,
         )
         assert r1._apical_context.any()
 
     def test_no_apical_without_init(self, encoder):
         """Hierarchy works without apical init (backward compatible)."""
         r1 = SensoryRegion(
-            input_dim=4 * 5, encoding_width=5,
-            n_columns=8, n_l4=2, n_l23=2, k_columns=2, seed=42,
+            input_dim=4 * 5,
+            encoding_width=5,
+            n_columns=8,
+            n_l4=2,
+            n_l23=2,
+            k_columns=2,
+            seed=42,
         )
         r2 = SensoryRegion(
-            input_dim=r1.n_l23_total, encoding_width=0,
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1, seed=123,
+            input_dim=r1.n_l23_total,
+            encoding_width=0,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
+            seed=123,
         )
         tokens = [(0, "a"), (1, "b"), (2, "c")]
         metrics = run_hierarchy(r1, r2, encoder, tokens, log_interval=1000)

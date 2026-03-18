@@ -52,9 +52,11 @@ class TestSingleRegion:
 
     def test_single_region_with_story_boundary(self, region1, encoder):
         tokens = [
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
             (STORY_BOUNDARY, ""),
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
         ]
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
@@ -66,9 +68,12 @@ class TestHierarchy:
     def test_hierarchy_runs(self, region1, region2, encoder):
         """Topology with feedforward + surprise processes without error."""
         tokens = [
-            (0, "a"), (1, "b"), (2, "c"),
+            (0, "a"),
+            (1, "b"),
+            (2, "c"),
             (STORY_BOUNDARY, ""),
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
         ]
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
@@ -96,7 +101,10 @@ class TestHierarchy:
         region2 = SensoryRegion(
             input_dim=region1.n_l23_total * buf_depth,
             encoding_width=0,
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
             voltage_decay=0.8,
             seed=123,
         )
@@ -199,7 +207,10 @@ class TestTemporalBuffer:
         region2 = SensoryRegion(
             input_dim=region1.n_l23_total * buf_depth,
             encoding_width=0,
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
             seed=123,
         )
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(5)]
@@ -225,7 +236,10 @@ class TestTemporalBuffer:
         region2 = SensoryRegion(
             input_dim=region1.n_l23_total * buf_depth,
             encoding_width=0,
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
             seed=123,
         )
         cortex = Topology(encoder)
@@ -244,7 +258,7 @@ class TestTemporalBuffer:
         # First 2 slots should be zero (oldest), last slot has the signal
         n = region1.n_l23_total
         np.testing.assert_array_equal(signal[:n], 0.0)
-        np.testing.assert_array_equal(signal[n:2 * n], 0.0)
+        np.testing.assert_array_equal(signal[n : 2 * n], 0.0)
 
     def test_story_boundary_clears_buffer(self, region1, encoder):
         """Story boundary zeros the buffer and resets position."""
@@ -252,11 +266,15 @@ class TestTemporalBuffer:
         region2 = SensoryRegion(
             input_dim=region1.n_l23_total * buf_depth,
             encoding_width=0,
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
             seed=123,
         )
         tokens = [
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
             (STORY_BOUNDARY, ""),
             (0, "a"),
         ]
@@ -287,7 +305,10 @@ class TestBurstGating:
         region2 = SensoryRegion(
             input_dim=region1.n_l23_total,
             encoding_width=0,
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
             seed=123,
         )
         cortex = Topology(encoder)
@@ -315,7 +336,10 @@ class TestBurstGating:
         region2 = SensoryRegion(
             input_dim=region1.n_l23_total * buf_depth,
             encoding_width=0,
-            n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
             seed=123,
         )
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(10)]
@@ -323,8 +347,11 @@ class TestBurstGating:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
         cortex.connect(
-            "S1", "S2", "feedforward",
-            buffer_depth=buf_depth, burst_gate=True,
+            "S1",
+            "S2",
+            "feedforward",
+            buffer_depth=buf_depth,
+            burst_gate=True,
         )
         cortex.connect("S1", "S2", "surprise")
         result = cortex.run(tokens, log_interval=1000)
@@ -340,15 +367,25 @@ class TestResultsMatchRunner:
 
         # Via run_cortex
         r1 = SensoryRegion(
-            input_dim=4 * 5, encoding_width=5,
-            n_columns=8, n_l4=2, n_l23=2, k_columns=2, seed=42,
+            input_dim=4 * 5,
+            encoding_width=5,
+            n_columns=8,
+            n_l4=2,
+            n_l23=2,
+            k_columns=2,
+            seed=42,
         )
         old_metrics = run_cortex(r1, encoder, tokens, log_interval=1000)
 
         # Via Topology directly (same seed → same region)
         r2 = SensoryRegion(
-            input_dim=4 * 5, encoding_width=5,
-            n_columns=8, n_l4=2, n_l23=2, k_columns=2, seed=42,
+            input_dim=4 * 5,
+            encoding_width=5,
+            n_columns=8,
+            n_l4=2,
+            n_l23=2,
+            k_columns=2,
+            seed=42,
         )
         cortex = Topology(encoder)
         cortex.add_region("S1", r2, entry=True)

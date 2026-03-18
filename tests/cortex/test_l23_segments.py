@@ -56,7 +56,11 @@ class TestL23Prediction:
     def test_prediction_requires_threshold(self):
         """Segment needs enough active connected synapses to fire."""
         r = CorticalRegion(
-            8, n_columns=4, n_l4=2, n_l23=2, k_columns=1,
+            8,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
             seg_activation_threshold=3,
         )
         # Wire segment: 2 synapses to neuron 2, rest to neuron 4
