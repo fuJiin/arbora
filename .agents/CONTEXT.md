@@ -8,47 +8,47 @@ Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + thr
 CorticalRegion (L4/L2/3, segments, apical, Hebbian)
   ├── SensoryRegion → S1 (128c/k8), S2 (32c/k4), S3 (32c/k4)
   ├── MotorRegion (L5, three-factor, goal drive) → M1 (32c/k4)
-  └── PFCRegion (slow decay 0.97, global gate) → PFC (16c/k4)
-
-Feedforward: S1→S2→S3, S2→PFC, S1→M1, PFC→M1 (goal drive)
-Apical: S3→S2→S1, PFC→M1 (modulatory bias)
+  ├── PFCRegion (slow decay 0.97, global gate) → PFC (16c/k4)
+  └── M2Region (next) — temporal sequencing via lateral segments
 ```
 
-## Key Architectural Discovery: Apical vs Feedforward
+## Key Architectural Insight: Apical vs Feedforward
+- **Apical** = bias/mode (gain modulation). Good for attention, context.
+- **Feedforward** = content/command (additive drive). Required for specific outputs.
+- PFC→M1 apical: 4.2% echo (failed). PFC→M1 ff: 9% peak then destabilized.
+- PFC→M1 direct hits ceiling at ~9%. **M2 is needed as intermediary.**
 
-**Apical (gain modulation)**: Biases which neurons are excitable. Good for mode selection, attention. Cannot select specific outputs — M1 collapses to 'e' regardless.
+## Results Summary
+- **Babbling**: English words ("the", "mom", "ask") from interleaved listen+babble
+- **Echo**: 9% peak match (PFC→M1 ff + three-factor), degrades over 20k episodes
+- **Dialogue**: 3.8% match at 5k turns. M1 captures prominent chars but can't reproduce words.
 
-**Feedforward (additive drive)**: Directly drives column competition. Can select specific outputs. PFC→M1 goal drive works for echo (7.6% match, trending 6%→10%).
+## Why M2 Is Needed Now
+PFC holds a static goal pattern. M1 needs step-by-step character commands. The dimensional gap (abstract goal → specific char) is too large for one weight matrix. M2 decomposes the goal into a temporal sequence using lateral segments (same mechanism S2 uses for word patterns, but generating instead of predicting).
 
-**Implication**: PFC→M1 apical = mode bias. PFC→M1 ff (goal_weights) = content command. Both coexist. M2 will eventually replace the ff path for longer sequences.
+## M2 Design
+```
+Inputs:  PFC (ff, static goal) + S2 (ff, word context) + own L2/3 (lateral segments, temporal state)
+Process: PFC biases which sequence unfolds. Segments drive temporal ordering.
+Output:  M1 (ff, one step at a time)
+```
+- Same CorticalRegion architecture, different wiring
+- Lateral segments learn character sequences (like S2 learns word patterns)
+- PFC→M2 feedforward (goal), M2→M1 feedforward (sequence step)
+- Three-factor learning on all weights
 
-## Echo Mode (working, improving)
-- Listen: word → S1→S2→PFC (gate open)
-- PFC snapshots goal, closes gate
-- Speak: PFC goal_drive → M1 (feedforward), reward for char matches
-- Three-factor learning on goal_weights: PFC activity × M1 winners × reward
-- Reward→PFC replay: modulates PFC learning rate, replays heard word
-- **Result**: 7.6% match at 2k episodes (2.5x chance), trending up 6%→10%
-- "you"→"yoy", "huh"→"uuu", "the"→" h " (partial matches emerging)
+## Training Pipeline
+1. ✅ **Sensory + M1/PFC listening** (300k)
+2. ✅ **Interleaved babble** (English words emerge)
+3. ✅ **Echo mode** (PFC→M1 direct, ~9% ceiling)
+4. ✅ **Dialogue training** (structured turns, 3.8% match)
+5. **→ M2 implementation** (temporal sequence generation)
+6. **M2 echo training** (PFC→M2→M1 pathway)
 
-## Motor Babbling (completed)
-- Interleaved listen+babble, curiosity + caregiver reward
-- Produces English words: "the", "mom", "ask", "him"
-- 500k run was in progress
+## Runs
+- 500k babble: ~412k/500k, still running
 
-## Reward Stack
-- Curiosity (RPE): per-bigram, habituating
-- Caregiver: optionality-scaled prefix + word completion bonus + habituation
-- Echo: position-tolerant char matching + curiosity base
-
-## Engineering
-- Shared run loop methods (DRY), 5 bug fixes, perf pre-allocation
-- MotorRegion inherits CorticalRegion (not SensoryRegion)
-- Code/perf audits completed, README updated, REPL with /babble /probe
-
-## Next Steps
-- [ ] **Longer echo training (10k+ episodes)** with full 300k sensory pre-training
-- [ ] **Analyze whether echo match rate keeps climbing** — ceiling indicates when M2 is needed
-- [ ] **M2 design** — PFC→M2 (ff goal→plan), S2→M2 (ff context), M2→M1 (ff sequence)
-- [ ] **Dialogue training** — structured listen→respond with PFC mode gating
-- [ ] **500k babble analysis** when complete
+## Key Files
+- `src/step/cortex/pfc.py`, `motor.py`, `region.py`, `sensory.py`
+- `src/step/cortex/topology.py` — run(), run_babbling(), run_interleaved(), run_echo(), run_dialogue()
+- `src/step/cortex/reward.py` — CuriosityReward, CaregiverReward, EchoReward
