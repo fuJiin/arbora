@@ -224,6 +224,29 @@ class Topology:
                     )
 
         self._topo_cache = order
+
+        # Pre-compute ff connection lists per target for fast propagation.
+        # Single-ff targets get direct pass-through (no concatenation).
+        # Multi-ff targets get a pre-allocated buffer.
+        self._ff_conns: dict[str, list[Connection]] = {}
+        self._ff_buffers: dict[str, np.ndarray] = {}
+        for name, _s in self._regions.items():
+            conns = [
+                c
+                for c in self._connections
+                if c.target == name and c.kind == "feedforward"
+            ]
+            if conns:
+                self._ff_conns[name] = conns
+                if len(conns) > 1:
+                    # Pre-allocate concatenation buffer
+                    total = sum(
+                        self._regions[c.source].region.n_l23_total
+                        * max(c.buffer_depth, 1)
+                        for c in conns
+                    )
+                    self._ff_buffers[name] = np.empty(total, dtype=np.float64)
+
         self._finalized = True
 
     # ------------------------------------------------------------------
@@ -1827,21 +1850,31 @@ class Topology:
             ):
                 pass  # Skip idle motor region
             else:
-                # Collect ALL feedforward signals to this target.
-                # Multiple sources are concatenated (convergent input).
-                ff_parts = []
-                for conn in self._connections:
-                    if (
-                        conn.target == name
-                        and conn.kind == "feedforward"
-                        and conn.enabled
-                    ):
-                        ff_parts.append(self._get_ff_signal(conn))
-                if ff_parts:
-                    if len(ff_parts) == 1:
-                        s.region.process(ff_parts[0])
+                conns = self._ff_conns.get(name)
+                if not conns:
+                    continue
+                # Filter enabled connections
+                active = [c for c in conns if c.enabled]
+                if not active:
+                    continue
+                if len(active) == 1:
+                    # Single ff: direct pass-through (no allocation)
+                    s.region.process(self._get_ff_signal(active[0]))
+                else:
+                    # Multi ff: fill pre-allocated buffer
+                    buf = self._ff_buffers.get(name)
+                    if buf is not None:
+                        pos = 0
+                        for conn in active:
+                            sig = self._get_ff_signal(conn)
+                            buf[pos : pos + len(sig)] = sig
+                            pos += len(sig)
+                        s.region.process(buf[:pos])
                     else:
-                        s.region.process(np.concatenate(ff_parts))
+                        # Fallback (shouldn't happen after finalize)
+                        s.region.process(
+                            np.concatenate([self._get_ff_signal(c) for c in active])
+                        )
 
     def _propagate_signals(self):
         """Propagate inter-region signals (surprise, apical)."""
