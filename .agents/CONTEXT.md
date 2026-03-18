@@ -34,33 +34,36 @@ Region types (all inherit CorticalRegion):
 - Curiosity RPE + caregiver reward (optionality-scaled, habituating)
 
 ### Echo (PFC→M2→M1)
-- **Peak: 13% match** (M2 single-ff), **10% match** (clean multi-ff + monitoring)
-- Avg: 4.3-7.5% across configurations (2-4x above chance)
-- **Core problem: oscillation.** Three-factor learning overshoots — match climbs to 10-13%, then drops to 2%, then recovers. Doesn't converge.
-- Motor monitoring apical (M1→M2→PFC) gave marginal improvement (+0.4%)
+- **Best: 12.8% avg match** (batch + clip + symmetric + curriculum)
+- **Previous baseline: 3.1%** (per-step reward, oscillating)
+- Sweep tested 17 configurations — see `experiments/results/echo_sweep.json`
+
+### Echo Oscillation Fix (this session)
+**Root cause**: 10:1 reward asymmetry (match +2.0, mismatch -0.2) + per-step reward application + unbounded eligibility traces. Any accidental match massively strengthens goal weights; mismatches can't undo it fast enough → attractor lock → slow decay → cycle repeats.
+
+**Fixes applied (now defaults):**
+- **Batch reward**: accumulate over episode, apply once (prevents 5x per-step weight push)
+- **Eligibility clip** (0.05): caps trace magnitude, prevents unbounded weight deltas
+- **Symmetric mismatch** (0.5x): mismatch penalty = 50% of match bonus (was 10%)
+- **Curriculum**: start with 2-char words, advance when avg match > 25% over 50 episodes
+
+**What didn't work:**
+- Reward baseline subtraction: too aggressive, killed learning entirely
+- All fixes combined: over-constrained, worse than subsets
+- Batch + symmetric alone: 1.3% (worse than either individually — unclear interaction)
 
 ### Architecture Insights
 - **Apical = bias/mode, feedforward = content/command.** Echo via apical: 4.2%. Echo via ff: 13% peak.
 - **Multiple ff to same target**: concatenated (biologically correct convergent input)
 - **Motor monitoring apical** mirrors sensory feedback (M1→M2→PFC ↔ S3→S2→S1)
-
-## Engineering This Session (65+ commits)
-- Multi-ff concatenation with pre-allocated buffers
-- DAG validation (finalize, cycle detection, dimension checking)
-- Motor hierarchy apical (M1→M2→PFC monitoring)
-- CI fixed (lint, format, types — 0 errors)
-- Mermaid architecture diagram in README
-- "Why this matters" section in README
-- PFCRegion, PremotorRegion implementations
-- Echo mode + dialogue training loops
-- Dead code removal (old apical segments)
-- Perf: cached ff connection lists, pre-allocated buffers
+- **S2 ff_weight pollution is not an issue**: downstream targets have separate weights in their own regions. Upstream reward modulation on S2 is the concern, but not blocking.
 
 ## Uncommitted
 - `.github/workflows/ci.yml` — typecheck scoped to core modules (needs workflow OAuth scope to push)
 
 ## Next Steps (Priority Order)
-- [ ] **Fix echo oscillation** — batch reward accumulation, learning rate scheduling, or curriculum (2-char → 3-char). The architecture works (peaks at 13%), the learning dynamics don't converge.
-- [ ] **Numba for L2/3 segments** — 10-20% speedup, defer until training objective stabilizes
+- [ ] **Run longer echo training** (5k-10k episodes) with new defaults to verify convergence
+- [ ] **Curriculum advancement**: current threshold (25% over 50 episodes) may be too high — curriculum never advanced past maxlen=2 in 2k episodes
 - [ ] **Dialogue training** with stable echo as foundation
+- [ ] **Numba for L2/3 segments** — 10-20% speedup, defer until training objective stabilizes
 - [ ] **Push CI workflow change** (requires workflow scope)

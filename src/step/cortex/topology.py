@@ -1340,7 +1340,11 @@ class Topology:
         n_episodes: int,
         *,
         max_word_len: int = 6,
+        min_word_len: int = 2,
         log_interval: int = 10,
+        batch_reward: bool = True,
+        curriculum: bool = False,
+        echo_reward_kwargs: dict | None = None,
     ) -> dict:
         """Echo training: hear a word, reproduce it.
 
@@ -1354,7 +1358,13 @@ class Topology:
             tokens: Corpus for extracting words.
             n_episodes: Number of listen→echo episodes.
             max_word_len: Max word length to echo (start small).
+            min_word_len: Min word length to echo.
             log_interval: Episodes between log lines.
+            batch_reward: If True, accumulate reward over episode and
+                apply once at end (normalized by word length). Prevents
+                per-step weight oscillation.
+            curriculum: If True, start with short words (2-3 chars) and
+                gradually increase max length as performance improves.
         """
         from step.cortex.pfc import PFCRegion
         from step.cortex.reward import EchoReward
@@ -1376,31 +1386,49 @@ class Topology:
         if motor_region is None:
             raise ValueError("No motor region for echo training.")
 
-        # Extract words from corpus
-        words = []
-        current = []
+        # Extract words from corpus, grouped by length for curriculum
+        words_by_len: dict[int, list[list[str]]] = {}
+        current: list[str] = []
         for token_id, ch in tokens:
             if token_id < 0 or ch in (" ", ".", ",", "!", "?", "'", "-", ""):
-                if 2 <= len(current) <= max_word_len:
-                    words.append(current[:])
+                wlen = len(current)
+                if min_word_len <= wlen <= max_word_len:
+                    words_by_len.setdefault(wlen, []).append(current[:])
                 current.clear()
             else:
                 current.append(ch)
-        if not words:
+        all_words = [w for ws in words_by_len.values() for w in ws]
+        if not all_words:
             raise ValueError("No words found in corpus.")
 
-        echo_reward = EchoReward()
+        echo_reward = EchoReward(**(echo_reward_kwargs or {}))
         old_reward = self._reward_source
         self._reward_source = echo_reward
 
+        # Curriculum state: start with shortest words, advance when stable
+        if curriculum:
+            available_lens = sorted(words_by_len.keys())
+            curr_max_len = available_lens[0] if available_lens else max_word_len
+            curriculum_window: list[float] = []
+            curriculum_threshold = 0.25  # advance when avg match > 25%
+        else:
+            curr_max_len = max_word_len
+
         # Metrics
-        rewards = []
-        matches = []
+        rewards: list[float] = []
+        matches: list[float] = []
         start = time.monotonic()
 
         for ep in range(n_episodes):
-            # Pick a random word
-            word = words[ep % len(words)]
+            # Pick a word (respecting curriculum length limit)
+            if curriculum:
+                eligible = [
+                    w for ws in words_by_len.values()
+                    for w in ws if len(w) <= curr_max_len
+                ]
+                word = eligible[ep % len(eligible)]
+            else:
+                word = all_words[ep % len(all_words)]
 
             # -- LISTEN phase: PFC gate open, process word chars --
             pfc_region.gate_open = True
@@ -1422,7 +1450,8 @@ class Topology:
             self.force_gate_open = True  # M1 active
             motor_region.babbling_noise = 0.2  # Mostly learned, some explore
             episode_reward = 0.0
-            produced = []
+            step_rewards: list[float] = []
+            produced: list[str] = []
 
             for _step_i in range(len(word) + 2):
                 # PFC→M2→M1 flows through normal ff propagation
@@ -1436,7 +1465,13 @@ class Topology:
                 self._propagate_feedforward(topo_order, entry_name, encoding)
                 self._propagate_signals()
 
-                pop_id, reward = self._step_motor_reward(entry_region)
+                if batch_reward:
+                    # Accumulate reward but don't apply per-step
+                    pop_id, reward = self._step_motor_reward_no_apply(entry_region)
+                    step_rewards.append(reward)
+                else:
+                    pop_id, reward = self._step_motor_reward(entry_region)
+
                 episode_reward += reward
 
                 m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
@@ -1447,6 +1482,12 @@ class Topology:
 
             self.force_gate_open = False
 
+            # Batch reward: apply mean reward once at episode end
+            if batch_reward and step_rewards:
+                batch_r = sum(step_rewards) / len(step_rewards)
+                if hasattr(motor_region, "apply_reward"):
+                    motor_region.apply_reward(batch_r)
+
             # Score: how many chars matched?
             n_match = sum(
                 1
@@ -1456,6 +1497,23 @@ class Topology:
             match_rate = n_match / max(len(word), 1)
             rewards.append(episode_reward)
             matches.append(match_rate)
+
+            # Curriculum: advance word length when performance is stable
+            if curriculum:
+                curriculum_window.append(match_rate)
+                if len(curriculum_window) > 50:
+                    curriculum_window.pop(0)
+                if (
+                    len(curriculum_window) >= 50
+                    and sum(curriculum_window) / len(curriculum_window)
+                    > curriculum_threshold
+                    and curr_max_len < max_word_len
+                ):
+                    curr_max_len = min(curr_max_len + 1, max_word_len)
+                    curriculum_window.clear()
+                    print(
+                        f"  [echo] curriculum: advancing to max_len={curr_max_len}"
+                    )
 
             # Route reward to PFC: modulate its learning rate.
             # Then re-process the heard word so PFC's ff_weights
@@ -1485,12 +1543,14 @@ class Topology:
                 heard = "".join(word)
                 said = "".join(produced[: len(word)])
                 elapsed = time.monotonic() - start
+                extra = f" maxlen={curr_max_len}" if curriculum else ""
                 print(
                     f"  [echo] ep={ep + 1:,} "
                     f"r={avg_r:+.3f} "
                     f"match={avg_m:.0%} "
                     f"heard={heard!r} "
-                    f"said={said!r} "
+                    f"said={said!r}"
+                    f"{extra} "
                     f"({elapsed:.1f}s)"
                 )
 
@@ -1952,6 +2012,48 @@ class Topology:
                 motor_region.apply_reward(reward)
 
             # Update L5 output weights
+            if pop_id >= 0:
+                motor_region.observe_token(pop_id)
+
+            return pop_id, reward
+
+        return -1, 0.0
+
+    def _step_motor_reward_no_apply(self, entry_region) -> tuple[int, float]:
+        """Like _step_motor_reward but skip weight consolidation.
+
+        Used for batch reward: accumulate rewards over an episode, then
+        call motor_region.apply_reward() once with the mean.
+        """
+        for _name, s in self._regions.items():
+            if not s.motor:
+                continue
+            motor_region = s.region
+            pop_id, _pop_conf = motor_region.get_population_output()
+
+            # BG gating (still applied per-step for output scores)
+            gate = 1.0
+            if s.basal_ganglia is not None:
+                precision = (~entry_region.bursting_columns).astype(np.float64)
+                prec_frac = precision.sum() / max(entry_region.n_columns, 1)
+                ctx = self._build_bg_ctx(precision, prec_frac)
+                gate = s.basal_ganglia.step(ctx)
+                if self.force_gate_open:
+                    gate = 1.0
+                motor_region.output_scores *= gate
+
+            # Compute reward but don't apply
+            m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
+            if self._reward_source is not None:
+                reward = self._compute_pluggable_reward(m_char, entry_region)
+            else:
+                reward = 0.0
+
+            # BG still gets per-step reward (gating should be responsive)
+            if s.basal_ganglia is not None and self._reward_source is not None:
+                s.basal_ganglia.reward(reward)
+
+            # Update L5 output weights (observation is not reward-dependent)
             if pop_id >= 0:
                 motor_region.observe_token(pop_id)
 

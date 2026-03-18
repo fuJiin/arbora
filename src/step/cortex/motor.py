@@ -36,6 +36,8 @@ class MotorRegion(CorticalRegion):
         output_lr: float = 0.05,
         output_sparsity: float = 0.5,
         output_threshold: float = 0.3,
+        eligibility_clip: float = 0.05,
+        reward_baseline_decay: float = 0.0,
         seed: int = 0,
         **kwargs,
     ):
@@ -65,6 +67,16 @@ class MotorRegion(CorticalRegion):
         self._ff_eligibility = np.zeros_like(self.ff_weights)
         self._eligibility_decay = 0.95  # ~20-step window
 
+        # Eligibility trace clamp: prevents unbounded accumulation over
+        # multi-step episodes. 0.0 = no clamping (original behavior).
+        self._eligibility_clip = eligibility_clip
+
+        # Reward baseline: running average subtracted before consolidation.
+        # When performance is good, baseline rises → marginal reward → 0 →
+        # weights stop changing. 0.0 = disabled (original behavior).
+        self._reward_baseline_decay = reward_baseline_decay
+        self._reward_baseline = 0.0
+
         # L5 output state (updated each step in process())
         self.output_scores = np.zeros(n_columns)
 
@@ -74,6 +86,7 @@ class MotorRegion(CorticalRegion):
         # for simple responses. Will be replaced by PFC→M2→M1 later.
         self._goal_drive: np.ndarray | None = None
         self._goal_weights: np.ndarray | None = None
+        self.goal_consolidation_scale: float = 0.3
 
         # -- L5 output layer: L2/3 → token scores --
         # Models cortical L5 pyramidal neurons that project to motor
@@ -294,26 +307,58 @@ class MotorRegion(CorticalRegion):
     def apply_reward(self, reward: float) -> None:
         """Consolidate eligibility traces into weights using reward signal.
 
-        Three-factor rule: dw = reward * eligibility_trace
+        Three-factor rule: dw = (reward - baseline) * eligibility_trace
         Positive reward → strengthen recent pathways
         Negative reward → weaken them
 
-        Applies to both:
+        Applies to:
         - ff_weights (input → column mapping)
         - output_weights (L2/3 → token mapping, L5)
+        - goal_weights (PFC→M1 feedforward, scaled down 0.3x)
         """
         if not self.learning_enabled:
             return
-        if abs(reward) < 1e-6:
+
+        # Subtract running baseline (adaptive: good performance → less change)
+        effective_reward = reward
+        if self._reward_baseline_decay > 0:
+            self._reward_baseline += (1.0 - self._reward_baseline_decay) * (
+                reward - self._reward_baseline
+            )
+            effective_reward = reward - self._reward_baseline
+
+        if abs(effective_reward) < 1e-6:
             return
 
+        # Clamp eligibility traces before consolidation
+        if self._eligibility_clip > 0:
+            np.clip(
+                self._ff_eligibility,
+                -self._eligibility_clip,
+                self._eligibility_clip,
+                out=self._ff_eligibility,
+            )
+            np.clip(
+                self._output_eligibility,
+                -self._eligibility_clip,
+                self._eligibility_clip,
+                out=self._output_eligibility,
+            )
+            if hasattr(self, "_goal_eligibility"):
+                np.clip(
+                    self._goal_eligibility,
+                    -self._eligibility_clip,
+                    self._eligibility_clip,
+                    out=self._goal_eligibility,
+                )
+
         # Consolidate ff_weights (input mapping)
-        self.ff_weights += reward * self._ff_eligibility
+        self.ff_weights += effective_reward * self._ff_eligibility
         self.ff_weights *= self.ff_mask
         np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
 
         # Consolidate output_weights (L5 readout)
-        self.output_weights += reward * self._output_eligibility
+        self.output_weights += effective_reward * self._output_eligibility
         self.output_weights *= self.output_mask
         np.clip(self.output_weights, 0, 1, out=self.output_weights)
 
@@ -321,7 +366,8 @@ class MotorRegion(CorticalRegion):
         # Scaled down (0.3x) for stability — goal mapping needs to
         # develop slowly to avoid oscillation during echo training.
         if self._goal_weights is not None and hasattr(self, "_goal_eligibility"):
-            self._goal_weights += 0.3 * reward * self._goal_eligibility
+            scale = self.goal_consolidation_scale
+            self._goal_weights += scale * effective_reward * self._goal_eligibility
             np.clip(self._goal_weights, 0, 1, out=self._goal_weights)
 
     def observe_token(self, token_id: int) -> None:
