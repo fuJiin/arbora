@@ -146,12 +146,15 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
     cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
 
-    # Apical feedback
+    # Apical feedback — sensory hierarchy (top-down context)
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
-    # S1 → M1 apical (sensory context for motor execution)
+    # Apical feedback — motor hierarchy (bottom-up monitoring)
+    cortex.connect("M1", "M2", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("M2", "PFC", "apical", thalamic_gate=ThalamicGate())
+    # Cross-hierarchy apical
     cortex.connect("S1", "M1", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
 
     return cortex
 

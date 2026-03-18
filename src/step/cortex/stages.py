@@ -124,36 +124,41 @@ def _sensory_connections():
         # Motor pathway listening: S2→M2→M1 (learns sequence patterns)
         StageConnection("S2", "M2", "feedforward", enabled=True),
         StageConnection("M2", "M1", "feedforward", enabled=True),
+        # Cross-hierarchy apical
         StageConnection("S1", "M1", "apical", enabled=True),
         StageConnection("M1", "S1", "apical", enabled=False),
+        # Motor monitoring apical: off during listening
+        StageConnection("M1", "M2", "apical", enabled=False),
+        StageConnection("M2", "PFC", "apical", enabled=False),
         # PFC listening
         StageConnection("S2", "PFC", "feedforward", enabled=True),
         StageConnection("S3", "PFC", "feedforward", enabled=True),
         StageConnection("PFC", "M2", "feedforward", enabled=True),
-        StageConnection("PFC", "M1", "apical", enabled=False),
     ]
 
 
 def _babbling_connections():
-    """Babbling stage: full hierarchy + PFC→M2→M1 motor pathway."""
+    """Babbling: full hierarchy + motor monitoring (M1→M2→PFC apical)."""
     return [
-        # Sensory hierarchy: on (interleaved listening)
+        # Sensory hierarchy
         StageConnection("S1", "S2", "feedforward", enabled=True),
         StageConnection("S1", "S2", "surprise", enabled=True),
         StageConnection("S2", "S3", "feedforward", enabled=True),
         StageConnection("S2", "S3", "surprise", enabled=True),
         StageConnection("S2", "S1", "apical", enabled=True),
         StageConnection("S3", "S2", "apical", enabled=True),
-        # Motor pathway: M2→M1
+        # Motor feedforward: PFC→M2→M1
         StageConnection("S2", "M2", "feedforward", enabled=True),
         StageConnection("M2", "M1", "feedforward", enabled=True),
-        StageConnection("S1", "M1", "apical", enabled=True),
-        StageConnection("M1", "S1", "apical", enabled=False),
-        # PFC→M2→M1: goal-driven
         StageConnection("S2", "PFC", "feedforward", enabled=True),
         StageConnection("S3", "PFC", "feedforward", enabled=True),
         StageConnection("PFC", "M2", "feedforward", enabled=True),
-        StageConnection("PFC", "M1", "apical", enabled=False),
+        # Motor monitoring apical: M1→M2→PFC
+        StageConnection("M1", "M2", "apical", enabled=True),
+        StageConnection("M2", "PFC", "apical", enabled=True),
+        # Cross-hierarchy apical
+        StageConnection("S1", "M1", "apical", enabled=True),
+        StageConnection("M1", "S1", "apical", enabled=False),
     ]
 
 
