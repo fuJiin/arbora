@@ -61,9 +61,9 @@ graph TB
         M1 -.->|"apical (efference copy)"| S1
     end
 
-    style Sensory fill:#e8f4f8,stroke:#2196F3
-    style Motor fill:#fce4ec,stroke:#e91e63
-    style Cross fill:#f3e5f5,stroke:#9c27b0
+    style Sensory fill:none,stroke:#4a9eff,stroke-width:2px
+    style Motor fill:none,stroke:#ff6b6b,stroke-width:2px
+    style Cross fill:none,stroke:#a855f7,stroke-width:2px
 ```
 
 **Solid arrows** = feedforward (additive drive, content/commands). **Dashed arrows** = apical (gain modulation, context/monitoring). Multiple ff to the same target are concatenated. Feedforward flows UP sensory (S1→S2→S3), DOWN motor (PFC→M2→M1). Apical flows the reverse.
