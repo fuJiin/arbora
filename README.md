@@ -53,17 +53,14 @@ graph TB
         M2 -.->|"apical (monitoring)"| PFC
     end
 
-    subgraph Cross["Cross-hierarchy"]
-        S2 -->|ff| PFC
-        S3 -->|ff| PFC
-        S2 -->|ff| M2
-        S1 -.->|apical| M1
-        M1 -.->|"apical (efference copy)"| S1
-    end
+    S2 -->|ff| PFC
+    S3 -->|ff| PFC
+    S2 -->|ff| M2
+    S1 -.->|apical| M1
+    M1 -.->|"apical (efference)"| S1
 
     style Sensory fill:none,stroke:#4a9eff,stroke-width:2px
     style Motor fill:none,stroke:#ff6b6b,stroke-width:2px
-    style Cross fill:none,stroke:#a855f7,stroke-width:2px
 ```
 
 **Solid arrows** = feedforward (additive drive, content/commands). **Dashed arrows** = apical (gain modulation, context/monitoring). Multiple ff to the same target are concatenated. Feedforward flows UP sensory (S1→S2→S3), DOWN motor (PFC→M2→M1). Apical flows the reverse.
