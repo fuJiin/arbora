@@ -1321,7 +1321,14 @@ class Topology:
             episode_reward = 0.0
             produced = []
 
+            # Init goal weights if needed
+            if motor_region._goal_weights is None:
+                motor_region.init_goal_drive(pfc_region.n_l23_total)
+
             for step_i in range(len(word) + 2):  # Allow a couple extra chars
+                # Set PFC goal drive → M1 (feedforward, not apical)
+                motor_region.set_goal_drive(pfc_region.firing_rate_l23)
+
                 # Feed last produced char (or space as seed)
                 seed = produced[-1] if produced else " "
                 encoding = self._encoder.encode(seed)
