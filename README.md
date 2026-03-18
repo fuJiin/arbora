@@ -31,39 +31,57 @@ STEP builds a cortical hierarchy that learns to understand and produce language 
 
 ## Architecture
 
-**Connections** (verified from code):
+```mermaid
+graph TB
+    subgraph Sensory["Sensory Hierarchy"]
+        S1["S1<br/>char-level<br/>128c, k=8"]
+        S2["S2<br/>word-level<br/>32c, k=4"]
+        S3["S3<br/>topic-level<br/>32c, k=4"]
+        S1 -->|"ff (buf=4)"| S2
+        S2 -->|"ff (buf=8)"| S3
+        S3 -.->|apical| S2
+        S2 -.->|apical| S1
+    end
 
-| Source | Target | Type | Purpose |
-|--------|--------|------|---------|
-| S1 | S2 | feedforward | Char→word (temporal buffer, burst-gated) |
-| S2 | S3 | feedforward | Word→topic (temporal buffer, burst-gated) |
-| S2 | PFC | feedforward | Word context → goal formation |
-| S3 | PFC | feedforward | Topic context → goal formation |
-| S2 | M2 | feedforward | Word context → sequence planning |
-| PFC | M2 | feedforward | Goal → sequence planning |
-| M2 | M1 | feedforward | Sequence step → char execution |
-| S3 | S2 | apical | Topic context biases word processing |
-| S2 | S1 | apical | Word context biases char processing |
-| S1 | M1 | apical | Sensory context biases motor output |
-| M1 | S1 | apical | Efference copy (disabled by default) |
-| S1 | S2 | surprise | Burst rate modulates S2 learning |
-| S2 | S3 | surprise | Burst rate modulates S3 learning |
-| S1 | M1 | surprise | Burst rate modulates M1 learning |
-Feedforward flows UP the sensory hierarchy (S1→S2→S3) and DOWN the motor hierarchy (PFC→M2→M1). Apical flows the reverse — top-down in sensory (S3→S2→S1). S2 is the central hub — feeds PFC, M2, and S3. Multiple feedforward connections to the same target are concatenated (convergent input).
+    subgraph Motor["Motor Hierarchy"]
+        PFC["PFC<br/>goals/working memory<br/>16c, k=4"]
+        M2["M2 (premotor)<br/>sequence planning<br/>32c, k=4"]
+        M1["M1<br/>char production<br/>32c, k=4, L5"]
+        PFC -->|ff| M2
+        M2 -->|ff| M1
+        M1 -.->|"apical (monitoring)"| M2
+        M2 -.->|"apical (monitoring)"| PFC
+    end
 
-**Not yet wired** (future): M1→M2 apical (motor feedback for sequence monitoring).
+    subgraph Cross["Cross-hierarchy"]
+        S2 -->|ff| PFC
+        S3 -->|ff| PFC
+        S2 -->|ff| M2
+        S1 -.->|apical| M1
+        M1 -.->|"apical (efference copy)"| S1
+    end
+
+    style Sensory fill:#e8f4f8,stroke:#2196F3
+    style Motor fill:#fce4ec,stroke:#e91e63
+    style Cross fill:#f3e5f5,stroke:#9c27b0
+```
+
+**Solid arrows** = feedforward (additive drive, content/commands). **Dashed arrows** = apical (gain modulation, context/monitoring). Multiple ff to the same target are concatenated. Feedforward flows UP sensory (S1→S2→S3), DOWN motor (PFC→M2→M1). Apical flows the reverse.
 
 Every region is a **CorticalRegion** — same minicolumn architecture (L4/L2/3, dendritic segments, apical gain), differentiated by parameters and wiring:
 
-- **SensoryRegion** (S1, S2, S3): Local connectivity, encoding-aware receptive fields
-- **PFCRegion** (PFC): Slow voltage decay (working memory), global gate
-- **PremotorRegion** (M2): Goal-driven temporal sequencing via lateral segments
-- **MotorRegion** (M1): L5 output weights, three-factor RL, babbling
+| Region | Type | Key feature |
+|--------|------|-------------|
+| S1, S2, S3 | SensoryRegion | Local connectivity, encoding-aware receptive fields |
+| PFC | PFCRegion | Slow voltage decay (working memory), global gate |
+| M2 | PremotorRegion | Goal-driven temporal sequencing via lateral segments |
+| M1 | MotorRegion | L5 output weights, three-factor RL, babbling |
 
 Connection types (biologically grounded):
 - **Feedforward**: Additive drive, selects specific outputs. For content/commands.
 - **Apical**: Gain modulation, biases excitability. For context/attention/mode.
 - **Lateral**: Dendritic segments for temporal prediction within a layer.
+- **Surprise**: Burst rate modulates downstream learning rate.
 
 ## Quick start
 
