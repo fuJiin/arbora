@@ -127,6 +127,8 @@ class Topology:
         self._regions: dict[str, _RegionState] = {}
         self._connections: list[Connection] = []
         self._entry_name: str | None = None
+        self._finalized: bool = False
+        self._topo_cache: list[str] | None = None
 
         # Persistent turn-taking state (survives across run() calls)
         self._in_eom = False
@@ -139,6 +141,90 @@ class Topology:
         self._reward_source = None
         # Pre-allocated BG context buffer (lazily sized)
         self._bg_ctx_buffer: np.ndarray | None = None
+
+    # ------------------------------------------------------------------
+    # Finalization (DAG validation)
+    # ------------------------------------------------------------------
+
+    def finalize(self) -> None:
+        """Validate the topology DAG and lock for execution.
+
+        After finalize():
+        - No more add_region() or connect() calls
+        - Topological order is computed and cached
+        - Feedforward dimension mismatches are detected
+        - Cycles in feedforward graph raise an error
+
+        run/step/run_echo/etc. auto-finalize if not already done.
+        """
+        if self._finalized:
+            return
+
+        if self._entry_name is None:
+            raise ValueError("No entry region. Call add_region(..., entry=True).")
+
+        # Build feedforward adjacency for cycle detection + topo sort
+        adj: dict[str, list[str]] = {name: [] for name in self._regions}
+        for conn in self._connections:
+            if conn.kind == "feedforward":
+                adj[conn.source].append(conn.target)
+
+        # Kahn's algorithm for topological sort (detects cycles)
+        in_degree: dict[str, int] = {name: 0 for name in self._regions}
+        for targets in adj.values():
+            for t in targets:
+                in_degree[t] += 1
+
+        queue = deque(name for name, deg in in_degree.items() if deg == 0)
+        order: list[str] = []
+        while queue:
+            node = queue.popleft()
+            order.append(node)
+            for neighbor in adj[node]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+
+        if len(order) != len(self._regions):
+            visited = set(order)
+            cycle_nodes = [n for n in self._regions if n not in visited]
+            raise ValueError(
+                f"Feedforward cycle detected involving: {cycle_nodes}. "
+                "Cycles are only allowed in apical (feedback) connections."
+            )
+
+        # Validate feedforward dimensions: for each target, compute
+        # total concatenated input dim and check against ff_weights.
+        # Accounts for temporal buffers (buffer_depth multiplies signal).
+        for name, s in self._regions.items():
+            if name == self._entry_name:
+                continue  # Entry gets encoder input, not ff
+            ff_dims = []
+            for conn in self._connections:
+                if conn.target == name and conn.kind == "feedforward":
+                    src = self._regions[conn.source].region
+                    dim = src.n_l23_total * max(conn.buffer_depth, 1)
+                    ff_dims.append(dim)
+            if ff_dims:
+                total_dim = sum(ff_dims)
+                expected = s.region.input_dim
+                if total_dim != expected:
+                    sources = [
+                        f"{c.source}(x{c.buffer_depth})"
+                        if c.buffer_depth > 1
+                        else c.source
+                        for c in self._connections
+                        if c.target == name and c.kind == "feedforward"
+                    ]
+                    raise ValueError(
+                        f"Feedforward dimension mismatch for {name}: "
+                        f"sources {sources} provide {ff_dims} "
+                        f"(total {total_dim}), "
+                        f"but {name} expects input_dim={expected}"
+                    )
+
+        self._topo_cache = order
+        self._finalized = True
 
     # ------------------------------------------------------------------
     # Stage configuration API
@@ -191,6 +277,10 @@ class Topology:
         basal_ganglia: BasalGanglia | None = None,
     ) -> "Topology":
         """Register a region. Exactly one must have entry=True."""
+        if self._finalized:
+            raise RuntimeError(
+                "Topology is finalized. Cannot add regions after finalize()."
+            )
         if name in self._regions:
             raise ValueError(f"Duplicate region name: {name!r}")
         if entry:
@@ -250,6 +340,10 @@ class Topology:
         thalamic_gate: ThalamicGate | None = None,
     ) -> "Topology":
         """Wire source -> target."""
+        if self._finalized:
+            raise RuntimeError(
+                "Topology is finalized. Cannot add connections after finalize()."
+            )
         for name in (source, target):
             if name not in self._regions:
                 raise ValueError(f"Unknown region: {name!r}")
@@ -1909,32 +2003,10 @@ class Topology:
         return np.roll(conn._buffer, -conn._buffer_pos, axis=0).flatten()
 
     def _topo_order(self) -> list[str]:
-        """BFS from entry following feedforward edges."""
-        adj: dict[str, list[str]] = {name: [] for name in self._regions}
-        for conn in self._connections:
-            if conn.kind == "feedforward":
-                adj[conn.source].append(conn.target)
-
-        order: list[str] = []
-        visited: set[str] = set()
-        queue: deque[str] = deque()
-        queue.append(self._entry_name)
-        visited.add(self._entry_name)
-
-        while queue:
-            node = queue.popleft()
-            order.append(node)
-            for neighbor in adj[node]:
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    queue.append(neighbor)
-
-        # Add any regions not reachable via feedforward (e.g. disconnected)
-        for name in self._regions:
-            if name not in visited:
-                order.append(name)
-
-        return order
+        """Return cached topological order. Auto-finalizes if needed."""
+        if not self._finalized:
+            self.finalize()
+        return self._topo_cache
 
     def _log_step(
         self,
