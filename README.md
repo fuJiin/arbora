@@ -38,7 +38,9 @@ STEP builds a cortical hierarchy that learns to understand and produce language 
 | S1 | S2 | feedforward | Char→word (temporal buffer, burst-gated) |
 | S2 | S3 | feedforward | Word→topic (temporal buffer, burst-gated) |
 | S2 | PFC | feedforward | Word context → goal formation |
+| S3 | PFC | feedforward | Topic context → goal formation |
 | S2 | M2 | feedforward | Word context → sequence planning |
+| PFC | M2 | feedforward | Goal → sequence planning |
 | M2 | M1 | feedforward | Sequence step → char execution |
 | S3 | S2 | apical | Topic context biases word processing |
 | S2 | S1 | apical | Word context biases char processing |
@@ -47,11 +49,9 @@ STEP builds a cortical hierarchy that learns to understand and produce language 
 | S1 | S2 | surprise | Burst rate modulates S2 learning |
 | S2 | S3 | surprise | Burst rate modulates S3 learning |
 | S1 | M1 | surprise | Burst rate modulates M1 learning |
-| PFC | M2 | goal drive | Static goal → sequence generator (set in code, not topology) |
+Feedforward flows UP the sensory hierarchy (S1→S2→S3) and DOWN the motor hierarchy (PFC→M2→M1). Apical flows the reverse — top-down in sensory (S3→S2→S1). S2 is the central hub — feeds PFC, M2, and S3. Multiple feedforward connections to the same target are concatenated (convergent input).
 
-Feedforward flows UP the sensory hierarchy (S1→S2→S3) and DOWN the motor hierarchy (PFC→M2→M1). Apical flows the reverse — top-down in sensory (S3→S2→S1). S2 is the central hub — feeds PFC (goal context) and M2 (word context).
-
-**Not yet wired** (future): S3→PFC apical (topic context for goal maintenance), M1→M2 apical (motor feedback for sequence monitoring).
+**Not yet wired** (future): M1→M2 apical (motor feedback for sequence monitoring).
 
 Every region is a **CorticalRegion** — same minicolumn architecture (L4/L2/3, dendritic segments, apical gain), differentiated by parameters and wiring:
 
