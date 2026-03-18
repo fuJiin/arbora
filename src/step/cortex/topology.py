@@ -428,7 +428,7 @@ class Topology:
             if s.diagnostics is not None
         }
 
-    def region(self, name: str) -> SensoryRegion:
+    def region(self, name: str) -> CorticalRegion:
         return self._regions[name].region
 
     # ------------------------------------------------------------------
