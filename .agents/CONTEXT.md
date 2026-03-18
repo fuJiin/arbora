@@ -7,34 +7,48 @@ Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + thr
 ```
 CorticalRegion (L4/L2/3, segments, apical, Hebbian)
   ├── SensoryRegion → S1 (128c/k8), S2 (32c/k4), S3 (32c/k4)
-  ├── MotorRegion (L5, three-factor) → M1 (32c/k4)
+  ├── MotorRegion (L5, three-factor, goal drive) → M1 (32c/k4)
   └── PFCRegion (slow decay 0.97, global gate) → PFC (16c/k4)
 
-S1→S2→S3 (ff), S2→PFC (ff), PFC→M1 (apical), S1→M1 (ff)
+Feedforward: S1→S2→S3, S2→PFC, S1→M1, PFC→M1 (goal drive)
+Apical: S3→S2→S1, PFC→M1 (modulatory bias)
 ```
 
-## Key Architectural Learning: Apical ≠ Feedforward
+## Key Architectural Discovery: Apical vs Feedforward
 
-**Echo mode failed at 4.2% match (50k episodes)** because PFC→M1 is apical (gain modulation). Apical can bias which neurons are more excitable, but can't select specific outputs. M1 collapses to producing 'e' regardless of apical signal. Direct S2→M1 apical also failed (9.1%, still 'e' collapse).
+**Apical (gain modulation)**: Biases which neurons are excitable. Good for mode selection, attention. Cannot select specific outputs — M1 collapses to 'e' regardless.
 
-**The biological lesson:** PFC→M1 is modulatory (correct for mode/bias). Content-specific commands go PFC→M2→M1 via feedforward. This is why premotor cortex (M2) exists — it translates abstract goals into concrete motor sequences.
+**Feedforward (additive drive)**: Directly drives column competition. Can select specific outputs. PFC→M1 goal drive works for echo (7.6% match, trending 6%→10%).
 
-**Implication:** Echo/imitation needs M2 as a feedforward intermediary. PFC says "echo mode", S2 provides the word pattern, M2 translates to a char sequence plan, M1 executes. PFC→M1 apical is for mode selection only.
+**Implication**: PFC→M1 apical = mode bias. PFC→M1 ff (goal_weights) = content command. Both coexist. M2 will eventually replace the ff path for longer sequences.
 
-## What Works
-- **Sensory**: S1→S2→S3, cbpc 4.93 at 300k. Centroid BPC (non-learned) as metric.
-- **Babbling**: Interleaved listen+babble produces English words ("the", "mom", "ask"). Curiosity RPE + caregiver reward with habituation.
-- **PFC region**: Implemented with slow decay, global gate, confidence signal. Learns from S2 input during sensory stage.
+## Echo Mode (working, improving)
+- Listen: word → S1→S2→PFC (gate open)
+- PFC snapshots goal, closes gate
+- Speak: PFC goal_drive → M1 (feedforward), reward for char matches
+- Three-factor learning on goal_weights: PFC activity × M1 winners × reward
+- Reward→PFC replay: modulates PFC learning rate, replays heard word
+- **Result**: 7.6% match at 2k episodes (2.5x chance), trending up 6%→10%
+- "you"→"yoy", "huh"→"uuu", "the"→" h " (partial matches emerging)
 
-## What Doesn't Work Yet
-- **Echo mode via apical**: Apical modulation can't drive specific outputs.
-- **Caregiver habituation**: May be too aggressive (fewer 3-char words in new reward vs old).
+## Motor Babbling (completed)
+- Interleaved listen+babble, curiosity + caregiver reward
+- Produces English words: "the", "mom", "ask", "him"
+- 500k run was in progress
 
-## Runs
-- **500k interleaved**: ~345k/500k, still running
+## Reward Stack
+- Curiosity (RPE): per-bigram, habituating
+- Caregiver: optionality-scaled prefix + word completion bonus + habituation
+- Echo: position-tolerant char matching + curiosity base
 
-## Next Steps (Priority Order)
-- [ ] **M2 design + implementation** — feedforward intermediary: PFC→M2 (ff, goal→plan), S2→M2 (ff, word context), M2→M1 (ff, sequence→execution). This is the critical missing piece for echo/imitation.
-- [ ] **Analyze 500k interleaved** when it finishes
+## Engineering
+- Shared run loop methods (DRY), 5 bug fixes, perf pre-allocation
+- MotorRegion inherits CorticalRegion (not SensoryRegion)
+- Code/perf audits completed, README updated, REPL with /babble /probe
+
+## Next Steps
+- [ ] **Longer echo training (10k+ episodes)** with full 300k sensory pre-training
+- [ ] **Analyze whether echo match rate keeps climbing** — ceiling indicates when M2 is needed
+- [ ] **M2 design** — PFC→M2 (ff goal→plan), S2→M2 (ff context), M2→M1 (ff sequence)
 - [ ] **Dialogue training** — structured listen→respond with PFC mode gating
-- [ ] **Tune caregiver reward** — habituation rate, word bonus magnitude
+- [ ] **500k babble analysis** when complete
