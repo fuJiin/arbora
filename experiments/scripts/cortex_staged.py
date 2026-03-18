@@ -28,11 +28,13 @@ import step.env  # noqa: F401
 from step.config import (
     _default_motor_config,
     _default_pfc_config,
+    _default_premotor_config,
     _default_region2_config,
     _default_region3_config,
     _default_s1_config,
     make_motor_region,
     make_pfc_region,
+    make_premotor_region,
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
@@ -77,10 +79,14 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     r3_cfg = _default_region3_config()
     s3 = make_sensory_region(r3_cfg, s2.n_l23_total * 8, seed=789)
 
+    # M2 (premotor): created first so M1 knows its input dim
+    m2_cfg = _default_premotor_config()
+    m2 = make_premotor_region(m2_cfg, s2.n_l23_total, seed=321)
+
     m1_cfg = _default_motor_config()
-    # Build M1 vocabulary from encoder's character set
+    # M1 input comes from M2 (not S1 directly anymore)
     output_vocab = [ord(ch) for ch in encoder._char_to_idx]
-    m1 = make_motor_region(m1_cfg, s1.n_l23_total, seed=456)
+    m1 = make_motor_region(m1_cfg, m2.n_l23_total, seed=456)
     # Set vocabulary for L5 output mapping
     m1._output_vocab = np.array(output_vocab, dtype=np.int64)
     m1.n_output_tokens = len(output_vocab)
@@ -115,24 +121,28 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     pfc = make_pfc_region(pfc_cfg, s2.n_l23_total, seed=999)
     cortex.add_region("PFC", pfc)
 
-    # Feedforward
+    # M2 already created above (M1 needs its dimensions)
+    m2.init_goal_input(pfc.n_l23_total)
+    cortex.add_region("M2", m2)
+
+    # Feedforward chain
     cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
     cortex.connect("S2", "S3", "feedforward", buffer_depth=8, burst_gate=True)
-    cortex.connect("S1", "M1", "feedforward")
-    # PFC receives S2 word-level patterns (specific enough for echo mode)
     cortex.connect("S2", "PFC", "feedforward")
-
+    # Motor pathway: S2 → M2 (word context), M2 → M1 (sequence step)
+    cortex.connect("S2", "M2", "feedforward")
+    cortex.connect("M2", "M1", "feedforward")
     # Surprise
     cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
     cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
     cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
 
-    # Apical feedback (with thalamic gating)
+    # Apical feedback
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
-    # PFC → M1 apical: goal biases motor output
-    cortex.connect("PFC", "M1", "apical", thalamic_gate=ThalamicGate())
+    # S1 → M1 apical (sensory context for motor execution)
+    cortex.connect("S1", "M1", "apical", thalamic_gate=ThalamicGate())
 
     return cortex
 

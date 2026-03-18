@@ -219,6 +219,47 @@ def make_pfc_region(
     )
 
 
+def _default_premotor_config() -> CortexConfig:
+    """Premotor (M2) defaults: sequence generation from PFC goals.
+
+    32 columns with k=4, moderate voltage decay (faster than PFC,
+    slower than M1 — holds sequence state across a few steps).
+    Moderate learning rate for sequence acquisition.
+    """
+    return CortexConfig(
+        n_columns=32,
+        k_columns=4,
+        voltage_decay=0.7,
+        eligibility_decay=0.95,
+        synapse_decay=0.999,
+        learning_rate=0.05,
+        ltd_rate=0.05,
+    )
+
+
+def make_premotor_region(
+    cfg: CortexConfig,
+    input_dim: int,
+    seed: int | None = None,
+):
+    """Create a PremotorRegion from a CortexConfig."""
+    from step.cortex.premotor import PremotorRegion
+
+    d = asdict(cfg)
+    s = d.pop("seed")
+    d.pop("ltd_rate")
+    d.pop("n_columns")
+    d.pop("k_columns")
+    return PremotorRegion(
+        input_dim=input_dim,
+        n_columns=cfg.n_columns,
+        k_columns=cfg.k_columns,
+        ltd_rate=cfg.ltd_rate,
+        seed=seed if seed is not None else s,
+        **d,
+    )
+
+
 def make_motor_region(
     cfg: CortexConfig,
     input_dim: int,
