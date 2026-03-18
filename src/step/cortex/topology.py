@@ -593,25 +593,9 @@ class Topology:
                     if _ms.motor and _ms.motor_decoder is not None:
                         prev_motor_l23[_mn] = _ms.region.active_l23.copy()
 
-            # -- Process in topo order --
-            for name in topo_order:
-                s = self._regions[name]
-                if name == entry_name:
-                    encoding = self._encoder.encode(token_str)
-                    s.region.process(encoding)
-                elif s.motor and not m1_active:
-                    # Skip M1 process during input phase
-                    pass
-                else:
-                    # Find feedforward source
-                    for conn in self._connections:
-                        if (
-                            conn.target == name
-                            and conn.kind == "feedforward"
-                            and conn.enabled
-                        ):
-                            s.region.process(self._get_ff_signal(conn))
-                            break
+            # -- Process in topo order (multi-ff supported) --
+            encoding = self._encoder.encode(token_str)
+            self._propagate_feedforward(topo_order, entry_name, encoding)
 
             # -- Inter-region signals (after all regions processed) --
             for conn in self._connections:
@@ -1322,27 +1306,10 @@ class Topology:
             episode_reward = 0.0
             produced = []
 
-            # Find M2 if it exists (PFC→M2→M1 pathway)
-            from step.cortex.premotor import PremotorRegion
-
-            m2_region = None
-            for _n, _s in self._regions.items():
-                if isinstance(_s.region, PremotorRegion):
-                    m2_region = _s.region
-                    break
-
-            # Init goal weights: PFC→M2 if M2 exists, else PFC→M1 direct
-            goal_target = m2_region if m2_region is not None else motor_region
-            if goal_target._goal_weights is None:
-                n_pfc = pfc_region.n_l23_total
-                if hasattr(goal_target, "init_goal_input"):
-                    goal_target.init_goal_input(n_pfc)
-                else:
-                    goal_target.init_goal_drive(n_pfc)
-
             for _step_i in range(len(word) + 2):
-                # Set PFC goal drive → M2 (or M1 direct if no M2)
-                goal_target.set_goal_drive(pfc_region.firing_rate_l23)
+                # PFC→M2→M1 flows through normal ff propagation
+                # (PFC gate closed, so it maintains goal pattern;
+                #  its firing_rate_l23 feeds M2 via PFC→M2 ff connection)
 
                 # Feed last produced char (or space as seed)
                 seed = produced[-1] if produced else " "
@@ -1750,7 +1717,12 @@ class Topology:
     # ------------------------------------------------------------------
 
     def _propagate_feedforward(self, topo_order, entry_name, encoding=None):
-        """Process regions in topo order with feedforward signals."""
+        """Process regions in topo order with feedforward signals.
+
+        Supports multiple feedforward connections to the same target —
+        signals are summed before processing. Biologically, cortical
+        regions receive convergent feedforward from multiple sources.
+        """
         for name in topo_order:
             s = self._regions[name]
             if name == entry_name:
@@ -1761,14 +1733,21 @@ class Topology:
             ):
                 pass  # Skip idle motor region
             else:
+                # Collect ALL feedforward signals to this target.
+                # Multiple sources are concatenated (convergent input).
+                ff_parts = []
                 for conn in self._connections:
                     if (
                         conn.target == name
                         and conn.kind == "feedforward"
                         and conn.enabled
                     ):
-                        s.region.process(self._get_ff_signal(conn))
-                        break
+                        ff_parts.append(self._get_ff_signal(conn))
+                if ff_parts:
+                    if len(ff_parts) == 1:
+                        s.region.process(ff_parts[0])
+                    else:
+                        s.region.process(np.concatenate(ff_parts))
 
     def _propagate_signals(self):
         """Propagate inter-region signals (surprise, apical)."""
