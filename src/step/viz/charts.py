@@ -43,9 +43,7 @@ def build_column_activation_heatmap(timeline: Timeline, n_columns: int) -> go.Fi
     if n_rare:
         dead_text += f", {n_rare} rare (<1% of steps)"
     fig.update_layout(
-        title=(
-            f"Which Columns Fire? ({dead_text})"
-        ),
+        title=(f"Which Columns Fire? ({dead_text})"),
         xaxis_title="Timestep",
         yaxis_title="Column",
         height=500,
@@ -482,7 +480,8 @@ def build_motor_accuracy_over_time(
             line=dict(color="#ef476f", width=1),
             opacity=0.2,
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
     fig.add_trace(
         go.Scatter(
@@ -491,7 +490,8 @@ def build_motor_accuracy_over_time(
             name=f"rolling acc (w={window})",
             line=dict(color="#ef476f", width=2),
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
     # Silence rate panel
@@ -502,7 +502,8 @@ def build_motor_accuracy_over_time(
             name=f"silence rate (w={window})",
             line=dict(color="#ffd166", width=2),
         ),
-        row=2, col=1,
+        row=2,
+        col=1,
     )
 
     fig.update_layout(
@@ -600,10 +601,7 @@ def build_bpc_over_time(
         )
 
     fig.update_layout(
-        title=(
-            f"Bits Per Character — {n_chars:,} chars"
-            " (lower = better predictions)"
-        ),
+        title=(f"Bits Per Character — {n_chars:,} chars (lower = better predictions)"),
         yaxis_title="BPC (bits)",
         yaxis_range=[0, max(max(values) * 1.3, 1.0)],
         height=350,
@@ -697,9 +695,7 @@ def build_bg_gate_over_time(
     rolling = []
     for i in range(n):
         start = max(0, i - window + 1)
-        rolling.append(
-            sum(gate_values[start: i + 1]) / (i - start + 1)
-        )
+        rolling.append(sum(gate_values[start : i + 1]) / (i - start + 1))
 
     fig = go.Figure()
     fig.add_trace(
@@ -728,10 +724,7 @@ def build_bg_gate_over_time(
         )
     )
     fig.update_layout(
-        title=(
-            "Basal Ganglia Gate — 0 = closed (no-go),"
-            " 1 = open (go, M1 speaks)"
-        ),
+        title=("Basal Ganglia Gate — 0 = closed (no-go), 1 = open (go, M1 speaks)"),
         xaxis_title="Timestep",
         yaxis_title="Gate Value",
         yaxis_range=[0, 1.05],
@@ -821,10 +814,13 @@ def build_segment_health_over_time(
         if any(d > 0 for d in data):
             fig.add_trace(
                 go.Scatter(
-                    x=steps, y=data, name=name,
+                    x=steps,
+                    y=data,
+                    name=name,
                     line=dict(color=color, width=2),
                 ),
-                row=1, col=1,
+                row=1,
+                col=1,
             )
 
     # Row 2: mean permanence (only for non-zero, shows learning progress)
@@ -838,11 +834,14 @@ def build_segment_health_over_time(
         if any(d > 0 for d in data):
             fig.add_trace(
                 go.Scatter(
-                    x=steps, y=data, name=name,
+                    x=steps,
+                    y=data,
+                    name=name,
                     line=dict(color=color, width=2),
                     showlegend=False,
                 ),
-                row=2, col=1,
+                row=2,
+                col=1,
             )
 
     prefix = f"{region_label} " if region_label else ""

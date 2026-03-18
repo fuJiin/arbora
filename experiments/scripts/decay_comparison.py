@@ -39,7 +39,9 @@ def run_decay(synapse_decay, tokens, encoder):
         synapse_decay=synapse_decay,
     )
     region1 = make_sensory_region(
-        s1_cfg, encoder.input_dim, encoder.encoding_width,
+        s1_cfg,
+        encoder.input_dim,
+        encoder.encoding_width,
     )
 
     r2_cfg = _default_region2_config()
@@ -47,7 +49,9 @@ def run_decay(synapse_decay, tokens, encoder):
     region2 = make_sensory_region(r2_cfg, r2_input_dim, seed=123)
 
     motor = make_motor_region(
-        _default_motor_config(), region1.n_l23_total, seed=456,
+        _default_motor_config(),
+        region1.n_l23_total,
+        seed=456,
     )
 
     bg = BasalGanglia(
@@ -77,7 +81,7 @@ def run_decay(synapse_decay, tokens, encoder):
 
     # M1 accuracy (last 20%)
     accs = m1.motor_accuracies
-    tail = accs[int(len(accs) * 0.8):] if accs else []
+    tail = accs[int(len(accs) * 0.8) :] if accs else []
     m1_acc = sum(tail) / len(tail) if tail else 0.0
 
     return {
@@ -137,8 +141,7 @@ def print_results(results):
             first5 = [f"{v:.2f}" for v in stdy[:5]]
             last5 = [f"{v:.2f}" for v in stdy[-5:]]
             print(
-                f"\n  decay={r['synapse_decay']}: "
-                f"first5={first5}  ...  last5={last5}"
+                f"\n  decay={r['synapse_decay']}: first5={first5}  ...  last5={last5}"
             )
 
 

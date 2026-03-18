@@ -44,6 +44,7 @@ def motor(region1):
 class TestMotorRegion:
     def test_is_cortical_subclass(self, motor):
         from step.cortex.region import CorticalRegion
+
         assert isinstance(motor, CorticalRegion)
 
     def test_output_starts_silent(self, motor):
@@ -123,9 +124,12 @@ class TestMotorTopology:
 
     def test_story_boundary_resets_motor(self, region1, motor, encoder):
         tokens = [
-            (0, "a"), (1, "b"), (2, "c"),
+            (0, "a"),
+            (1, "b"),
+            (2, "c"),
             (STORY_BOUNDARY, ""),
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
         ]
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)

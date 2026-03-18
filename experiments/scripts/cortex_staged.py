@@ -21,6 +21,7 @@ Usage:
 import argparse
 import os
 import time
+from dataclasses import replace
 
 import numpy as np
 
@@ -39,8 +40,6 @@ from step.config import (
 )
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from dataclasses import replace
-
 from step.cortex.stages import (
     BABBLING_STAGE,
     GUIDED_BABBLING_STAGE,
@@ -93,7 +92,9 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     # Reinitialize L5 weights with correct vocab size
     n_l23 = m1.n_l23_total
     m1.output_weights = m1._rng.uniform(0, 0.01, size=(n_l23, len(output_vocab)))
-    m1.output_mask = (m1._rng.random((n_l23, len(output_vocab))) < 0.5).astype(np.float64)
+    m1.output_mask = (m1._rng.random((n_l23, len(output_vocab))) < 0.5).astype(
+        np.float64
+    )
     m1.output_weights *= m1.output_mask
     m1._output_eligibility = np.zeros((n_l23, len(output_vocab)))
 
@@ -161,10 +162,7 @@ def load_data(n_tokens):
     encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
 
     # Use only the requested amount for training
-    if n_tokens < vocab_sample:
-        tokens = all_tokens[:n_tokens]
-    else:
-        tokens = all_tokens
+    tokens = all_tokens[:n_tokens] if n_tokens < vocab_sample else all_tokens
     tokens = inject_eom_tokens(tokens, segment_length=200)
     return tokens, encoder
 
@@ -172,14 +170,11 @@ def load_data(n_tokens):
 def _extract_vocabulary(tokens, min_count=3, min_length=2):
     """Extract common words from corpus tokens for caregiver reward."""
     from collections import Counter
+
     words = Counter()
     current = []
     for token_id, ch in tokens:
-        if token_id < 0:  # boundary
-            if len(current) >= min_length:
-                words["".join(current)] += 1
-            current.clear()
-        elif ch in (" ", ".", ",", "!", "?", "'", "-", ""):
+        if token_id < 0 or ch in (" ", ".", ",", "!", "?", "'", "-", ""):  # boundary
             if len(current) >= min_length:
                 words["".join(current)] += 1
             current.clear()
@@ -199,14 +194,18 @@ def resolve_checkpoint(name):
 
 
 def run_stage(
-    cortex, stage, tokens, *, log_interval=100,
+    cortex,
+    stage,
+    tokens,
+    *,
+    log_interval=100,
 ):
     """Configure and run a single training stage."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Stage: {stage.name} — {stage.description}")
     print(f"  Tokens: {stage.n_tokens:,}")
     print(f"  Learning: {', '.join(stage.learning_regions) or 'none'}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Load checkpoint if specified
     ckpt_path = resolve_checkpoint(stage.load_checkpoint)
@@ -220,6 +219,7 @@ def run_stage(
     # Seed caregiver vocabulary from corpus if applicable
     if cortex._reward_source is not None:
         from step.cortex.reward import CaregiverReward
+
         if isinstance(cortex._reward_source, CaregiverReward):
             vocab = _extract_vocabulary(tokens)
             cortex._reward_source.seed_vocabulary(vocab)
@@ -232,12 +232,14 @@ def run_stage(
         # Interleaved: alternate listening (corpus) and babbling (autoregressive)
         print(f"  Mode: interleaved listen+babble (noise={stage.babbling_noise})")
         result = cortex.run_interleaved(
-            tokens, stage.n_tokens, log_interval=log_interval,
+            tokens,
+            stage.n_tokens,
+            log_interval=log_interval,
         )
         elapsed = result["elapsed_seconds"]
     else:
         # Corpus-driven: standard token-by-token processing
-        stage_tokens = tokens[:stage.n_tokens]
+        stage_tokens = tokens[: stage.n_tokens]
         if len(stage_tokens) < stage.n_tokens:
             print(
                 f"  Warning: only {len(stage_tokens):,} tokens available "

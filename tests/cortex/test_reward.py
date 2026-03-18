@@ -95,40 +95,58 @@ class TestTurnTakingReward:
     def test_reward_function_speak_during_eom(self):
         """Speaking during EOM phase should be rewarded."""
         r = self._fn(
-            spoke=True, in_eom=True, eom_steps=1, max_speak_steps=20,
+            spoke=True,
+            in_eom=True,
+            eom_steps=1,
+            max_speak_steps=20,
         )
         assert r > 0
 
     def test_reward_function_silent_during_input(self):
         """Silence during input phase should be mildly rewarded."""
         r = self._fn(
-            spoke=False, in_eom=False, eom_steps=0, max_speak_steps=20,
+            spoke=False,
+            in_eom=False,
+            eom_steps=0,
+            max_speak_steps=20,
         )
         assert r > 0
 
     def test_reward_function_speak_during_input(self):
         """Speaking during input phase should be penalized."""
         r = self._fn(
-            spoke=True, in_eom=False, eom_steps=0, max_speak_steps=20,
+            spoke=True,
+            in_eom=False,
+            eom_steps=0,
+            max_speak_steps=20,
         )
         assert r < 0
 
     def test_reward_function_silent_during_eom(self):
         """Silence during EOM phase should be mildly penalized."""
         r = self._fn(
-            spoke=False, in_eom=True, eom_steps=1, max_speak_steps=20,
+            spoke=False,
+            in_eom=True,
+            eom_steps=1,
+            max_speak_steps=20,
         )
         assert r < 0
 
     def test_reward_function_rambling(self):
         """Speaking past max steps should be penalized most."""
         r = self._fn(
-            spoke=True, in_eom=True, eom_steps=25, max_speak_steps=20,
+            spoke=True,
+            in_eom=True,
+            eom_steps=25,
+            max_speak_steps=20,
         )
         assert r < 0
         # Should be harsher than speaking during input
         r_input = self._fn(
-            spoke=True, in_eom=False, eom_steps=0, max_speak_steps=20,
+            spoke=True,
+            in_eom=False,
+            eom_steps=0,
+            max_speak_steps=20,
         )
         assert r < r_input
 
@@ -149,11 +167,15 @@ class TestRewardIntegration:
     def test_reward_with_eom_tokens(self, region1, motor, encoder):
         """EOM tokens trigger turn-taking state changes."""
         tokens = [
-            (0, "a"), (1, "b"), (2, "c"),
+            (0, "a"),
+            (1, "b"),
+            (2, "c"),
             (EOM_TOKEN, ""),
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
             (STORY_BOUNDARY, ""),
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
         ]
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
@@ -189,7 +211,8 @@ class TestRewardIntegration:
 class TestEomTokenInjection:
     def test_inject_adds_eom_before_boundaries(self):
         tokens = [
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
             (STORY_BOUNDARY, ""),
             (2, "c"),
             (STORY_BOUNDARY, ""),
@@ -197,13 +220,16 @@ class TestEomTokenInjection:
         result = inject_eom_tokens(tokens, speak_window=2)
         # EOM + 2 repeated tokens + BOUNDARY for each
         assert result == [
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
             (EOM_TOKEN, ""),
-            (1, "b"), (1, "b"),  # speak window repeats last token
+            (1, "b"),
+            (1, "b"),  # speak window repeats last token
             (STORY_BOUNDARY, ""),
             (2, "c"),
             (EOM_TOKEN, ""),
-            (2, "c"), (2, "c"),
+            (2, "c"),
+            (2, "c"),
             (STORY_BOUNDARY, ""),
         ]
 
@@ -222,7 +248,9 @@ class TestEomTokenInjection:
         """segment_length creates synthetic turn boundaries."""
         tokens = [(i, chr(ord("a") + i)) for i in range(10)]
         result = inject_eom_tokens(
-            tokens, segment_length=3, speak_window=0,
+            tokens,
+            segment_length=3,
+            speak_window=0,
         )
         eom_count = sum(1 for tid, _ in result if tid == EOM_TOKEN)
         assert eom_count == 3  # at positions 3, 6, 9
@@ -236,18 +264,16 @@ class TestEomTokenInjection:
     def test_speak_window_adds_tokens(self):
         """speak_window pads EOM phase with repeated tokens."""
         tokens = [
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
             (STORY_BOUNDARY, ""),
         ]
         result = inject_eom_tokens(tokens, speak_window=5)
         # EOM + 5 repeated last tokens + BOUNDARY
-        eom_idx = next(
-            i for i, (tid, _) in enumerate(result) if tid == EOM_TOKEN
-        )
+        eom_idx = next(i for i, (tid, _) in enumerate(result) if tid == EOM_TOKEN)
         # 5 tokens between EOM and BOUNDARY
         boundary_idx = next(
-            i for i in range(eom_idx + 1, len(result))
-            if result[i][0] == STORY_BOUNDARY
+            i for i in range(eom_idx + 1, len(result)) if result[i][0] == STORY_BOUNDARY
         )
         assert boundary_idx - eom_idx - 1 == 5
 
@@ -257,14 +283,19 @@ class TestTurnTakingCounters:
         """Turn-taking counters accumulate correctly with EOM tokens."""
         tokens = [
             # Input phase: 3 tokens
-            (0, "a"), (1, "b"), (2, "c"),
+            (0, "a"),
+            (1, "b"),
+            (2, "c"),
             # EOM: M1 should speak
             (EOM_TOKEN, ""),
-            (0, "a"), (1, "b"),
+            (0, "a"),
+            (1, "b"),
             # Reset
             (STORY_BOUNDARY, ""),
             # Another input phase
-            (0, "a"), (1, "b"), (2, "c"),
+            (0, "a"),
+            (1, "b"),
+            (2, "c"),
         ]
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)

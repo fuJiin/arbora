@@ -149,7 +149,7 @@ def _build_tabbed_html(
         active = " active" if i == 0 else ""
         buttons_html += (
             f'<button class="tab-btn{active}" '
-            f'onclick="switchTab(\'{name}\')">{name}</button>'
+            f"onclick=\"switchTab('{name}')\">{name}</button>"
         )
 
     # Build tab content
@@ -158,12 +158,11 @@ def _build_tabbed_html(
         active = " active" if i == 0 else ""
         chart_divs = "".join(
             f'<div class="chart-container">'
-            f'{fig.to_html(full_html=False, include_plotlyjs=False)}</div>'
+            f"{fig.to_html(full_html=False, include_plotlyjs=False)}</div>"
             for _t, fig in figs
         )
         content_html += (
-            f'<div class="tab-content{active}" id="tab-{name}">'
-            f"{chart_divs}</div>"
+            f'<div class="tab-content{active}" id="tab-{name}">{chart_divs}</div>'
         )
 
     js = """

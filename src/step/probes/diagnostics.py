@@ -214,8 +214,7 @@ class CortexDiagnostics:
         # Apical gain health
         if region.has_apical and region._apical_gain_weights is not None:
             snap.apical_gain_mean = float(np.mean(region._apical_gain_weights))
-            snap.apical_gain_max = float(np.max(region._apical_gain_weights)
-            )
+            snap.apical_gain_max = float(np.max(region._apical_gain_weights))
 
         return snap
 

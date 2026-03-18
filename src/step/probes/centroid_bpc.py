@@ -125,7 +125,6 @@ class CentroidBPCProbe:
 
         # Compute similarity to all centroids (using pre-allocated matrix)
         pattern = l23_state.astype(np.float64)
-        token_ids = self._token_list
         centroids = self._centroid_matrix
 
         # Dot product similarity (pattern and centroids are sparse binary-ish)
@@ -166,17 +165,11 @@ class CentroidBPCProbe:
     def dialogue_boundary(self) -> None:
         """Call at STORY_BOUNDARY to snapshot per-dialogue BPC."""
         if self._dialogue_chars > 0:
-            self._dialogue_bpcs.append(
-                self._dialogue_bits / self._dialogue_chars
-            )
+            self._dialogue_bpcs.append(self._dialogue_bits / self._dialogue_chars)
         if self._boundary_chars > 0:
-            self._boundary_bpcs.append(
-                self._boundary_bits / self._boundary_chars
-            )
+            self._boundary_bpcs.append(self._boundary_bits / self._boundary_chars)
         if self._steady_chars > 0:
-            self._steady_bpcs.append(
-                self._steady_bits / self._steady_chars
-            )
+            self._steady_bpcs.append(self._steady_bits / self._steady_chars)
         self._dialogue_bits = 0.0
         self._dialogue_chars = 0
         self._boundary_bits = 0.0

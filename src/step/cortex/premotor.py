@@ -65,9 +65,11 @@ class PremotorRegion(CorticalRegion):
     def init_goal_input(self, pfc_dim: int) -> None:
         """Initialize PFC→M2 goal weights."""
         self._goal_weights = self._rng.uniform(
-            0, 0.01, size=(pfc_dim, self.n_l4_total),
+            0,
+            0.01,
+            size=(pfc_dim, self.n_l4_total),
         )
-        mask = (self._rng.random((pfc_dim, self.n_l4_total)) < 0.5)
+        mask = self._rng.random((pfc_dim, self.n_l4_total)) < 0.5
         self._goal_weights *= mask
 
     def set_goal_drive(self, pfc_firing_rate: np.ndarray) -> None:
@@ -92,9 +94,9 @@ class PremotorRegion(CorticalRegion):
             neuron_drive += self._goal_drive @ self._goal_weights
             self._goal_drive = None
 
-        self.last_column_drive = neuron_drive.reshape(
-            self.n_columns, self.n_l4
-        ).max(axis=1)
+        self.last_column_drive = neuron_drive.reshape(self.n_columns, self.n_l4).max(
+            axis=1
+        )
         active = self.step(neuron_drive)
 
         if self.learning_enabled:

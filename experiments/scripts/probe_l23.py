@@ -100,11 +100,7 @@ def collect_activations(
         # Track per-token burst rate
         if burst_rates is not None:
             n_active = region.active_columns.sum()
-            rate = (
-                region.bursting_columns.sum() / n_active
-                if n_active > 0
-                else 1.0
-            )
+            rate = region.bursting_columns.sum() / n_active if n_active > 0 else 1.0
             burst_rates[token_id].append(float(rate))
 
         # Pair previous L2/3 state with current token_id
@@ -207,7 +203,9 @@ def evaluate(
 
 
 def _filter_top_k(
-    X: np.ndarray, y: np.ndarray, top_k: int,
+    X: np.ndarray,
+    y: np.ndarray,
+    top_k: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Filter samples to only include the top-K most frequent tokens."""
     token_ids, counts = np.unique(y, return_counts=True)
@@ -218,8 +216,10 @@ def _filter_top_k(
     X_filtered = X[mask]
     y_filtered = y[mask]
 
-    print(f"\nTop-K filtering: kept {len(keep_tokens)} tokens, "
-          f"{mask.sum():,}/{len(y):,} samples ({mask.mean() * 100:.1f}%)")
+    print(
+        f"\nTop-K filtering: kept {len(keep_tokens)} tokens, "
+        f"{mask.sum():,}/{len(y):,} samples ({mask.mean() * 100:.1f}%)"
+    )
 
     return X_filtered, y_filtered
 
@@ -273,15 +273,19 @@ def main():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--train-frac", type=float, default=0.8)
     parser.add_argument(
-        "--firing-rate", action="store_true",
+        "--firing-rate",
+        action="store_true",
         help="Use continuous firing_rate_l23 instead of boolean active_l23",
     )
     parser.add_argument(
-        "--top-k", type=int, default=0,
+        "--top-k",
+        type=int,
+        default=0,
         help="Filter to top-K most frequent tokens (0 = all tokens)",
     )
     parser.add_argument(
-        "--burst-analysis", action="store_true",
+        "--burst-analysis",
+        action="store_true",
         help="Print per-token burst rate analysis (which tokens are best predicted)",
     )
     args = parser.parse_args()
@@ -290,12 +294,13 @@ def main():
     cfg = CortexConfig()
 
     mode = (
-        "firing_rate_l23 (continuous)" if args.firing_rate
-        else "active_l23 (boolean)"
+        "firing_rate_l23 (continuous)" if args.firing_rate else "active_l23 (boolean)"
     )
     print(f"\nRunning cortex to collect L2/3 activations ({mode})...")
     X, y, burst_rates = collect_activations(
-        tokens, cfg, use_firing_rate=args.firing_rate,
+        tokens,
+        cfg,
+        use_firing_rate=args.firing_rate,
         track_bursts=args.burst_analysis,
     )
 

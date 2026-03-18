@@ -64,13 +64,9 @@ def run_cortex(
     show_predictions: if > 0, print this many prediction samples at each
                       log interval (actual vs predicted for each decoder).
     """
-    diag_interval = (
-        diagnostics.snapshot_interval if diagnostics else 100
-    )
+    diag_interval = diagnostics.snapshot_interval if diagnostics else 100
     cortex = Topology(encoder, diagnostics_interval=diag_interval)
-    cortex.add_region(
-        "S1", region, entry=True, diagnostics=diagnostics is not None
-    )
+    cortex.add_region("S1", region, entry=True, diagnostics=diagnostics is not None)
     result = cortex.run(
         tokens,
         log_interval=log_interval,
@@ -118,19 +114,27 @@ def run_hierarchy(
 
     cortex = Topology(encoder, diagnostics_interval=diag_interval)
     cortex.add_region(
-        "S1", region1, entry=True,
+        "S1",
+        region1,
+        entry=True,
         diagnostics=diagnostics1 is not None,
     )
     cortex.add_region(
-        "S2", region2,
+        "S2",
+        region2,
         diagnostics=diagnostics2 is not None,
     )
     cortex.connect(
-        "S1", "S2", "feedforward",
-        buffer_depth=buffer_depth, burst_gate=burst_gate,
+        "S1",
+        "S2",
+        "feedforward",
+        buffer_depth=buffer_depth,
+        burst_gate=burst_gate,
     )
     cortex.connect(
-        "S1", "S2", "surprise",
+        "S1",
+        "S2",
+        "surprise",
         surprise_tracker=surprise_tracker,
     )
     if enable_apical_feedback:

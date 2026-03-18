@@ -22,22 +22,35 @@ def run_hierarchy(r2_cols, r2_k, r2_lr, r2_ltd, r2_vdecay):
     enc = PositionalCharEncoder("".join(alphabet), max_positions=8)
 
     r1 = SensoryRegion(
-        input_dim=enc.input_dim, encoding_width=enc.encoding_width,
-        n_columns=r1_cfg.n_columns, n_l4=r1_cfg.n_l4, n_l23=r1_cfg.n_l23,
-        k_columns=r1_cfg.k_columns, voltage_decay=r1_cfg.voltage_decay,
+        input_dim=enc.input_dim,
+        encoding_width=enc.encoding_width,
+        n_columns=r1_cfg.n_columns,
+        n_l4=r1_cfg.n_l4,
+        n_l23=r1_cfg.n_l23,
+        k_columns=r1_cfg.k_columns,
+        voltage_decay=r1_cfg.voltage_decay,
         eligibility_decay=r1_cfg.eligibility_decay,
         synapse_decay=r1_cfg.synapse_decay,
         learning_rate=r1_cfg.learning_rate,
         max_excitability=r1_cfg.max_excitability,
-        fb_boost=r1_cfg.fb_boost, ltd_rate=r1_cfg.ltd_rate,
-        burst_learning_scale=r1_cfg.burst_learning_scale, seed=0,
+        fb_boost=r1_cfg.fb_boost,
+        ltd_rate=r1_cfg.ltd_rate,
+        burst_learning_scale=r1_cfg.burst_learning_scale,
+        seed=0,
     )
     r2 = SensoryRegion(
-        input_dim=r1.n_l23_total, encoding_width=0,
-        n_columns=r2_cols, n_l4=4, n_l23=4,
-        k_columns=r2_k, voltage_decay=r2_vdecay,
-        eligibility_decay=0.98, synapse_decay=0.9999,
-        learning_rate=r2_lr, ltd_rate=r2_ltd, seed=123,
+        input_dim=r1.n_l23_total,
+        encoding_width=0,
+        n_columns=r2_cols,
+        n_l4=4,
+        n_l23=4,
+        k_columns=r2_k,
+        voltage_decay=r2_vdecay,
+        eligibility_decay=0.98,
+        synapse_decay=0.9999,
+        learning_rate=r2_lr,
+        ltd_rate=r2_ltd,
+        seed=123,
     )
 
     surprise = SurpriseTracker()
@@ -79,14 +92,14 @@ def run_hierarchy(r2_cols, r2_k, r2_lr, r2_ltd, r2_vdecay):
 
 configs = [
     # Try to bridge: moderate lr, moderate ltd, vary cols/k
-    (16, 2, 0.03, 0.20, 0.8),   # between default and aggressive
-    (16, 2, 0.03, 0.30, 0.8),   # keep closer to default ltd
-    (16, 3, 0.03, 0.20, 0.8),   # k=3 compromise
-    (16, 3, 0.05, 0.20, 0.8),   # k=3 higher lr
-    (32, 2, 0.03, 0.20, 0.8),   # more cols, small k
-    (32, 2, 0.05, 0.20, 0.8),   # more cols, higher lr
-    (32, 3, 0.05, 0.10, 0.8),   # 32 cols k=3
-    (32, 4, 0.03, 0.20, 0.8),   # 32 cols moderate lr
+    (16, 2, 0.03, 0.20, 0.8),  # between default and aggressive
+    (16, 2, 0.03, 0.30, 0.8),  # keep closer to default ltd
+    (16, 3, 0.03, 0.20, 0.8),  # k=3 compromise
+    (16, 3, 0.05, 0.20, 0.8),  # k=3 higher lr
+    (32, 2, 0.03, 0.20, 0.8),  # more cols, small k
+    (32, 2, 0.05, 0.20, 0.8),  # more cols, higher lr
+    (32, 3, 0.05, 0.10, 0.8),  # 32 cols k=3
+    (32, 4, 0.03, 0.20, 0.8),  # 32 cols moderate lr
 ]
 
 header = (

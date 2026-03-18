@@ -67,7 +67,9 @@ def run_eval(
     """Run cortex + dendritic decoder, return comprehensive metrics."""
     if encoder is None:
         encoder = CharbitEncoder(
-            length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS,
+            length=CHAR_LENGTH,
+            width=CHAR_WIDTH,
+            chars=CHARS,
         )
         input_dim = CHAR_LENGTH * CHAR_WIDTH
         encoding_width = CHAR_WIDTH
@@ -177,7 +179,8 @@ def run_eval(
         "token_burst_means": token_burst_means,
         "majority_frac": Counter(
             tid for tid, _ in tokens if tid != STORY_BOUNDARY
-        ).most_common(1)[0][1] / sum(1 for tid, _ in tokens if tid != STORY_BOUNDARY),
+        ).most_common(1)[0][1]
+        / sum(1 for tid, _ in tokens if tid != STORY_BOUNDARY),
     }
 
 
@@ -205,7 +208,7 @@ def print_results(bpe: dict, char: dict):
         ("Dendritic top-1", f"{bpe['top1']:.4f}", f"{char['top1']:.4f}"),
         ("Dendritic top-5", f"{bpe['top5']:.4f}", f"{char['top5']:.4f}"),
         ("Majority baseline", f"{bpe_maj:.4f}", f"{char_maj:.4f}"),
-        ("Uniform top-1", f"{1/bpe['n_unique']:.4f}", f"{1/char['n_unique']:.4f}"),
+        ("Uniform top-1", f"{1 / bpe['n_unique']:.4f}", f"{1 / char['n_unique']:.4f}"),
         ("", "", ""),
         ("Lift over majority", bpe_lift_maj, char_lift_maj),
         ("Lift over uniform", bpe_lift_uni, char_lift_uni),
@@ -232,7 +235,8 @@ def print_results(bpe: dict, char: dict):
     # Best/worst predicted chars
     print("\n  Best-predicted characters (lowest burst rate):")
     sorted_chars = sorted(
-        char["token_burst_means"].items(), key=lambda x: x[1],
+        char["token_burst_means"].items(),
+        key=lambda x: x[1],
     )
     for tid, rate in sorted_chars[:10]:
         ch = repr(chr(tid))
@@ -272,14 +276,20 @@ def main():
     print("=== BPE Tokenization (CharbitEncoder 808-dim) ===")
     bpe_tokens = prepare_tokens(args.tokens)
     bpe_results = run_eval(
-        bpe_tokens, cfg, "BPE", log_interval=args.log_interval,
+        bpe_tokens,
+        cfg,
+        "BPE",
+        log_interval=args.log_interval,
     )
 
     # --- Char-level with CharbitEncoder (808-dim, mostly zeros) ---
     print("\n=== Char-Level + CharbitEncoder (808-dim) ===")
     char_tokens = prepare_tokens_charlevel(args.tokens)
     charbit_results = run_eval(
-        char_tokens, cfg, "Char808", log_interval=args.log_interval,
+        char_tokens,
+        cfg,
+        "Char808",
+        log_interval=args.log_interval,
     )
 
     # --- Char-level with OneHotCharEncoder (compact) ---
@@ -288,10 +298,13 @@ def main():
     onehot = OneHotCharEncoder("".join(alphabet))
     # Char-level config: halve ltd_rate (local_scale changes with small input)
     from dataclasses import replace
+
     char_cfg = replace(cfg, ltd_rate=cfg.ltd_rate / 2)
     print(f"\n=== Char-Level + OneHotEncoder ({onehot.input_dim}-dim) ===")
     compact_results = run_eval(
-        char_tokens, char_cfg, "Compact",
+        char_tokens,
+        char_cfg,
+        "Compact",
         log_interval=args.log_interval,
         encoder=onehot,
         input_dim=onehot.input_dim,
@@ -300,12 +313,11 @@ def main():
 
     # --- Char-level with PositionalCharEncoder (structured) ---
     pos_enc = PositionalCharEncoder("".join(alphabet), max_positions=8)
-    print(
-        f"\n=== Char-Level + PositionalEncoder "
-        f"({pos_enc.input_dim}-dim) ==="
-    )
+    print(f"\n=== Char-Level + PositionalEncoder ({pos_enc.input_dim}-dim) ===")
     positional_results = run_eval(
-        char_tokens, cfg, "Positional",
+        char_tokens,
+        cfg,
+        "Positional",
         log_interval=args.log_interval,
         encoder=pos_enc,
         input_dim=pos_enc.input_dim,

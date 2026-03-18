@@ -1,4 +1,4 @@
-"""Sensory cortical region: encoding-specific receptive fields and local connectivity."""
+"""Sensory cortical region: encoding-specific receptive fields."""
 
 import numpy as np
 
@@ -65,9 +65,7 @@ class SensoryRegion(CorticalRegion):
         self._lat_col_pools = {}
         self._l23_col_pools = {}
         for col in range(self.n_columns):
-            neighbors = [
-                c for c in range(self.n_columns) if abs(c - col) <= radius
-            ]
+            neighbors = [c for c in range(self.n_columns) if abs(c - col) <= radius]
             self._fb_col_pools[col] = np.concatenate(
                 [np.arange(c * self.n_l23, (c + 1) * self.n_l23) for c in neighbors]
             )
@@ -77,13 +75,9 @@ class SensoryRegion(CorticalRegion):
             self._l23_col_pools[col] = self._fb_col_pools[col]  # same L2/3 neighborhood
 
         # L4 segments (feedback + lateral)
-        self.fb_seg_indices = np.zeros(
-            (n, self.n_fb_segments, n_syn), dtype=np.int32
-        )
+        self.fb_seg_indices = np.zeros((n, self.n_fb_segments, n_syn), dtype=np.int32)
         self.fb_seg_perm = np.zeros((n, self.n_fb_segments, n_syn))
-        self.lat_seg_indices = np.zeros(
-            (n, self.n_lat_segments, n_syn), dtype=np.int32
-        )
+        self.lat_seg_indices = np.zeros((n, self.n_lat_segments, n_syn), dtype=np.int32)
         self.lat_seg_perm = np.zeros((n, self.n_lat_segments, n_syn))
 
         for i in range(n):

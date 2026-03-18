@@ -17,16 +17,16 @@ sys.path.insert(0, "src")
 import numpy as np
 
 from step.config import (
-    _default_s1_config,
+    _default_motor_config,
     _default_region2_config,
     _default_region3_config,
-    _default_motor_config,
-    make_sensory_region,
+    _default_s1_config,
     make_motor_region,
+    make_sensory_region,
 )
-from step.cortex.topology import Topology
-from step.cortex.modulators import SurpriseTracker, ThalamicGate, RewardModulator
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
+from step.cortex.topology import Topology
 from step.data import EOM_TOKEN, STORY_BOUNDARY, prepare_tokens_charlevel
 from step.decoders.dendritic import DendriticDecoder
 from step.encoders.positional import PositionalCharEncoder
@@ -84,7 +84,7 @@ def main():
     tokens = prepare_tokens_charlevel(args.chars, dataset="babylm")
 
     # Build model and load checkpoint
-    cortex, encoder, s1, s2, s3 = build_model(alphabet)
+    cortex, _encoder, s1, s2, s3 = build_model(alphabet)
     ckpt_path = f"experiments/checkpoints/{args.checkpoint}.ckpt"
     print(f"Loading checkpoint: {ckpt_path}")
     cortex.load_checkpoint(ckpt_path)
@@ -110,6 +110,7 @@ def main():
                 result = o(enc)
                 snaps[n].append((r.active_columns.copy(), r.active_l23.copy()))
                 return result
+
             return cap
 
         region.process = make_capture(name, region, orig)
@@ -118,7 +119,10 @@ def main():
     print(f"Running {len(tokens)} tokens through S1→S2→S3+M1...")
     with contextlib.redirect_stdout(io.StringIO()):
         cortex.run(tokens, log_interval=99999)
-    print(f"Captured {len(snaps['S1'])} S1, {len(snaps['S2'])} S2, {len(snaps['S3'])} S3 steps.")
+    print(
+        f"Captured {len(snaps['S1'])} S1, {len(snaps['S2'])} S2,"
+        f" {len(snaps['S3'])} S3 steps."
+    )
 
     # Restore
     # (not needed since we're done processing)

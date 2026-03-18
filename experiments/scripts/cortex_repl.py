@@ -53,8 +53,8 @@ BOLD = "\033[1m"
 MAGENTA = "\033[35m"
 
 # Thresholds for speaking phase
-MAX_SPEAK_STEPS = 200   # max chars M1 can generate per turn
-MAX_SILENT_STEPS = 10   # give up waiting for M1 after this many silent steps
+MAX_SPEAK_STEPS = 200  # max chars M1 can generate per turn
+MAX_SILENT_STEPS = 10  # give up waiting for M1 after this many silent steps
 
 
 def surprise_color(bits: float, vocab_size: int = 65) -> str:
@@ -70,11 +70,14 @@ def surprise_color(bits: float, vocab_size: int = 65) -> str:
 def build_model(alphabet: str):
     """Build full hierarchy matching staged topology (S1+S2+S3+M1)."""
     from step.config import _default_region3_config
+
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
 
     s1_cfg = _default_s1_config()
     region1 = make_sensory_region(
-        s1_cfg, encoder.input_dim, encoder.encoding_width,
+        s1_cfg,
+        encoder.input_dim,
+        encoder.encoding_width,
     )
 
     r2_cfg = _default_region2_config()
@@ -91,11 +94,13 @@ def build_model(alphabet: str):
     motor.n_output_tokens = len(output_vocab)
     n_l23 = motor.n_l23_total
     motor.output_weights = motor._rng.uniform(
-        0, 0.01, size=(n_l23, len(output_vocab)),
+        0,
+        0.01,
+        size=(n_l23, len(output_vocab)),
     )
-    motor.output_mask = (
-        motor._rng.random((n_l23, len(output_vocab))) < 0.5
-    ).astype(np.float64)
+    motor.output_mask = (motor._rng.random((n_l23, len(output_vocab))) < 0.5).astype(
+        np.float64
+    )
     motor.output_weights *= motor.output_mask
     motor._output_eligibility = np.zeros((n_l23, len(output_vocab)))
 
@@ -233,37 +238,16 @@ def print_help():
     print(f"{DIM}  /info            Show model capabilities and sample prompts{RESET}")
     print(f"{DIM}  /reset           Clear working memory{RESET}")
     print(f"{DIM}  /stats           Show BPC statistics{RESET}")
-    print(
-        f"{DIM}  /warmup [N]      "
-        f"Train on N more chars (default 5000){RESET}"
-    )
-    print(
-        f"{DIM}  /save [name]     "
-        f"Save checkpoint (default: repl_default){RESET}"
-    )
-    print(
-        f"{DIM}  /load [name]     "
-        f"Load checkpoint (default: repl_default){RESET}"
-    )
-    print(
-        f"{DIM}  /babble [N]     "
-        f"Watch M1 babble N chars (default 200){RESET}"
-    )
-    print(
-        f"{DIM}  /probe          "
-        f"Show S1/S2/S3/M1 representation quality{RESET}"
-    )
+    print(f"{DIM}  /warmup [N]      Train on N more chars (default 5000){RESET}")
+    print(f"{DIM}  /save [name]     Save checkpoint (default: repl_default){RESET}")
+    print(f"{DIM}  /load [name]     Load checkpoint (default: repl_default){RESET}")
+    print(f"{DIM}  /babble [N]     Watch M1 babble N chars (default 200){RESET}")
+    print(f"{DIM}  /probe          Show S1/S2/S3/M1 representation quality{RESET}")
     print(f"{DIM}  /quit, /q        Exit{RESET}")
     print()
     print(f"{DIM}Type text to feed it through S1→S2→M1+BG.{RESET}")
-    print(
-        f"{DIM}After your input, EOM is injected "
-        f"and M1 gets a turn to speak.{RESET}"
-    )
-    print(
-        f"{DIM}M1 interruptions during input "
-        f"are shown inline.{RESET}"
-    )
+    print(f"{DIM}After your input, EOM is injected and M1 gets a turn to speak.{RESET}")
+    print(f"{DIM}M1 interruptions during input are shown inline.{RESET}")
 
 
 def print_info(cortex, encoder, region1, motor, decoder):
@@ -274,8 +258,7 @@ def print_info(cortex, encoder, region1, motor, decoder):
     regions = list(cortex._regions.keys())
     frozen = [n for n, s in cortex._regions.items() if not s.region.learning_enabled]
     active_conns = [
-        f"{c.source}→{c.target}({c.kind})"
-        for c in cortex._connections if c.enabled
+        f"{c.source}→{c.target}({c.kind})" for c in cortex._connections if c.enabled
     ]
     print(f"  {DIM}Regions:{RESET} {', '.join(regions)}")
     if frozen:
@@ -361,15 +344,14 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
     produced = []
     word_buf = []
 
-    for i in range(n_chars):
+    for _i in range(n_chars):
         # Encode and process through S1
         encoding = encoder.encode(current_char)
         region1.process(encoding)
 
         # Propagate to M1
         for conn in cortex._connections:
-            if (conn.target == "M1" and conn.kind == "feedforward"
-                    and conn.enabled):
+            if conn.target == "M1" and conn.kind == "feedforward" and conn.enabled:
                 motor.process(cortex._get_ff_signal(conn))
                 break
 
@@ -386,10 +368,7 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
 
             # Track words
             if ch in " .!?'-,":
-                if len(word_buf) >= 2:
-                    word = "".join(word_buf)
-                    # Highlight recognized words
-                    # (visual only, printed after)
+                # Highlight recognized words (visual only)
                 word_buf.clear()
             else:
                 word_buf.append(ch)
@@ -404,29 +383,25 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
 
     # Summary stats
     from collections import Counter
+
     chars = Counter(produced)
     n_unique = len(chars)
-    bigrams = Counter(
-        produced[i] + produced[i + 1]
-        for i in range(len(produced) - 1)
-    )
+    bigrams = Counter(produced[i] + produced[i + 1] for i in range(len(produced) - 1))
     # Find real words
     text = "".join(produced)
     import re
+
     words = re.split(r"[ .!?',\-]+", text)
     words = [w for w in words if len(w) >= 2]
 
-    burst_pct = (
-        float(region1.bursting_columns.sum())
-        / max(region1.n_columns, 1)
-    )
+    burst_pct = float(region1.bursting_columns.sum()) / max(region1.n_columns, 1)
     print(
         f"\n{DIM}  {len(produced)} chars, {n_unique} unique, "
         f"burst={burst_pct:.0%}, "
         f"words: {len(words)} attempts{RESET}"
     )
     if bigrams:
-        english_bg = ['th', 'he', 'in', 'er', 'an', 'at', 'is', 'it', 'to', 'st', 'ha']
+        english_bg = ["th", "he", "in", "er", "an", "at", "is", "it", "to", "st", "ha"]
         found = [(bg, bigrams[bg]) for bg in english_bg if bg in bigrams]
         if found:
             bg_str = ", ".join(f"{bg}:{c}" for bg, c in found[:6])
@@ -448,7 +423,6 @@ def run_probe(cortex):
         burst_pct = n_bursting / max(n_active, 1)
 
         # Weight stats
-        ff_mean = float(r.ff_weights.mean())
         ff_max = float(r.ff_weights.max())
         ff_sparsity = float((r.ff_weights == 0).mean())
 
@@ -462,17 +436,17 @@ def run_probe(cortex):
         )
 
         # Motor-specific: L5 output weight stats
-        if hasattr(r, 'output_weights'):
-            l5_mean = float(r.output_weights.mean())
+        if hasattr(r, "output_weights"):
             l5_max = float(r.output_weights.max())
             n_tokens = r.n_output_tokens
             # Which tokens have strongest weights?
             col_maxes = r.output_weights.max(axis=0)
             top_idx = col_maxes.argsort()[-5:][::-1]
-            if hasattr(r, '_output_vocab') and r._output_vocab is not None:
+            if hasattr(r, "_output_vocab") and r._output_vocab is not None:
                 top_chars = [
                     chr(int(r._output_vocab[i]))
-                    if 32 <= int(r._output_vocab[i]) < 127 else "?"
+                    if 32 <= int(r._output_vocab[i]) < 127
+                    else "?"
                     for i in top_idx
                 ]
             else:
@@ -487,9 +461,7 @@ def run_probe(cortex):
         if r.has_apical and r._apical_gain_weights is not None:
             gain_mean = float(r._apical_gain_weights.mean())
             gain_max = float(r._apical_gain_weights.max())
-            print(
-                f"    Apical gain: mean={gain_mean:.4f} max={gain_max:.3f}"
-            )
+            print(f"    Apical gain: mean={gain_mean:.4f} max={gain_max:.3f}")
 
     print()
 
@@ -535,10 +507,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                 continue
             elif cmd == "/stats":
                 avg_bpc = total_bits / n_chars if n_chars > 0 else 0
-                recent_bpc = (
-                    sum(recent_bits) / len(recent_bits)
-                    if recent_bits else 0
-                )
+                recent_bpc = sum(recent_bits) / len(recent_bits) if recent_bits else 0
                 print(
                     f"{DIM}Chars: {n_chars}  "
                     f"BPC: {avg_bpc:.2f}  "
@@ -554,6 +523,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
             elif cmd == "/save":
                 name = parts[1] if len(parts) > 1 else "repl_default"
                 import os
+
                 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
                 path = os.path.join(CHECKPOINT_DIR, f"{name}.ckpt")
                 cortex.save_checkpoint(path)
@@ -562,6 +532,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
             elif cmd == "/load":
                 name = parts[1] if len(parts) > 1 else "repl_default"
                 import os
+
                 path = os.path.join(CHECKPOINT_DIR, f"{name}.ckpt")
                 if not os.path.exists(path):
                     print(f"{RED}Checkpoint not found: {path}{RESET}")
@@ -597,7 +568,9 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
 
             # S1 prediction BEFORE processing
             preds = decode_prediction(
-                region1.active_l23, decoder, encoder,
+                region1.active_l23,
+                decoder,
+                encoder,
             )
             bits = compute_bits(token_id, region1.active_l23, decoder)
 
@@ -634,9 +607,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                 interruptions += 1
                 m1_ch = token_to_char(m_id)
                 m1_display = m1_ch if m1_ch else f"<{m_id}>"
-                m1_info = (
-                    f"  {RED}!! M1: '{m1_display}'{RESET}"
-                )
+                m1_info = f"  {RED}!! M1: '{m1_display}'{RESET}"
 
             # Aligned columns: char | bits | gate | predictions
             sys.stdout.write(
@@ -654,21 +625,11 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
 
         # Show transition with summary stats
         if n_chars > 0:
-            recent_bpc = (
-                sum(recent_bits) / len(recent_bits)
-                if recent_bits else 0
-            )
-            line_bpc = (
-                sum(line_bits) / len(line_bits)
-                if line_bits else 0
-            )
-            line_acc = (
-                line_correct / line_total
-                if line_total > 0 else 0
-            )
-            burst_pct = (
-                float(region1.bursting_columns.sum())
-                / max(region1.n_columns, 1)
+            recent_bpc = sum(recent_bits) / len(recent_bits) if recent_bits else 0
+            line_bpc = sum(line_bits) / len(line_bits) if line_bits else 0
+            line_acc = line_correct / line_total if line_total > 0 else 0
+            burst_pct = float(region1.bursting_columns.sum()) / max(
+                region1.n_columns, 1
             )
             print(
                 f"\n{DIM}  line: {line_bpc:.2f} bpc, "
@@ -695,9 +656,12 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
 
         for _ in range(MAX_SPEAK_STEPS + MAX_SILENT_STEPS):
             # Set PFC goal drive to M1 (if PFC exists)
-            if pfc_state is not None and hasattr(motor, '_goal_weights'):
-                if motor._goal_weights is not None:
-                    motor.set_goal_drive(pfc_state.region.firing_rate_l23)
+            if (
+                pfc_state is not None
+                and hasattr(motor, "_goal_weights")
+                and motor._goal_weights is not None
+            ):
+                motor.set_goal_drive(pfc_state.region.firing_rate_l23)
 
             # Feed M1's last output as next input (autoregressive)
             step_token(cortex, last_token[0], last_token[1])
@@ -729,17 +693,13 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                     # Was speaking, now stopped → natural end
                     break
                 if silent_steps >= MAX_SILENT_STEPS:
-                    sys.stdout.write(
-                        f"{DIM}  (M1 silent — gate={gate:.2f}){RESET}"
-                    )
+                    sys.stdout.write(f"{DIM}  (M1 silent — gate={gate:.2f}){RESET}")
                     break
 
         cortex.force_gate_open = False
 
         if spoken_chars:
-            sys.stdout.write(
-                f"\n{DIM}  M1 spoke {len(spoken_chars)} chars{RESET}"
-            )
+            sys.stdout.write(f"\n{DIM}  M1 spoke {len(spoken_chars)} chars{RESET}")
         print("\n")
 
         # Reset working memory for next exchange
@@ -778,11 +738,16 @@ def main():
 
     # Load tokens for vocab (and warmup)
     if args.dataset == "personachat":
-        load_fn = lambda n, **kw: prepare_tokens_personachat(n, **kw)
+
+        def load_fn(n, **kw):
+            return prepare_tokens_personachat(n, **kw)
     elif args.dataset == "tinydialogues":
-        load_fn = lambda n, **kw: prepare_tokens_tinydialogues(n, **kw)
+
+        def load_fn(n, **kw):
+            return prepare_tokens_tinydialogues(n, **kw)
     else:
-        from step.data import prepare_tokens_charlevel, inject_eom_tokens
+        from step.data import inject_eom_tokens, prepare_tokens_charlevel
+
         def load_fn(n, **kw):
             tokens = prepare_tokens_charlevel(n, dataset="babylm")
             return inject_eom_tokens(tokens, segment_length=200)
@@ -804,6 +769,7 @@ def main():
     # Load checkpoint or warmup
     if args.checkpoint:
         import os
+
         path = args.checkpoint
         if not os.path.exists(path):
             path = os.path.join(CHECKPOINT_DIR, f"{args.checkpoint}.ckpt")

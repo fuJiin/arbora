@@ -126,9 +126,7 @@ def run_online_eval(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Evaluate dendritic decoder online"
-    )
+    parser = argparse.ArgumentParser(description="Evaluate dendritic decoder online")
     parser.add_argument("--tokens", type=int, default=20000)
     parser.add_argument("--log-interval", type=int, default=2000)
     args = parser.parse_args()

@@ -97,9 +97,9 @@ class PFCRegion(CorticalRegion):
             # Gate closed: no new input, maintain via slow decay
             neuron_drive = np.zeros(self.n_l4_total)
 
-        self.last_column_drive = neuron_drive.reshape(
-            self.n_columns, self.n_l4
-        ).max(axis=1)
+        self.last_column_drive = neuron_drive.reshape(self.n_columns, self.n_l4).max(
+            axis=1
+        )
         active = self.step(neuron_drive)
 
         if self.learning_enabled and self.gate_open:

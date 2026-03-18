@@ -111,7 +111,8 @@ class TestBurst:
     def test_burst_rate_decreases_with_learning(self):
         """As segments develop, burst rate should decrease."""
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -148,7 +149,8 @@ class TestBurst:
     def test_burst_learning_scale_l23(self):
         """Burst columns should produce larger L2/3 lateral weight updates."""
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -157,10 +159,10 @@ class TestBurst:
             burst_learning_scale=5.0,
         )
         r.step(col_drive([1.0, 0.0, 0.0, 0.0], 2))
-        l23_traced = np.where(r.trace_l23 > 0)[0][0]
+        _l23_traced = np.where(r.trace_l23 > 0)[0][0]
 
         r.step(col_drive([0.0, 1.0, 0.0, 0.0], 2))
-        l23_active = np.where(r.active_l23)[0]
+        _l23_active = np.where(r.active_l23)[0]
 
         # L2/3 segments should have grown (permanences > 0)
         assert r.l23_seg_perm.sum() > 0
@@ -180,7 +182,8 @@ class TestVoltage:
 
     def test_voltage_accumulates_over_steps(self):
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -193,7 +196,8 @@ class TestVoltage:
 
     def test_voltage_decays_each_step(self):
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -250,7 +254,8 @@ class TestEligibility:
 
     def test_decays_over_time(self):
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -279,7 +284,8 @@ class TestLearning:
     def test_l23_segments_grow_on_sequence(self):
         """L2/3 segment permanences should grow after sequential activation."""
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -298,7 +304,8 @@ class TestLearning:
     def test_l23_seg_perm_clipped_to_unit(self):
         """L2/3 segment permanences stay in [0, 1]."""
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -321,7 +328,8 @@ class TestFeedback:
         """Strong feedback to a specific L4 neuron should make it win
         and produce a precise (non-burst) activation."""
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=4,
             n_l23=4,
             k_columns=1,
@@ -351,7 +359,8 @@ class TestL23Lateral:
     def test_l23_segment_prediction_biases_selection(self):
         """L2/3 segment prediction boosts a specific neuron to win."""
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=4,
             n_l23=4,
             k_columns=1,
@@ -412,7 +421,8 @@ class TestDendriticSegments:
     def test_segment_growth_on_burst(self):
         """Bursting should grow segment permanences above zero."""
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -431,7 +441,8 @@ class TestDendriticSegments:
     def test_segments_reduce_burst_rate(self):
         """After learning, segments should predict and reduce bursting."""
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -460,7 +471,8 @@ class TestDendriticSegments:
     def test_false_prediction_punished(self):
         """Segments that predict incorrectly should have permanences reduced."""
         r = CorticalRegion(
-            8, n_columns=4,
+            8,
+            n_columns=4,
             n_l4=2,
             n_l23=2,
             k_columns=1,
@@ -488,8 +500,7 @@ class TestDendriticSegments:
                 source = s.fb_seg_indices[0, s_idx, syn_idx]
                 source_col = source // s.n_l23
                 assert source_col <= radius, (
-                    f"neuron 0 has fb synapse to col {source_col}, "
-                    f"expected <= {radius}"
+                    f"neuron 0 has fb synapse to col {source_col}, expected <= {radius}"
                 )
 
 

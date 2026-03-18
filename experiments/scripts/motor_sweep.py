@@ -6,7 +6,6 @@ Usage:
 """
 
 import argparse
-import itertools
 import time
 
 import step.env  # noqa: F401
@@ -92,6 +91,7 @@ def run_one(tokens, encoder, cortex_cfg, motor_params):
 
     import contextlib
     import io
+
     with contextlib.redirect_stdout(io.StringIO()):
         result = cortex.run(tokens, log_interval=999999)
 

@@ -118,7 +118,10 @@ def run_one(
 
     start = time.monotonic()
     metrics = run_hierarchy(
-        r1, r2, encoder, tokens,
+        r1,
+        r2,
+        encoder,
+        tokens,
         surprise_tracker=surprise,
         log_interval=log_interval,
         diagnostics1=diag1,
@@ -208,42 +211,55 @@ def main():
     parser.add_argument("--tokens", type=int, default=5000)
     parser.add_argument("--log-interval", type=int, default=1000)
     parser.add_argument(
-        "--gain", type=float, default=1.5,
+        "--gain",
+        type=float,
+        default=1.5,
         help="prediction_gain (single A/B mode)",
     )
     parser.add_argument(
-        "--sweep", action="store_true",
+        "--sweep",
+        action="store_true",
         help="Sweep multiple gain values instead of single A/B",
     )
     args = parser.parse_args()
 
     tokens = prepare_tokens(args.tokens)
     encoder = CharbitEncoder(
-        length=CHAR_LENGTH, width=CHAR_WIDTH, chars=CHARS,
+        length=CHAR_LENGTH,
+        width=CHAR_WIDTH,
+        chars=CHARS,
     )
 
-    gains = (
-        [1.5, 2.0, 2.5, 3.0]
-        if args.sweep
-        else [args.gain]
-    )
+    gains = [1.5, 2.0, 2.5, 3.0] if args.sweep else [args.gain]
 
     results = []
 
     # Baseline: no apical feedback
     r1a, r2a = make_regions(1.0, with_apical=False)
-    results.append(run_one(
-        "No feedback", tokens, encoder, r1a, r2a,
-        args.log_interval,
-    ))
+    results.append(
+        run_one(
+            "No feedback",
+            tokens,
+            encoder,
+            r1a,
+            r2a,
+            args.log_interval,
+        )
+    )
 
     # Each gain value
     for gain in gains:
         r1, r2 = make_regions(gain, with_apical=True)
-        results.append(run_one(
-            f"gain={gain}", tokens, encoder, r1, r2,
-            args.log_interval,
-        ))
+        results.append(
+            run_one(
+                f"gain={gain}",
+                tokens,
+                encoder,
+                r1,
+                r2,
+                args.log_interval,
+            )
+        )
 
     print_summary(results)
 

@@ -74,12 +74,10 @@ class RewardModulator:
         reward = 0: neutral (modulator ≈ 1.0)
         """
         self._reward_ema = (
-            self._ema_decay * self._reward_ema
-            + (1.0 - self._ema_decay) * reward
+            self._ema_decay * self._reward_ema + (1.0 - self._ema_decay) * reward
         )
         self._baseline = (
-            self.baseline_decay * self._baseline
-            + (1.0 - self.baseline_decay) * reward
+            self.baseline_decay * self._baseline + (1.0 - self.baseline_decay) * reward
         )
         # Modulator centered at 1.0: positive reward → >1, negative → <1
         modulator = 1.0 + (self._reward_ema - self._baseline)
@@ -113,8 +111,7 @@ class ThalamicGate:
 
     def update(self, burst_rate: float) -> float:
         self._burst_ema = (
-            self._ema_decay * self._burst_ema
-            + (1.0 - self._ema_decay) * burst_rate
+            self._ema_decay * self._burst_ema + (1.0 - self._ema_decay) * burst_rate
         )
         return self.readiness
 

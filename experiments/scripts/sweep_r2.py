@@ -97,15 +97,15 @@ def run_hierarchy(r2_cols, r2_k, r2_lr, r2_ltd, r2_vdecay):
 
 configs = [
     # (cols, k, lr, ltd, v_decay)
-    (16, 2, 0.01, 0.4, 0.8),   # current default
-    (16, 2, 0.05, 0.1, 0.8),   # higher lr, lower ltd
+    (16, 2, 0.01, 0.4, 0.8),  # current default
+    (16, 2, 0.05, 0.1, 0.8),  # higher lr, lower ltd
     (16, 2, 0.05, 0.05, 0.8),  # match S1 ltd
-    (16, 2, 0.05, 0.2, 0.5),   # faster voltage decay
-    (16, 4, 0.05, 0.1, 0.8),   # more active cols
+    (16, 2, 0.05, 0.2, 0.5),  # faster voltage decay
+    (16, 4, 0.05, 0.1, 0.8),  # more active cols
     (16, 4, 0.05, 0.05, 0.5),  # more active + faster decay
-    (32, 4, 0.05, 0.1, 0.8),   # more cols
+    (32, 4, 0.05, 0.1, 0.8),  # more cols
     (32, 4, 0.05, 0.05, 0.5),  # more cols + faster
-    (32, 4, 0.05, 0.1, 0.5),   # more cols + faster decay
+    (32, 4, 0.05, 0.1, 0.5),  # more cols + faster decay
     (32, 8, 0.05, 0.05, 0.5),  # many active cols
 ]
 

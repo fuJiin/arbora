@@ -42,11 +42,14 @@ def main():
         help="Only run single-region baseline (skip hierarchy)",
     )
     parser.add_argument(
-        "--buffer-depth", type=int, default=1,
+        "--buffer-depth",
+        type=int,
+        default=1,
         help="Temporal buffer depth for S1→S2 feedforward (default: 1 = direct)",
     )
     parser.add_argument(
-        "--burst-gate", action="store_true",
+        "--burst-gate",
+        action="store_true",
         help="Gate feedforward signal by bursting columns (novel events only)",
     )
     args = parser.parse_args()

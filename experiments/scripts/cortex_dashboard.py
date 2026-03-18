@@ -324,11 +324,13 @@ def _build_hierarchy_dashboard(
             bg_mean = sum(m1_m.bg_gate_values) / len(m1_m.bg_gate_values)
         int_rate = (
             m1_m.turn_interruptions / m1_m.turn_input_steps
-            if m1_m.turn_input_steps > 0 else 0
+            if m1_m.turn_input_steps > 0
+            else 0
         )
         speak_rate = (
             m1_m.turn_correct_speak / m1_m.turn_eom_steps
-            if m1_m.turn_eom_steps > 0 else 0
+            if m1_m.turn_eom_steps > 0
+            else 0
         )
 
         # BPC from S1
@@ -471,9 +473,7 @@ def _build_hierarchy_dashboard(
         if s1_metrics and s1_metrics.bpc < float("inf"):
             # Count unique chars for random baseline
             n_unique = len(
-                s1_metrics.representation.get(
-                    "column_selectivity_per_col", []
-                )
+                s1_metrics.representation.get("column_selectivity_per_col", [])
             )
             tabs["Overview"].insert(
                 0,

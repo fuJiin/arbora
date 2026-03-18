@@ -11,14 +11,14 @@ Falls back gracefully if numba is not installed (pure numpy path remains).
 """
 
 import numpy as np
-from numba import njit, types, prange  # noqa: F401
+from numba import njit, prange, types  # noqa: F401
 
 
 @njit(cache=True)
 def predict_segments(
-    active_source: np.ndarray,     # (source_dim,) bool
-    seg_indices: np.ndarray,       # (n_neurons, n_segments, n_synapses) int32
-    seg_perm: np.ndarray,          # (n_neurons, n_segments, n_synapses) float64
+    active_source: np.ndarray,  # (source_dim,) bool
+    seg_indices: np.ndarray,  # (n_neurons, n_segments, n_synapses) int32
+    seg_perm: np.ndarray,  # (n_neurons, n_segments, n_synapses) float64
     perm_threshold: float,
     seg_threshold: int,
 ) -> np.ndarray:
@@ -58,10 +58,10 @@ def predict_segments(
 @njit(cache=True)
 def grow_segment(
     neuron: int,
-    seg_indices: np.ndarray,       # (n_neurons, n_segments, n_synapses)
-    seg_perm: np.ndarray,          # (n_neurons, n_segments, n_synapses)
-    ctx: np.ndarray,               # (source_dim,) bool
-    pool: np.ndarray,              # (pool_size,) int — valid source indices
+    seg_indices: np.ndarray,  # (n_neurons, n_segments, n_synapses)
+    seg_perm: np.ndarray,  # (n_neurons, n_segments, n_synapses)
+    ctx: np.ndarray,  # (source_dim,) bool
+    pool: np.ndarray,  # (pool_size,) int — valid source indices
     perm_increment: float,
     perm_decrement: float,
     perm_init: float,
@@ -131,8 +131,14 @@ def grow_segment(
     for i in range(len(inactive_slots)):
         for j in range(i + 1, len(inactive_slots)):
             if inactive_perms[j] < inactive_perms[i]:
-                inactive_slots[i], inactive_slots[j] = inactive_slots[j], inactive_slots[i]
-                inactive_perms[i], inactive_perms[j] = inactive_perms[j], inactive_perms[i]
+                inactive_slots[i], inactive_slots[j] = (
+                    inactive_slots[j],
+                    inactive_slots[i],
+                )
+                inactive_perms[i], inactive_perms[j] = (
+                    inactive_perms[j],
+                    inactive_perms[i],
+                )
 
     # Replace weakest inactive with new sources
     n_grow = min(len(new_sources), len(inactive_slots))
@@ -144,10 +150,10 @@ def grow_segment(
 
 @njit(cache=True)
 def adapt_segments_batch(
-    neurons: np.ndarray,           # (n_neurons,) int — neuron indices
-    seg_indices: np.ndarray,       # (total_neurons, n_segments, n_synapses)
-    seg_perm: np.ndarray,          # (total_neurons, n_segments, n_synapses)
-    ctx: np.ndarray,               # (source_dim,) bool
+    neurons: np.ndarray,  # (n_neurons,) int — neuron indices
+    seg_indices: np.ndarray,  # (total_neurons, n_segments, n_synapses)
+    seg_perm: np.ndarray,  # (total_neurons, n_segments, n_synapses)
+    ctx: np.ndarray,  # (source_dim,) bool
     perm_threshold: float,
     seg_threshold: int,
     perm_increment: float,

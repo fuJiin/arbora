@@ -20,17 +20,17 @@ sys.path.insert(0, "src")
 import numpy as np
 
 from step.config import (
-    _default_s1_config,
+    _default_motor_config,
     _default_region2_config,
     _default_region3_config,
-    _default_motor_config,
-    make_sensory_region,
+    _default_s1_config,
     make_motor_region,
+    make_sensory_region,
 )
-from step.cortex.topology import Topology
-from step.cortex.modulators import SurpriseTracker, ThalamicGate, RewardModulator
 from step.cortex.basal_ganglia import BasalGanglia
-from step.data import prepare_tokens_charlevel, inject_eom_tokens
+from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
+from step.cortex.topology import Topology
+from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.decoders.dendritic import DendriticDecoder
 from step.encoders.positional import PositionalCharEncoder
 from step.probes.bpc import BPCProbe
@@ -86,18 +86,22 @@ def probe(cortex, s1, s2, s3, tokens):
     snaps = {"S1": [], "S2": [], "S3": []}
     for name, region in [("S1", s1), ("S2", s2), ("S3", s3)]:
         orig = region.process
+
         def make_cap(n, r, o):
             def cap(enc):
                 result = o(enc)
                 snaps[n].append((r.active_columns.copy(), r.active_l23.copy()))
                 return result
+
             return cap
+
         region.process = make_cap(name, region, orig)
 
     with contextlib.redirect_stdout(io.StringIO()):
         cortex.run(tokens, log_interval=99999)
 
     from step.data import EOM_TOKEN, STORY_BOUNDARY
+
     content = [(t, s) for t, s in tokens if t != EOM_TOKEN and t != STORY_BOUNDARY]
 
     prev_s1 = np.zeros(s1.n_l23_total, dtype=np.bool_)
@@ -140,20 +144,24 @@ def main():
     alphabet = sorted({ch for _, ch in train_tokens if _ >= 0})
 
     configs = [
-        ("no feedback",    False, False),
-        ("S2→S1 only",     True,  False),
-        ("S3→S2 only",     False, True),
-        ("full feedback",  True,  True),
+        ("no feedback", False, False),
+        ("S2→S1 only", True, False),
+        ("S3→S2 only", False, True),
+        ("full feedback", True, True),
     ]
 
     results = []
     for name, s2s1, s3s2 in configs:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  {name} (S2→S1={s2s1}, S3→S2={s3s2})")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         t0 = time.monotonic()
-        cortex, encoder, s1, s2, s3 = build_model(alphabet, s2_to_s1=s2s1, s3_to_s2=s3s2)
+        cortex, _encoder, s1, s2, s3 = build_model(
+            alphabet,
+            s2_to_s1=s2s1,
+            s3_to_s2=s3s2,
+        )
 
         print("  Training...")
         with contextlib.redirect_stdout(io.StringIO()):
@@ -167,15 +175,21 @@ def main():
         r["train_time"] = train_t
         results.append(r)
 
-        print(f"  S1 BPC: {r['s1_bpc']:.3f}  S2 BPC: {r['s2_bpc']:.3f}  S3 BPC: {r['s3_bpc']:.3f}")
+        print(
+            f"  S1 BPC: {r['s1_bpc']:.3f}  S2 BPC: {r['s2_bpc']:.3f}"
+            f"  S3 BPC: {r['s3_bpc']:.3f}"
+        )
         print(f"  S2 consistent words: {r['s2_consistent']} (J={r['s2_mean_j']:.3f})")
         print(f"  S3 consistent words: {r['s3_consistent']} (J={r['s3_mean_j']:.3f})")
         print(f"  ({time.monotonic() - t0:.0f}s probe)")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  SUMMARY")
-    print(f"{'='*60}")
-    print(f"{'Config':<18} {'S1 BPC':>7} {'S2 BPC':>7} {'S3 BPC':>7} {'S2 cons':>8} {'S3 cons':>8}")
+    print(f"{'=' * 60}")
+    print(
+        f"{'Config':<18} {'S1 BPC':>7} {'S2 BPC':>7} "
+        f"{'S3 BPC':>7} {'S2 cons':>8} {'S3 cons':>8}"
+    )
     print("-" * 58)
     for r in results:
         print(
@@ -187,7 +201,8 @@ def main():
     base = next(r for r in results if r["name"] == "no feedback")
     full = next(r for r in results if r["name"] == "full feedback")
     s1_delta = base["s1_bpc"] - full["s1_bpc"]
-    print(f"\nFull feedback vs none: S1 BPC {'improved' if s1_delta > 0 else 'worsened'} by {abs(s1_delta):.3f}")
+    direction = "improved" if s1_delta > 0 else "worsened"
+    print(f"\nFull feedback vs none: S1 BPC {direction} by {abs(s1_delta):.3f}")
 
 
 if __name__ == "__main__":
