@@ -681,15 +681,25 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
         print(f"\n{DIM}  [EOM → M1's turn]{RESET}")
 
         # ── SPEAKING PHASE ──
-        # Force BG gate open — we know it's M1's turn. BG gating
-        # is for learned turn-taking; in the REPL we control turns.
-        # M1 still processes normally, we just bypass the gate filter.
+        # Force BG gate open — we know it's M1's turn.
+        # PFC holds context from input phase → goal drive to M1.
         cortex.force_gate_open = True
         spoken_chars = []
         silent_steps = 0
 
+        # Snapshot PFC goal and close gate for speaking
+        pfc_state = cortex._regions.get("PFC")
+        if pfc_state is not None:
+            pfc_state.region.snapshot_goal()
+            pfc_state.region.gate_open = False
+
         for _ in range(MAX_SPEAK_STEPS + MAX_SILENT_STEPS):
-            # Feed neutral input (last char repeated, like TinyDialogues pattern)
+            # Set PFC goal drive to M1 (if PFC exists)
+            if pfc_state is not None and hasattr(motor, '_goal_weights'):
+                if motor._goal_weights is not None:
+                    motor.set_goal_drive(pfc_state.region.firing_rate_l23)
+
+            # Feed M1's last output as next input (autoregressive)
             step_token(cortex, last_token[0], last_token[1])
 
             m_id, m_conf = motor.last_output
