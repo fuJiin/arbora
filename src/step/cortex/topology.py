@@ -1321,13 +1321,22 @@ class Topology:
             episode_reward = 0.0
             produced = []
 
-            # Init goal weights if needed
-            if motor_region._goal_weights is None:
-                motor_region.init_goal_drive(pfc_region.n_l23_total)
+            # Find M2 if it exists (PFC→M2→M1 pathway)
+            from step.cortex.premotor import PremotorRegion
+            m2_region = None
+            for _n, _s in self._regions.items():
+                if isinstance(_s.region, PremotorRegion):
+                    m2_region = _s.region
+                    break
 
-            for step_i in range(len(word) + 2):  # Allow a couple extra chars
-                # Set PFC goal drive → M1 (feedforward, not apical)
-                motor_region.set_goal_drive(pfc_region.firing_rate_l23)
+            # Init goal weights: PFC→M2 if M2 exists, else PFC→M1 direct
+            goal_target = m2_region if m2_region is not None else motor_region
+            if goal_target._goal_weights is None:
+                goal_target.init_goal_input(pfc_region.n_l23_total) if hasattr(goal_target, 'init_goal_input') else goal_target.init_goal_drive(pfc_region.n_l23_total)
+
+            for step_i in range(len(word) + 2):
+                # Set PFC goal drive → M2 (or M1 direct if no M2)
+                goal_target.set_goal_drive(pfc_region.firing_rate_l23)
 
                 # Feed last produced char (or space as seed)
                 seed = produced[-1] if produced else " "

@@ -107,7 +107,7 @@ class TrainingStage:
 # ------------------------------------------------------------------
 
 def _sensory_connections():
-    """Sensory stage: S1→S2→S3 + M1 listening + PFC listening."""
+    """Sensory stage: full hierarchy + M1/M2/PFC listening."""
     return [
         # Sensory feedforward + surprise: on
         StageConnection("S1", "S2", "feedforward", enabled=True),
@@ -117,18 +117,19 @@ def _sensory_connections():
         # Apical feedback: on
         StageConnection("S2", "S1", "apical", enabled=True),
         StageConnection("S3", "S2", "apical", enabled=True),
-        # M1 listening
-        StageConnection("S1", "M1", "feedforward", enabled=True),
-        StageConnection("S1", "M1", "surprise", enabled=True),
+        # Motor pathway listening: S2→M2→M1 (learns sequence patterns)
+        StageConnection("S2", "M2", "feedforward", enabled=True),
+        StageConnection("M2", "M1", "feedforward", enabled=True),
+        StageConnection("S1", "M1", "apical", enabled=True),
         StageConnection("M1", "S1", "apical", enabled=False),
-        # PFC listening: observes S3 output, builds goal representations
+        # PFC listening
         StageConnection("S2", "PFC", "feedforward", enabled=True),
         StageConnection("PFC", "M1", "apical", enabled=False),
     ]
 
 
 def _babbling_connections():
-    """Babbling stage: full hierarchy for listening + PFC→M1 for goal biasing."""
+    """Babbling stage: full hierarchy + PFC→M2→M1 motor pathway."""
     return [
         # Sensory hierarchy: on (interleaved listening)
         StageConnection("S1", "S2", "feedforward", enabled=True),
@@ -137,13 +138,14 @@ def _babbling_connections():
         StageConnection("S2", "S3", "surprise", enabled=True),
         StageConnection("S2", "S1", "apical", enabled=True),
         StageConnection("S3", "S2", "apical", enabled=True),
-        # M1 input
-        StageConnection("S1", "M1", "feedforward", enabled=True),
-        StageConnection("S1", "M1", "surprise", enabled=True),
+        # Motor pathway: M2→M1
+        StageConnection("S2", "M2", "feedforward", enabled=True),
+        StageConnection("M2", "M1", "feedforward", enabled=True),
+        StageConnection("S1", "M1", "apical", enabled=True),
         StageConnection("M1", "S1", "apical", enabled=False),
-        # PFC: receives S3, biases M1
+        # PFC→M2→M1: goal-driven
         StageConnection("S2", "PFC", "feedforward", enabled=True),
-        StageConnection("PFC", "M1", "apical", enabled=True),
+        StageConnection("PFC", "M1", "apical", enabled=False),
     ]
 
 
@@ -169,9 +171,9 @@ def _guided_connections():
 
 SENSORY_STAGE = TrainingStage(
     name="sensory",
-    description="Sensory learning + M1/PFC listening (S1→S2→S3, M1+PFC observe)",
+    description="Sensory learning + motor pathway listening",
     n_tokens=1_000_000,
-    learning_regions=["S1", "S2", "S3", "M1", "PFC"],
+    learning_regions=["S1", "S2", "S3", "M1", "M2", "PFC"],
     connections=_sensory_connections(),
     save_checkpoint="stage1_sensory",
 )
@@ -180,7 +182,7 @@ BABBLING_STAGE = TrainingStage(
     name="babbling",
     description="Interleaved listening + babbling with caregiver reward",
     n_tokens=200_000,
-    learning_regions=["S1", "S2", "S3", "M1"],  # All learn during listening
+    learning_regions=["S1", "S2", "S3", "M1", "M2", "PFC"],
     connections=_sensory_connections(),  # Full hierarchy for listening
     load_checkpoint="stage1_sensory",
     save_checkpoint="stage2_babbling",
