@@ -80,12 +80,15 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
 
     # M2 (premotor): created first so M1 knows its input dim
     m2_cfg = _default_premotor_config()
-    m2 = make_premotor_region(m2_cfg, s2.n_l23_total, seed=321)
+    # M2 created after PFC (needs PFC dims for input), but M1 needs
+    # M2 output dims. All premotor regions have same n_l23_total
+    # regardless of input_dim, so use a placeholder for now.
+    m2_n_l23 = m2_cfg.n_columns * m2_cfg.n_l23
 
     m1_cfg = _default_motor_config()
-    # M1 input comes from M2 (not S1 directly anymore)
+    # M1 input comes from M2
     output_vocab = [ord(ch) for ch in encoder._char_to_idx]
-    m1 = make_motor_region(m1_cfg, m2.n_l23_total, seed=456)
+    m1 = make_motor_region(m1_cfg, m2_n_l23, seed=456)
     # Set vocabulary for L5 output mapping
     m1._output_vocab = np.array(output_vocab, dtype=np.int64)
     m1.n_output_tokens = len(output_vocab)
@@ -116,22 +119,27 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     )
     cortex.add_region("M1", m1, basal_ganglia=bg)
 
-    # PFC: receives S2 output (word-level patterns — needed for echo/goal specificity)
-    # S3 topic context can come via apical in the future.
+    # PFC: receives S2 (word-level) + S3 (topic-level) via multiple ff
+    # input_dim = S2 + S3 concatenated
     pfc_cfg = _default_pfc_config()
-    pfc = make_pfc_region(pfc_cfg, s2.n_l23_total, seed=999)
+    pfc = make_pfc_region(pfc_cfg, s2.n_l23_total + s3.n_l23_total, seed=999)
     cortex.add_region("PFC", pfc)
 
-    # M2 already created above (M1 needs its dimensions)
-    m2.init_goal_input(pfc.n_l23_total)
+    # M2: receives S2 (word context) + PFC (goal) via multiple ff
+    # input_dim = S2 + PFC concatenated
+    m2 = make_premotor_region(m2_cfg, s2.n_l23_total + pfc.n_l23_total, seed=321)
     cortex.add_region("M2", m2)
 
-    # Feedforward chain
+    # Feedforward chain (multiple ff to same target = summed/concatenated)
     cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
     cortex.connect("S2", "S3", "feedforward", buffer_depth=8, burst_gate=True)
+    # PFC gets S2 + S3 (word + topic context for goal formation)
     cortex.connect("S2", "PFC", "feedforward")
-    # Motor pathway: S2 → M2 (word context), M2 → M1 (sequence step)
+    cortex.connect("S3", "PFC", "feedforward")
+    # M2 gets S2 (word context) + PFC (goal)
     cortex.connect("S2", "M2", "feedforward")
+    cortex.connect("PFC", "M2", "feedforward")
+    # M2 → M1 (sequence step drives motor execution)
     cortex.connect("M2", "M1", "feedforward")
     # Surprise
     cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())

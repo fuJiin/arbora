@@ -179,8 +179,10 @@ class MotorRegion(CorticalRegion):
                 winner_neurons = []
                 for col in winner_cols:
                     winner_neurons.extend(range(col * self.n_l4, (col + 1) * self.n_l4))
+                # Slow learning rate for goal weights (stability over speed)
+                goal_lr = self.learning_rate * 0.1
                 self._goal_eligibility[:, winner_neurons] += (
-                    self.learning_rate * self._pending_goal_signal[:, np.newaxis]
+                    goal_lr * self._pending_goal_signal[:, np.newaxis]
                 )
             del self._pending_goal_signal
 
@@ -315,9 +317,11 @@ class MotorRegion(CorticalRegion):
         self.output_weights *= self.output_mask
         np.clip(self.output_weights, 0, 1, out=self.output_weights)
 
-        # Consolidate goal_weights (PFC→M1 feedforward)
+        # Consolidate goal_weights (PFC→M1/M2 feedforward)
+        # Scaled down (0.3x) for stability — goal mapping needs to
+        # develop slowly to avoid oscillation during echo training.
         if self._goal_weights is not None and hasattr(self, "_goal_eligibility"):
-            self._goal_weights += reward * self._goal_eligibility
+            self._goal_weights += 0.3 * reward * self._goal_eligibility
             np.clip(self._goal_weights, 0, 1, out=self._goal_weights)
 
     def observe_token(self, token_id: int) -> None:
