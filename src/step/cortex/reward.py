@@ -251,6 +251,7 @@ class EchoReward:
         self,
         *,
         match_bonus: float = 2.0,
+        mismatch_scale: float = 0.5,
         position_tolerance: int = 1,
         curiosity_scale: float = 0.5,
         baseline_decay: float = 0.99,
@@ -260,6 +261,7 @@ class EchoReward:
             baseline_decay=baseline_decay,
         )
         self.match_bonus = match_bonus
+        self.mismatch_scale = mismatch_scale
         self.position_tolerance = position_tolerance
 
         # Listen phase: chars heard
@@ -318,8 +320,10 @@ class EchoReward:
                 break
 
         if not matched:
-            # Wrong char — small penalty
-            reward -= self.match_bonus * 0.1
+            # Wrong char — penalty scaled by mismatch_scale.
+            # Default 0.1 (10% of match). Higher values (0.5-1.0)
+            # reduce oscillation by making mismatches more costly.
+            reward -= self.match_bonus * self.mismatch_scale
 
         self._echo_pos += 1
 
