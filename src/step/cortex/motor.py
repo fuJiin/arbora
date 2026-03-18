@@ -68,6 +68,13 @@ class MotorRegion(CorticalRegion):
         # L5 output state (updated each step in process())
         self.output_scores = np.zeros(n_columns)
 
+        # Goal drive: additive feedforward signal from PFC.
+        # Added to ff_weights drive before k-WTA competition.
+        # This is the "direct dial" — PFC→M1 feedforward shortcut
+        # for simple responses. Will be replaced by PFC→M2→M1 later.
+        self._goal_drive: np.ndarray | None = None
+        self._goal_weights: np.ndarray | None = None
+
         # -- L5 output layer: L2/3 → token scores --
         # Models cortical L5 pyramidal neurons that project to motor
         # periphery. Learned weights with structural sparsity, same
@@ -95,29 +102,65 @@ class MotorRegion(CorticalRegion):
         self.last_gate: float = 0.5
         self.last_reward: float = 0.0
 
-    def process(self, encoding: np.ndarray) -> np.ndarray:
-        """Feedforward + compute L5 output scores.
+    def init_goal_drive(self, source_dim: int) -> None:
+        """Initialize PFC→M1 feedforward goal weights.
 
-        When babbling_noise > 0, forces random column activations directly,
-        bypassing ff_weights and k-WTA competition. This ensures M1 explores
-        its full output space uniformly rather than collapsing to dominant
-        patterns. Models brainstem pattern generators driving motor cortex.
+        Called once when PFC is connected. Creates learned weights that
+        map PFC's L2/3 firing rate to additive M1 neuron drive.
+        """
+        self._goal_weights = self._rng.uniform(
+            0, 0.01, size=(source_dim, self.n_l4_total),
+        )
+        # Structural sparsity: ~50% connectivity
+        goal_mask = (self._rng.random((source_dim, self.n_l4_total)) < 0.5)
+        self._goal_weights *= goal_mask
+        self._goal_drive = None
+
+    def set_goal_drive(self, pfc_firing_rate: np.ndarray) -> None:
+        """Set PFC goal signal for next process() call."""
+        self._goal_drive = pfc_firing_rate
+
+    def process(self, encoding: np.ndarray) -> np.ndarray:
+        """Feedforward + goal drive + L5 output scores.
+
+        Combines S1 feedforward (sensory context) with PFC goal drive
+        (what to produce). Both are additive on neuron voltage before
+        k-WTA competition selects winning columns.
         """
         if self.babbling_noise >= 1.0:
             active = self._babble_direct(encoding)
         elif self.babbling_noise > 0.0:
-            # Partial noise: mix random columns with normal processing
             if self._rng.random() < self.babbling_noise:
                 active = self._babble_direct(encoding)
             else:
-                active = super().process(encoding)
+                active = self._process_with_goal(encoding)
         else:
-            active = super().process(encoding)
+            active = self._process_with_goal(encoding)
 
         # L5 readout: per-column mean L2/3 firing rate
         rates = self.firing_rate_l23.reshape(self.n_columns, self.n_l23)
         self.output_scores = rates.mean(axis=1)
 
+        return active
+
+    def _process_with_goal(self, encoding: np.ndarray) -> np.ndarray:
+        """Normal feedforward processing with additive PFC goal drive."""
+        flat = encoding.flatten().astype(np.float64)
+        neuron_drive = flat @ self.ff_weights
+
+        # Add PFC goal drive (if set)
+        if self._goal_drive is not None and self._goal_weights is not None:
+            goal_drive = self._goal_drive @ self._goal_weights
+            neuron_drive += goal_drive
+            self._goal_drive = None  # Consumed
+
+        self.last_column_drive = neuron_drive.reshape(
+            self.n_columns, self.n_l4
+        ).max(axis=1)
+        active = self.step(neuron_drive)
+
+        if self.learning_enabled:
+            self._learn_ff(flat)
         return active
 
     def _babble_direct(self, encoding: np.ndarray | None = None) -> np.ndarray:
