@@ -14,6 +14,7 @@ import numpy as np
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
+from step.cortex.region import CorticalRegion
 from step.cortex.sensory import SensoryRegion
 from step.data import EOM_TOKEN, STORY_BOUNDARY
 from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
@@ -68,7 +69,7 @@ class RunMetrics:
 class _RegionState:
     """Per-region bookkeeping created by add_region()."""
 
-    region: SensoryRegion
+    region: CorticalRegion
     rep_tracker: RepresentationTracker
     diagnostics: CortexDiagnostics | None
     timeline: Timeline | None
@@ -293,7 +294,7 @@ class Topology:
     def add_region(
         self,
         name: str,
-        region: SensoryRegion,
+        region: CorticalRegion,
         *,
         entry: bool = False,
         diagnostics: bool = True,

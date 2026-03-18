@@ -609,36 +609,6 @@ class CorticalRegion:
         """
         self._apical_context[:] = context
 
-    def _predict_apical_columns(self):
-        """Check which columns have apical dendritic segment activity.
-
-        Apical segments source from a higher region's L2/3. A segment is
-        active when enough connected synapses have active sources (thresholded
-        from continuous firing rate). Apical prediction is column-level:
-        if any neuron in a column has an active apical segment, the column
-        is apically predicted.
-
-        Sets self.apical_predicted_cols (boolean, per-column).
-        """
-        self.apical_predicted_cols[:] = False
-        if not self.has_apical:
-            return
-
-        # Threshold continuous firing rate to boolean for segment matching
-        ctx_bool = self._apical_context > 0
-
-        if not ctx_bool.any():
-            return
-
-        active_at_syn = ctx_bool[self.apical_seg_indices]
-        connected = self.apical_seg_perm > self.perm_threshold
-        counts = (active_at_syn & connected).sum(axis=2)
-        neuron_predicted = (counts >= self.seg_activation_threshold).any(axis=1)
-
-        # Aggregate to column level
-        pred_by_col = neuron_predicted.reshape(self.n_columns, self.n_l4)
-        self.apical_predicted_cols = pred_by_col.any(axis=1)
-
     def _compute_predictions(self):
         """Determine which neurons are in predictive state via segments."""
         self.predicted_l4 = self._predict_from_segments()
@@ -1038,68 +1008,6 @@ class CorticalRegion:
             self._pred_context_l4,
             reinforce,
         )
-
-    # ------------------------------------------------------------------
-    # Apical segment learning (S2 L2/3 → S1 L4)
-    # ------------------------------------------------------------------
-
-    def _learn_apical_segments(self):
-        """Update apical segment permanences based on prediction outcomes.
-
-        Same grow/reinforce/punish pattern as fb/lat segments, but using
-        apical context (higher region's L2/3 firing rate) as the source.
-        """
-        if not self.has_apical:
-            return
-
-        ctx = self._pred_apical_context > 0  # threshold to boolean
-        if not ctx.any():
-            return
-
-        pool = np.arange(self._apical_source_dim)
-        active_cols = np.nonzero(self.active_columns)[0]
-        voltage_by_col = self.voltage_l4.reshape(self.n_columns, self.n_l4)
-
-        # Burst columns: grow segment on trace winner
-        burst_cols = active_cols[self.bursting_columns[active_cols]]
-        if len(burst_cols) > 0:
-            best_in_col = voltage_by_col[burst_cols].argmax(axis=1)
-            for i, col in enumerate(burst_cols):
-                self._grow_segment(
-                    col * self.n_l4 + best_in_col[i],
-                    self.apical_seg_indices,
-                    self.apical_seg_perm,
-                    ctx,
-                    pool,
-                )
-
-        # Precise columns: batch reinforce active neurons
-        reinforce_neurons = np.nonzero(
-            self.active_l4
-            & np.repeat(self.active_columns & ~self.bursting_columns, self.n_l4)
-        )[0]
-        if len(reinforce_neurons) > 0:
-            self._adapt_segments_batch(
-                reinforce_neurons,
-                self.apical_seg_indices,
-                self.apical_seg_perm,
-                ctx,
-                reinforce=True,
-            )
-
-        # Punish: all neurons in columns with apical prediction that didn't activate
-        punish_cols = np.nonzero(self.apical_predicted_cols & ~self.active_columns)[0]
-        if len(punish_cols) > 0:
-            punish_neurons = np.repeat(punish_cols, self.n_l4) * self.n_l4 + np.tile(
-                np.arange(self.n_l4), len(punish_cols)
-            )
-            self._adapt_segments_batch(
-                punish_neurons,
-                self.apical_seg_indices,
-                self.apical_seg_perm,
-                ctx,
-                reinforce=False,
-            )
 
     # ------------------------------------------------------------------
     # L2/3 segment learning (lateral)
