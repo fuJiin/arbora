@@ -126,7 +126,7 @@ def build_dashboard_html(
     <style>{css}</style>
 </head>
 <body>
-    <h1>{title}</h1>
+    <h1><a href="../" style="color:inherit;text-decoration:none">{title}</a></h1>
     {config_html}
     {summary_cards_html}
     {"".join(f'<div class="chart-container">{div}</div>' for div in chart_divs)}
@@ -186,7 +186,7 @@ def _build_tabbed_html(
     <style>{css}</style>
 </head>
 <body>
-    <h1>{title}</h1>
+    <h1><a href="../" style="color:inherit;text-decoration:none">{title}</a></h1>
     {config_html}
     {summary_cards_html}
     <div class="tab-bar">{buttons_html}</div>
