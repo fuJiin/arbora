@@ -701,7 +701,6 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
         # M1 is active but BG should keep gate closed (input phase).
         # Any M1 output = interruption.
         print()
-        interruptions = 0
         line_correct = 0
         line_total = 0
         line_bits = []
@@ -725,10 +724,6 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
             # Step through full hierarchy
             step_token(cortex, token_id, ch)
 
-            # Check M1 output (after BG gating)
-            m_id, m_conf = motor.last_output
-            gate = motor.last_gate
-
             # Track prediction accuracy (did top-1 match?)
             line_total += 1
             if preds and preds[0][0] == ch:
@@ -747,20 +742,11 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
             pred_str = format_predictions(preds)
             display_ch = repr(ch) if ch == " " else ch
 
-            m1_info = ""
-            if m_id >= 0:
-                interruptions += 1
-                m1_ch = token_to_char(m_id)
-                m1_display = m1_ch if m1_ch else f"<{m_id}>"
-                m1_info = f"  {RED}!! M1: '{m1_display}'{RESET}"
-
-            # Aligned columns: char | bits | gate | predictions
+            # Aligned columns: char | bits | predictions
             sys.stdout.write(
                 f"  {color}{display_ch:<4s}{RESET}"
                 f" {DIM}{bits:5.1f} bits{RESET}"
-                f"  {DIM}gate {gate:.2f}{RESET}"
-                f"  {DIM}{pred_str}{RESET}"
-                f"{m1_info}\n"
+                f"  {DIM}{pred_str}{RESET}\n"
             )
 
         # ── EOM INJECTION ──
@@ -781,8 +767,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                 f"{line_acc:.0%} acc, "
                 f"{burst_pct:.0%} burst  |  "
                 f"overall: {total_bits / n_chars:.2f} bpc "
-                f"(recent: {recent_bpc:.2f})  "
-                f"interruptions: {interruptions}{RESET}"
+                f"(recent: {recent_bpc:.2f}){RESET}"
             )
         print(f"\n{DIM}  [EOM → M1's turn]{RESET}")
 
