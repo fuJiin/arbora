@@ -1342,7 +1342,7 @@ class Topology:
         max_word_len: int = 6,
         min_word_len: int = 2,
         log_interval: int = 10,
-        batch_reward: bool = True,
+        batch_reward: bool = False,
         curriculum: bool = False,
         echo_reward_kwargs: dict | None = None,
     ) -> dict:
