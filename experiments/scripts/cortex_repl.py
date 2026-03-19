@@ -800,7 +800,9 @@ def main():
     # Need enough chars to discover full alphabet (rare chars like digits
     # only appear after many dialogues). 100k when loading checkpoint,
     # smaller sample otherwise since warmup will cover it.
-    vocab_size = 100000 if args.checkpoint else 10000
+    # Need enough chars to discover full alphabet (rare chars only
+    # appear after many documents). Use 1M to match staged training.
+    vocab_size = 1_000_000 if args.checkpoint else 10000
     print(f"{DIM}Loading vocabulary from {args.dataset}...{RESET}")
     sample = load_fn(vocab_size, speak_window=5)
     alphabet = sorted({ch for _, ch in sample if _ >= 0})
