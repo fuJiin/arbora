@@ -484,7 +484,7 @@ class Topology:
 
         # -- Process in topo order --
         # Ensure finalize() has been called (multi-ff needs _ff_conns)
-        if not self._ff_conns:
+        if not getattr(self, "_ff_conns", None):
             self.finalize()
         # Motor regions skip process() during input phase (not EOM, gate
         # not forced open). BG/observe still run — only the expensive
