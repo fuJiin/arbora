@@ -1011,7 +1011,7 @@
       "exact_matches": 154,
       "echo_accuracy": 0.077
     },
-    "elapsed_seconds": 21.1617970590014,
+    "elapsed_seconds": 20.702606489881873,
     "config": {
       "batch_reward": false,
       "eligibility_clip": 0.0,
@@ -2033,7 +2033,7 @@
       "exact_matches": 16,
       "echo_accuracy": 0.02064516129032258
     },
-    "elapsed_seconds": 19.870651612058282,
+    "elapsed_seconds": 19.982976282015443,
     "config": {
       "batch_reward": true,
       "eligibility_clip": 0.0,
@@ -3055,7 +3055,7 @@
       "exact_matches": 136,
       "echo_accuracy": 0.068
     },
-    "elapsed_seconds": 21.308730005985126,
+    "elapsed_seconds": 20.508387295063585,
     "config": {
       "batch_reward": false,
       "eligibility_clip": 0.05,
@@ -4077,7 +4077,7 @@
       "exact_matches": 99,
       "echo_accuracy": 0.0495
     },
-    "elapsed_seconds": 20.783209125045687,
+    "elapsed_seconds": 20.079041136894375,
     "config": {
       "batch_reward": false,
       "eligibility_clip": 0.0,
@@ -5099,7 +5099,7 @@
       "exact_matches": 97,
       "echo_accuracy": 0.04862155388471178
     },
-    "elapsed_seconds": 21.137855177978054,
+    "elapsed_seconds": 20.342543379869312,
     "config": {
       "batch_reward": true,
       "eligibility_clip": 0.05,
@@ -6121,7 +6121,7 @@
       "exact_matches": 155,
       "echo_accuracy": 0.0775
     },
-    "elapsed_seconds": 20.290755966911092,
+    "elapsed_seconds": 20.458663946017623,
     "config": {
       "batch_reward": true,
       "eligibility_clip": 0.0,
@@ -7143,7 +7143,7 @@
       "exact_matches": 157,
       "echo_accuracy": 0.0785
     },
-    "elapsed_seconds": 20.402932252036408,
+    "elapsed_seconds": 20.229392478009686,
     "config": {
       "batch_reward": true,
       "eligibility_clip": 0.05,
@@ -8165,7 +8165,7 @@
       "exact_matches": 105,
       "echo_accuracy": 0.0525
     },
-    "elapsed_seconds": 21.044374185148627,
+    "elapsed_seconds": 20.636925408849493,
     "config": {
       "batch_reward": false,
       "eligibility_clip": 0.0,
@@ -9187,7 +9187,7 @@
       "exact_matches": 12,
       "echo_accuracy": 0.016643550624133148
     },
-    "elapsed_seconds": 20.57887763204053,
+    "elapsed_seconds": 19.86760715697892,
     "config": {
       "batch_reward": true,
       "eligibility_clip": 0.0,
@@ -10209,7 +10209,7 @@
       "exact_matches": 110,
       "echo_accuracy": 0.11
     },
-    "elapsed_seconds": 12.38278596685268,
+    "elapsed_seconds": 12.406537341186777,
     "config": {
       "batch_reward": false,
       "eligibility_clip": 0.0,
@@ -11231,7 +11231,7 @@
       "exact_matches": 66,
       "echo_accuracy": 0.066
     },
-    "elapsed_seconds": 12.412244326202199,
+    "elapsed_seconds": 12.296727211913094,
     "config": {
       "batch_reward": true,
       "eligibility_clip": 0.05,
@@ -12253,7 +12253,7 @@
       "exact_matches": 151,
       "echo_accuracy": 0.07893361212754835
     },
-    "elapsed_seconds": 20.118450092850253,
+    "elapsed_seconds": 20.03414702299051,
     "config": {
       "batch_reward": true,
       "eligibility_clip": 0.0,
@@ -13275,7 +13275,7 @@
       "exact_matches": 154,
       "echo_accuracy": 0.077
     },
-    "elapsed_seconds": 20.939950411906466,
+    "elapsed_seconds": 20.629657499026507,
     "config": {
       "batch_reward": false,
       "eligibility_clip": 0.0,
@@ -14297,7 +14297,7 @@
       "exact_matches": 16,
       "echo_accuracy": 0.02064516129032258
     },
-    "elapsed_seconds": 19.748226125957444,
+    "elapsed_seconds": 19.711334213148803,
     "config": {
       "batch_reward": true,
       "eligibility_clip": 0.0,
@@ -15319,7 +15319,7 @@
       "exact_matches": 136,
       "echo_accuracy": 0.068
     },
-    "elapsed_seconds": 20.92450722795911,
+    "elapsed_seconds": 20.60545820510015,
     "config": {
       "batch_reward": false,
       "eligibility_clip": 0.05,
@@ -16341,7 +16341,7 @@
       "exact_matches": 77,
       "echo_accuracy": 0.077
     },
-    "elapsed_seconds": 12.83255018782802,
+    "elapsed_seconds": 12.450971744023263,
     "config": {
       "batch_reward": false,
       "eligibility_clip": 0.0,
@@ -17363,7 +17363,7 @@
       "exact_matches": 66,
       "echo_accuracy": 0.066
     },
-    "elapsed_seconds": 12.90478500793688,
+    "elapsed_seconds": 12.71990295080468,
     "config": {
       "batch_reward": true,
       "eligibility_clip": 0.05,
