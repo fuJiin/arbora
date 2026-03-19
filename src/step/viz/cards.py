@@ -44,7 +44,7 @@ def build_hierarchy_summary_cards(
     apical_pred = 0
     if diag1 and diag1.snapshots:
         snap = diag1.snapshots[-1]
-        apical_conn = snap.apical_seg_connected_frac
+        apical_conn = getattr(snap, "apical_seg_connected_frac", 0.0)
         apical_pred = getattr(snap, "n_apical_predicted_cols", 0)
 
     # Surprise: green if S2 improves on S1, yellow if similar, red if worse

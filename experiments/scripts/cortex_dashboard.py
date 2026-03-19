@@ -162,7 +162,8 @@ def _generate_from_run(run_dir: Path) -> Path:
     result = data["result"]
     region_configs = data["region_configs"]
 
-    regions = list(region_configs.keys())
+    # Detect hierarchy from timelines (region_configs may be empty)
+    regions = list(timelines.keys()) or list(region_configs.keys())
     is_hierarchy = len(regions) > 1
 
     config_html = _build_config_banner(meta, region_configs)
