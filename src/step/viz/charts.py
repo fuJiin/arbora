@@ -830,7 +830,7 @@ def build_segment_health_over_time(
         ("L2/3 Lateral", "l23_seg_perm_mean", "#06d6a0"),
         ("Apical", "apical_seg_perm_mean", "#118ab2"),
     ]:
-        data = [getattr(s, attr) for s in diag.snapshots]
+        data = [getattr(s, attr, 0.0) for s in diag.snapshots]
         if any(d > 0 for d in data):
             fig.add_trace(
                 go.Scatter(

@@ -237,8 +237,8 @@ def _build_single_dashboard(
     timeline = timelines["S1"]
     diag = diagnostics["S1"]
     metrics = result.per_region["S1"]
-    cfg = region_configs["S1"]
-    n_cols = cfg["n_columns"]
+    cfg = region_configs.get("S1", {})
+    n_cols = cfg.get("n_columns", 128)
 
     rep_summary = metrics.representation
     summ = diag.summary()
@@ -300,8 +300,8 @@ def _build_hierarchy_dashboard(
     summ1 = diag1.summary()
     summ2 = diag2.summary()
 
-    n_cols_r1 = region_configs["S1"]["n_columns"]
-    n_cols_r2 = region_configs["S2"]["n_columns"]
+    n_cols_r1 = region_configs.get("S1", {}).get("n_columns", 128)
+    n_cols_r2 = region_configs.get("S2", {}).get("n_columns", 32)
 
     # Build motor metrics dict if M1 is present
     motor_card_metrics = None
@@ -430,7 +430,7 @@ def _build_hierarchy_dashboard(
         diag_m1 = diagnostics["M1"]
         rep_m1 = result.per_region["M1"].representation
         m1_metrics = result.per_region["M1"]
-        n_cols_m1 = region_configs["M1"]["n_columns"]
+        n_cols_m1 = region_configs.get("M1", {}).get("n_columns", 32)
 
         motor_charts = [
             (
