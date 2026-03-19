@@ -275,7 +275,8 @@ def print_help():
     print(f"{DIM}  /save [name]     Save checkpoint (default: repl_default){RESET}")
     print(f"{DIM}  /load [name]     Load checkpoint (default: repl_default){RESET}")
     print(f"{DIM}  /babble [N]     Watch M1 babble N chars (default 200){RESET}")
-    print(f"{DIM}  /probe          Show S1/S2/S3/M1 representation quality{RESET}")
+    print(f"{DIM}  /probe          Show all region representation quality{RESET}")
+    print(f"{DIM}  /echo [word]    Hear a word, watch M1 try to reproduce it{RESET}")
     print(f"{DIM}  /quit, /q        Exit{RESET}")
     print()
     print(f"{DIM}Type text to feed through S1→S2→S3→PFC→M2→M1.{RESET}")
@@ -511,6 +512,101 @@ def run_probe(cortex):
     print()
 
 
+def run_echo(cortex, encoder, motor, word: str):
+    """Interactive echo: hear a word, then watch M1 try to reproduce it.
+
+    Demonstrates PFC goal maintenance and the full motor pipeline:
+    1. Listen: process word through S1→S2→S3→PFC
+    2. PFC snapshots goal, gate closes
+    3. Speak: M1 produces chars, compare to target
+    """
+    from step.cortex.pfc import PFCRegion
+
+    # Find PFC
+    pfc = None
+    for _name, s in cortex._regions.items():
+        if isinstance(s.region, PFCRegion):
+            pfc = s.region
+            break
+
+    print(f"\n{DIM}  Echo mode: listening to '{word}'...{RESET}")
+
+    entry_name = cortex._entry_name
+    # Ensure topology is finalized for proper multi-ff propagation
+    if not hasattr(cortex, "_ff_conns") or not cortex._ff_conns:
+        cortex.finalize()
+
+    # Listen phase — use _propagate_feedforward for multi-ff (PFC)
+    if pfc is not None:
+        pfc.gate_open = True
+    for ch in word:
+        encoding = encoder.encode(ch)
+        topo_order = cortex._topo_order()
+        cortex._propagate_feedforward(topo_order, entry_name, encoding)
+        cortex._propagate_signals()
+
+    # PFC snapshot
+    if pfc is not None:
+        pfc.snapshot_goal()
+        pfc.gate_open = False
+        print(
+            f"{DIM}  PFC goal captured "
+            f"(confidence={pfc.confidence:.3f}){RESET}"
+        )
+
+    # Speak phase
+    print(f"  {DIM}M1 reproducing:{RESET} ", end="", flush=True)
+    cortex.force_gate_open = True
+    old_noise = motor.babbling_noise
+    motor.babbling_noise = 0.2  # Mostly policy, some exploration
+    produced = []
+
+    current = " "
+    for i in range(len(word) + 2):
+        encoding = encoder.encode(current)
+        topo_order = cortex._topo_order()
+        cortex._propagate_feedforward(topo_order, entry_name, encoding)
+        cortex._propagate_signals()
+
+        pop_id, _conf = motor.get_population_output()
+        if pop_id >= 0 and 32 <= pop_id < 127:
+            ch = chr(pop_id)
+            produced.append(ch)
+            # Color: green=exact match, yellow=in word, red=miss
+            target = word[i] if i < len(word) else None
+            if target and ch == target:
+                color = GREEN
+            elif target and ch in word:
+                color = YELLOW
+            else:
+                color = RED
+            sys.stdout.write(f"{color}{ch}{RESET}")
+            sys.stdout.flush()
+            motor.observe_token(pop_id)
+            current = ch
+        else:
+            sys.stdout.write(f"{DIM}_{RESET}")
+            sys.stdout.flush()
+
+    cortex.force_gate_open = False
+    motor.babbling_noise = old_noise
+
+    # Score
+    n_match = sum(
+        1 for i, ch in enumerate(produced[:len(word)])
+        if i < len(word) and ch == word[i]
+    )
+    match_pct = 100 * n_match / max(len(word), 1)
+    print(
+        f"\n{DIM}  Target: '{word}' → Got: '{''.join(produced[:len(word)])}' "
+        f"({match_pct:.0f}% match){RESET}\n"
+    )
+
+    # Reset
+    for s in cortex._regions.values():
+        s.region.reset_working_memory()
+
+
 def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
     """Main REPL loop with full M1+BG turn-taking."""
     print(f"{BOLD}=== STEP Cortex REPL ==={RESET}")
@@ -591,6 +687,10 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                 continue
             elif cmd == "/probe":
                 run_probe(cortex)
+                continue
+            elif cmd == "/echo":
+                word = parts[1] if len(parts) > 1 else "the"
+                run_echo(cortex, encoder, motor, word)
                 continue
             else:
                 print(f"{DIM}Unknown command: {cmd} (try /help){RESET}")
