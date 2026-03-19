@@ -37,7 +37,7 @@ from step.config import (
 )
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.stages import SENSORY_STAGE
+from step.cortex.stages import BABBLING_STAGE, SENSORY_STAGE
 from step.cortex.topology import Topology
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
@@ -54,142 +54,80 @@ class EchoConfig:
     goal_consolidation_scale: float = 0.3
     curriculum: bool = False
     babbling_noise: float = 0.2
-    mismatch_scale: float = 0.1  # EchoReward mismatch penalty scale
+    match_baseline_decay: float = 0.95  # EchoReward RPE baseline decay
     # Motor surprise connections
     m1_m2_surprise: bool = False  # M1→M2: motor error signal
     m2_m1_surprise: bool = False  # M2→M1: plan confidence signal
 
 
-# Sweep configurations — each tests a specific hypothesis
+# Sweep configurations — focused on RPE decay rate and independent fixes
 CONFIGS = {
-    # Baseline: current behavior (should oscillate)
+    # RPE reward (default decay 0.95 ≈ 20-step adaptation window)
     "baseline": EchoConfig(
         name="baseline",
     ),
-    # Fix 1: batch reward only
-    "batch": EchoConfig(
-        name="batch",
-        batch_reward=True,
+    # RPE decay tuning: faster adaptation (forgets faster)
+    "rpe_fast": EchoConfig(
+        name="rpe_fast",
+        match_baseline_decay=0.90,
     ),
-    # Fix 2: eligibility clamping only
+    # RPE decay tuning: slower adaptation (remembers longer)
+    "rpe_slow": EchoConfig(
+        name="rpe_slow",
+        match_baseline_decay=0.99,
+    ),
+    # Eligibility clip (biologically grounded: synaptic saturation)
     "clip": EchoConfig(
         name="clip",
         eligibility_clip=0.05,
     ),
-    # Fix 3: reward baseline only
-    "baseline_sub": EchoConfig(
-        name="baseline_sub",
-        reward_baseline_decay=0.95,
-    ),
-    # Fix 4: batch + clip (combined)
-    "batch_clip": EchoConfig(
-        name="batch_clip",
-        batch_reward=True,
-        eligibility_clip=0.05,
-    ),
-    # Fix 5: batch + baseline subtraction
-    "batch_baseline": EchoConfig(
-        name="batch_baseline",
-        batch_reward=True,
-        reward_baseline_decay=0.95,
-    ),
-    # Fix 6: all three fixes together
-    "all_fixes": EchoConfig(
-        name="all_fixes",
-        batch_reward=True,
-        eligibility_clip=0.05,
-        reward_baseline_decay=0.95,
-    ),
-    # Fix 7: slower goal consolidation (0.1x instead of 0.3x)
-    "slow_goal": EchoConfig(
-        name="slow_goal",
-        goal_consolidation_scale=0.1,
-    ),
-    # Fix 8: batch + slow goal
-    "batch_slow": EchoConfig(
-        name="batch_slow",
-        batch_reward=True,
-        goal_consolidation_scale=0.1,
-    ),
-    # Fix 9: curriculum (start with 2-char words)
+    # Curriculum (biologically grounded: developmental progression)
     "curriculum": EchoConfig(
         name="curriculum",
         curriculum=True,
     ),
-    # Fix 10: batch + clip + curriculum
-    "batch_clip_curriculum": EchoConfig(
-        name="batch_clip_curriculum",
-        batch_reward=True,
+    # Clip + curriculum
+    "clip_curriculum": EchoConfig(
+        name="clip_curriculum",
         eligibility_clip=0.05,
         curriculum=True,
     ),
-    # Fix 11: batch + baseline + slow goal (conservative)
-    "conservative": EchoConfig(
-        name="conservative",
-        batch_reward=True,
-        reward_baseline_decay=0.95,
-        goal_consolidation_scale=0.1,
-    ),
-    # Fix 12: symmetric reward (mismatch penalty = 50% of match)
-    "symmetric": EchoConfig(
-        name="symmetric",
-        mismatch_scale=0.5,
-    ),
-    # Fix 13: symmetric + batch (test reward symmetry with batch)
-    "sym_batch": EchoConfig(
-        name="sym_batch",
-        batch_reward=True,
-        mismatch_scale=0.5,
-    ),
-    # Fix 14: symmetric + clip
-    "sym_clip": EchoConfig(
-        name="sym_clip",
-        eligibility_clip=0.05,
-        mismatch_scale=0.5,
-    ),
-    # Fix 15: symmetric + curriculum (the full package)
-    "sym_curriculum": EchoConfig(
-        name="sym_curriculum",
-        curriculum=True,
-        mismatch_scale=0.5,
-    ),
-    # Fix 16: batch + clip + symmetric reward (strongest combo)
-    "best_combo": EchoConfig(
-        name="best_combo",
-        batch_reward=True,
-        eligibility_clip=0.05,
-        mismatch_scale=0.5,
-        curriculum=True,
-    ),
-    # Fix 17: M1→M2 surprise (motor error modulates M2 learning)
+    # Motor surprise: M1→M2 (motor error modulates M2 learning)
     "m1_m2_surp": EchoConfig(
         name="m1_m2_surp",
         m1_m2_surprise=True,
     ),
-    # Fix 18: M2→M1 surprise (plan confidence modulates M1 learning)
+    # Motor surprise: M2→M1 (plan confidence modulates M1 learning)
     "m2_m1_surp": EchoConfig(
         name="m2_m1_surp",
         m2_m1_surprise=True,
     ),
-    # Fix 19: both motor surprises
+    # Both motor surprises
     "motor_surp": EchoConfig(
         name="motor_surp",
         m1_m2_surprise=True,
         m2_m1_surprise=True,
     ),
-    # Fix 20: motor surprise + batch (our best learning fix + signals)
-    "batch_surp": EchoConfig(
-        name="batch_surp",
-        batch_reward=True,
+    # Clip + motor surprise (biologically grounded combo)
+    "clip_surp": EchoConfig(
+        name="clip_surp",
+        eligibility_clip=0.05,
         m1_m2_surprise=True,
         m2_m1_surprise=True,
     ),
-    # Fix 21: full package — batch + clip + symmetric + motor surprise
+    # Slow RPE + clip + motor surprise
+    "slow_clip_surp": EchoConfig(
+        name="slow_clip_surp",
+        match_baseline_decay=0.99,
+        eligibility_clip=0.05,
+        m1_m2_surprise=True,
+        m2_m1_surprise=True,
+    ),
+    # Full: clip + curriculum + motor surprise
     "full": EchoConfig(
         name="full",
-        batch_reward=True,
         eligibility_clip=0.05,
-        mismatch_scale=0.5,
+        curriculum=True,
         m1_m2_surprise=True,
         m2_m1_surprise=True,
     ),
@@ -292,6 +230,19 @@ def run_sensory_warmup(cortex, tokens, n_tokens):
     print("  Sensory warmup complete.")
 
 
+def run_babbling_warmup(cortex, tokens, n_tokens, vocab):
+    """Motor babbling warmup: M1 learns to produce chars."""
+    from step.cortex.reward import CaregiverReward
+
+    print(f"  Babbling warmup: {n_tokens:,} tokens (interleaved)...")
+    BABBLING_STAGE.configure(cortex)
+    # Seed caregiver vocabulary
+    if isinstance(cortex._reward_source, CaregiverReward):
+        cortex._reward_source.seed_vocabulary(vocab)
+    cortex.run_interleaved(tokens, n_tokens, log_interval=n_tokens // 5)
+    print("  Babbling warmup complete.")
+
+
 def run_echo_trial(cortex, tokens, cfg: EchoConfig, n_episodes: int):
     """Run one echo trial with the given configuration."""
     # Configure M1 with this trial's parameters
@@ -314,8 +265,8 @@ def run_echo_trial(cortex, tokens, cfg: EchoConfig, n_episodes: int):
 
     # Build EchoReward kwargs
     echo_kwargs = {}
-    if cfg.mismatch_scale != 0.1:
-        echo_kwargs["mismatch_scale"] = cfg.mismatch_scale
+    if cfg.match_baseline_decay != 0.95:
+        echo_kwargs["match_baseline_decay"] = cfg.match_baseline_decay
 
     result = cortex.run_echo(
         tokens,
@@ -408,6 +359,12 @@ def main():
         help="Sensory warmup tokens (default: 50000)",
     )
     parser.add_argument(
+        "--babbling-tokens",
+        type=int,
+        default=0,
+        help="Babbling warmup tokens (default: 0, skip babbling)",
+    )
+    parser.add_argument(
         "--config",
         type=str,
         default=None,
@@ -427,8 +384,21 @@ def main():
     all_tokens = prepare_tokens_charlevel(1_000_000, dataset="babylm")
     alphabet = sorted({ch for _, ch in all_tokens if _ >= 0})
     encoder = PositionalCharEncoder("".join(alphabet), max_positions=8)
-    tokens = all_tokens[: max(args.sensory_tokens, 100_000)]
+    n_needed = max(args.sensory_tokens, args.babbling_tokens, 100_000)
+    tokens = all_tokens[:n_needed]
     tokens = inject_eom_tokens(tokens, segment_length=200)
+
+    # Extract vocabulary for caregiver reward (babbling warmup)
+    vocab: set[str] = set()
+    if args.babbling_tokens > 0:
+        current: list[str] = []
+        for token_id, ch in tokens:
+            if token_id < 0 or ch in " .,!?'-":
+                if len(current) >= 2:
+                    vocab.add("".join(current))
+                current.clear()
+            else:
+                current.append(ch)
 
     # Select configs to run
     configs_to_run = (
@@ -445,7 +415,7 @@ def main():
         print(f"  reward_baseline_decay={cfg.reward_baseline_decay}")
         print(f"  goal_consolidation_scale={cfg.goal_consolidation_scale}")
         print(f"  curriculum={cfg.curriculum}")
-        print(f"  mismatch_scale={cfg.mismatch_scale}")
+        print(f"  match_baseline_decay={cfg.match_baseline_decay}")
         print(f"  m1_m2_surprise={cfg.m1_m2_surprise}")
         print(f"  m2_m1_surprise={cfg.m2_m1_surprise}")
         print(f"{'=' * 60}")
@@ -460,6 +430,12 @@ def main():
 
         # Sensory warmup (same for all configs)
         run_sensory_warmup(cortex, tokens, args.sensory_tokens)
+
+        # Babbling warmup (if requested)
+        if args.babbling_tokens > 0:
+            run_babbling_warmup(
+                cortex, tokens, args.babbling_tokens, vocab
+            )
 
         # Run echo
         start = time.monotonic()
@@ -478,7 +454,7 @@ def main():
                 "reward_baseline_decay": cfg.reward_baseline_decay,
                 "goal_consolidation_scale": cfg.goal_consolidation_scale,
                 "curriculum": cfg.curriculum,
-                "mismatch_scale": cfg.mismatch_scale,
+                "match_baseline_decay": cfg.match_baseline_decay,
                 "m1_m2_surprise": cfg.m1_m2_surprise,
                 "m2_m1_surprise": cfg.m2_m1_surprise,
             },
