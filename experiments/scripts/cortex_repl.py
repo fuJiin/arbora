@@ -62,12 +62,11 @@ MAX_SPEAK_STEPS = 200  # max chars M1 can generate per turn
 MAX_SILENT_STEPS = 10  # give up waiting for M1 after this many silent steps
 
 
-def surprise_color(bits: float, vocab_size: int = 65) -> str:
-    """Color-code by surprise level."""
-    random_bpc = math.log2(max(vocab_size, 2))
-    if bits < random_bpc * 0.5:
+def surprise_color(burst_frac: float) -> str:
+    """Color-code by burst fraction (surprise)."""
+    if burst_frac < 0.3:
         return GREEN  # Well predicted
-    if bits < random_bpc * 0.75:
+    if burst_frac < 0.6:
         return YELLOW  # Somewhat surprising
     return RED  # Very surprising
 
@@ -724,6 +723,11 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
             # Step through full hierarchy
             step_token(cortex, token_id, ch)
 
+            # Burst fraction = surprise (per-char, after processing)
+            n_active = max(int(region1.active_columns.sum()), 1)
+            n_burst = int(region1.bursting_columns.sum())
+            burst_frac = n_burst / n_active
+
             # Track prediction accuracy (did top-1 match?)
             line_total += 1
             if preds and preds[0][0] == ch:
@@ -737,15 +741,15 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
             if len(recent_bits) > 100:
                 recent_bits.pop(0)
 
-            # Display input char with aligned columns
-            color = surprise_color(bits)
+            # Display: char | surprise | predictions
+            color = surprise_color(burst_frac)
             pred_str = format_predictions(preds)
             display_ch = repr(ch) if ch == " " else ch
+            surprise_pct = f"{burst_frac:.0%} surprise"
 
-            # Aligned columns: char | bits | predictions
             sys.stdout.write(
                 f"  {color}{display_ch:<4s}{RESET}"
-                f" {DIM}{bits:5.1f} bits{RESET}"
+                f" {color}{surprise_pct:>12s}{RESET}"
                 f"  {DIM}{pred_str}{RESET}\n"
             )
 
@@ -763,11 +767,9 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                 region1.n_columns, 1
             )
             print(
-                f"\n{DIM}  line: {line_bpc:.2f} bpc, "
-                f"{line_acc:.0%} acc, "
-                f"{burst_pct:.0%} burst  |  "
-                f"overall: {total_bits / n_chars:.2f} bpc "
-                f"(recent: {recent_bpc:.2f}){RESET}"
+                f"\n{DIM}  {line_acc:.0%} predicted, "
+                f"{burst_pct:.0%} surprised"
+                f"  [{line_bpc:.1f} bpc]{RESET}"
             )
         print(f"\n{DIM}  [EOM → M1's turn]{RESET}")
 
