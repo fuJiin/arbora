@@ -55,6 +55,9 @@ class EchoConfig:
     curriculum: bool = False
     babbling_noise: float = 0.2
     mismatch_scale: float = 0.1  # EchoReward mismatch penalty scale
+    # Motor surprise connections
+    m1_m2_surprise: bool = False  # M1→M2: motor error signal
+    m2_m1_surprise: bool = False  # M2→M1: plan confidence signal
 
 
 # Sweep configurations — each tests a specific hypothesis
@@ -158,10 +161,48 @@ CONFIGS = {
         mismatch_scale=0.5,
         curriculum=True,
     ),
+    # Fix 17: M1→M2 surprise (motor error modulates M2 learning)
+    "m1_m2_surp": EchoConfig(
+        name="m1_m2_surp",
+        m1_m2_surprise=True,
+    ),
+    # Fix 18: M2→M1 surprise (plan confidence modulates M1 learning)
+    "m2_m1_surp": EchoConfig(
+        name="m2_m1_surp",
+        m2_m1_surprise=True,
+    ),
+    # Fix 19: both motor surprises
+    "motor_surp": EchoConfig(
+        name="motor_surp",
+        m1_m2_surprise=True,
+        m2_m1_surprise=True,
+    ),
+    # Fix 20: motor surprise + batch (our best learning fix + signals)
+    "batch_surp": EchoConfig(
+        name="batch_surp",
+        batch_reward=True,
+        m1_m2_surprise=True,
+        m2_m1_surprise=True,
+    ),
+    # Fix 21: full package — batch + clip + symmetric + motor surprise
+    "full": EchoConfig(
+        name="full",
+        batch_reward=True,
+        eligibility_clip=0.05,
+        mismatch_scale=0.5,
+        m1_m2_surprise=True,
+        m2_m1_surprise=True,
+    ),
 }
 
 
-def build_topology(encoder, *, timeline_interval=0):
+def build_topology(
+    encoder,
+    *,
+    timeline_interval=0,
+    m1_m2_surprise=False,
+    m2_m1_surprise=False,
+):
     """Build topology (same as cortex_staged.py but without timeline)."""
     s1_cfg = _default_s1_config()
     s1 = make_sensory_region(s1_cfg, encoder.input_dim, encoder.encoding_width)
@@ -224,6 +265,20 @@ def build_topology(encoder, *, timeline_interval=0):
     cortex.connect("M2", "PFC", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S1", "M1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
+
+    # Optional motor surprise connections
+    if m1_m2_surprise:
+        # Motor error: M1 burst rate modulates M2 learning.
+        # High M1 surprise = output didn't match plan → M2 learns faster.
+        cortex.connect(
+            "M1", "M2", "surprise", surprise_tracker=SurpriseTracker()
+        )
+    if m2_m1_surprise:
+        # Plan confidence: M2 burst rate modulates M1 learning.
+        # High M2 surprise = uncertain plan → M1 explores more.
+        cortex.connect(
+            "M2", "M1", "surprise", surprise_tracker=SurpriseTracker()
+        )
 
     return cortex
 
@@ -391,10 +446,16 @@ def main():
         print(f"  goal_consolidation_scale={cfg.goal_consolidation_scale}")
         print(f"  curriculum={cfg.curriculum}")
         print(f"  mismatch_scale={cfg.mismatch_scale}")
+        print(f"  m1_m2_surprise={cfg.m1_m2_surprise}")
+        print(f"  m2_m1_surprise={cfg.m2_m1_surprise}")
         print(f"{'=' * 60}")
 
         # Fresh topology for each config (fair comparison)
-        cortex = build_topology(encoder)
+        cortex = build_topology(
+            encoder,
+            m1_m2_surprise=cfg.m1_m2_surprise,
+            m2_m1_surprise=cfg.m2_m1_surprise,
+        )
         cortex.finalize()
 
         # Sensory warmup (same for all configs)
@@ -418,6 +479,8 @@ def main():
                 "goal_consolidation_scale": cfg.goal_consolidation_scale,
                 "curriculum": cfg.curriculum,
                 "mismatch_scale": cfg.mismatch_scale,
+                "m1_m2_surprise": cfg.m1_m2_surprise,
+                "m2_m1_surprise": cfg.m2_m1_surprise,
             },
         }
 
