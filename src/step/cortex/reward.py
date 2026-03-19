@@ -240,29 +240,40 @@ class EchoReward:
     During speak phase: rewards M1 for producing matching characters
     in the same order.
 
-    Models infant echolalia — hearing "hi" and reproducing "hi".
-    Builds the sensorimotor mapping that connects S1 representations
-    to M1 output patterns. First PFC-gated behavior.
+    Uses RPE (reward prediction error) on the match signal itself:
+    reward = match_bonus * (actual_match - expected_match_rate).
+    First match of a new word → big positive RPE (unexpected success).
+    Consistent matching → RPE shrinks toward zero (expected success).
+    Unexpected mismatch → negative RPE (disappointment).
 
-    Combines with curiosity as base signal.
+    This self-regulates: as echo improves, reward naturally decreases,
+    preventing weight oscillation without needing external dampening
+    (batch reward, baseline subtraction, etc.).
+
+    Models dopaminergic RPE in VTA: DA neurons encode surprise about
+    reward, not reward itself. Expected reward produces no signal.
     """
 
     def __init__(
         self,
         *,
         match_bonus: float = 2.0,
-        mismatch_scale: float = 0.5,
         position_tolerance: int = 1,
         curiosity_scale: float = 0.5,
         baseline_decay: float = 0.99,
+        match_baseline_decay: float = 0.95,
     ):
         self._curiosity = CuriosityReward(
             scale=curiosity_scale,
             baseline_decay=baseline_decay,
         )
         self.match_bonus = match_bonus
-        self.mismatch_scale = mismatch_scale
         self.position_tolerance = position_tolerance
+
+        # RPE baseline: tracks expected match rate (EMA).
+        # Starts at chance level for 32-char alphabet ≈ 0.03.
+        self._match_baseline_decay = match_baseline_decay
+        self._expected_match: float = 1.0 / 32.0
 
         # Listen phase: chars heard
         self._heard: list[str] = []
@@ -289,8 +300,10 @@ class EchoReward:
     def step(self, char, s1_burst_fraction: float) -> float:
         """Compute reward during speak phase.
 
-        Rewards character matches against the heard sequence.
-        Partial credit for near-position matches.
+        Match signal uses RPE: reward = bonus * (match - expected).
+        First correct char for a new word: big positive signal.
+        Consistent correct chars: signal shrinks as expected rises.
+        Wrong char when expecting match: negative signal.
         """
         # Base: curiosity RPE
         reward = self._curiosity.step(char, s1_burst_fraction)
@@ -303,27 +316,46 @@ class EchoReward:
         if not self._heard:
             return reward  # Nothing to echo
 
-        # Check for match at current position (with tolerance window)
-        matched = False
-        start = max(0, self._echo_pos - self.position_tolerance)
-        end = min(len(self._heard), self._echo_pos + self.position_tolerance + 1)
+        # Score: exact position match (1.0) > near position (0.5-0.7)
+        # > anywhere in word (0.1-0.3) > not in word (0.0).
+        # Continuous scoring gives RPE a smooth gradient instead of
+        # binary hit/miss, reducing the asymmetry problem.
+        match_score = 0.0
 
+        # Check near current position first (strongest signal)
+        start = max(0, self._echo_pos - self.position_tolerance)
+        end = min(
+            len(self._heard),
+            self._echo_pos + self.position_tolerance + 1,
+        )
         for i in range(start, end):
             if self._heard[i] == char:
-                # Match! Reward scales inversely with distance from expected pos
                 distance = abs(i - self._echo_pos)
-                scale = 1.0 / (1.0 + distance)
-                reward += self.match_bonus * scale
-                matched = True
+                match_score = 1.0 / (1.0 + distance)
                 if distance == 0:
                     self.exact_matches += 1
                 break
 
-        if not matched:
-            # Wrong char — penalty scaled by mismatch_scale.
-            # Default 0.1 (10% of match). Higher values (0.5-1.0)
-            # reduce oscillation by making mismatches more costly.
-            reward -= self.match_bonus * self.mismatch_scale
+        # Partial credit: char exists elsewhere in word (weaker signal).
+        # Only counts if the char is at a non-nearby position — avoids
+        # rewarding common chars ('e', 'o') that appear in most words.
+        if match_score == 0.0:
+            for i in range(len(self._heard)):
+                if abs(i - self._echo_pos) <= self.position_tolerance:
+                    continue  # Already checked nearby
+                if self._heard[i] == char:
+                    # Distance-weighted: further = less credit
+                    dist = abs(i - self._echo_pos)
+                    match_score = 0.2 / dist
+                    break
+
+        # RPE: actual match - expected match rate
+        rpe = match_score - self._expected_match
+        reward += self.match_bonus * rpe
+
+        # Update expected match rate (EMA)
+        alpha = 1.0 - self._match_baseline_decay
+        self._expected_match += alpha * (match_score - self._expected_match)
 
         self._echo_pos += 1
 
