@@ -483,24 +483,43 @@ class Topology:
                 self._in_eom = False
 
         # -- Process in topo order --
+        # Ensure finalize() has been called (multi-ff needs _ff_conns)
+        if not self._ff_conns:
+            self.finalize()
         # Motor regions skip process() during input phase (not EOM, gate
         # not forced open). BG/observe still run — only the expensive
         # cortical computation is skipped.
         m1_active = self._in_eom or self.force_gate_open
+        encoding = self._encoder.encode(token_str)
         topo_order = self._topo_order()
+
+        # Use _propagate_feedforward for proper multi-ff concatenation
+        # (PFC and M2 receive multiple ff sources)
         for name in topo_order:
             s = self._regions[name]
-            if name == entry_name:
-                encoding = self._encoder.encode(token_str)
-                s.region.process(encoding)
-            elif s.motor and not m1_active:
+            if s.motor and not m1_active:
                 # Skip M1 process during input phase
                 pass
+            elif name == entry_name:
+                s.region.process(encoding)
             else:
-                for conn in self._connections:
-                    if conn.target == name and conn.kind == "feedforward":
-                        s.region.process(self._get_ff_signal(conn))
-                        break
+                conns = self._ff_conns.get(name)
+                if not conns:
+                    continue
+                active = [c for c in conns if c.enabled]
+                if not active:
+                    continue
+                if len(active) == 1:
+                    s.region.process(self._get_ff_signal(active[0]))
+                else:
+                    buf = self._ff_buffers.get(name)
+                    if buf is not None:
+                        pos = 0
+                        for conn in active:
+                            sig = self._get_ff_signal(conn)
+                            buf[pos : pos + len(sig)] = sig
+                            pos += len(sig)
+                        s.region.process(buf[:pos])
 
         # -- Inter-region signals --
         for conn in self._connections:
