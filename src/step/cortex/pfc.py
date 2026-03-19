@@ -3,12 +3,24 @@
 Subclasses CorticalRegion with PFC-specific properties:
 - Slow voltage decay (working memory via sustained activity)
 - Multi-source input (S2 word-level + S3 topic-level concatenated)
-- Three-factor learning with longer eligibility traces
+- Three-factor learning: eligibility traces + reward consolidation
 - BG per-stripe input gating (controls when goals update vs maintain)
 
 PFC is agranular cortex — thin/absent L4, receives processed cortical
 input rather than raw sensory. Same minicolumn architecture, different
 parameters.
+
+Three-factor learning on ff_weights:
+  During listen phase (gate open), PFC processes S2+S3 input and records
+  Hebbian coincidences in eligibility traces (not weights). After the
+  speak phase, reward consolidates traces into weights. This teaches PFC
+  to produce activation patterns that lead to downstream reward — not
+  just patterns that represent the input.
+
+  Biologically: PFC neurons receive dopaminergic projections from VTA.
+  DA modulates synaptic plasticity via D1/D5 receptors, implementing
+  the three-factor rule: pre x post x DA -> dw. This is how PFC learns
+  which representations are useful for goal-directed behavior.
 
 Development mirrors infant PFC:
   1. Echo mode: maintain "reproduce input" as a goal
@@ -26,6 +38,8 @@ class PFCRegion(CorticalRegion):
 
     Key differences from base CorticalRegion:
     - Slow voltage decay → activity persists across many timesteps
+    - Three-factor learning → ff_weights learn from reward, not just
+      input statistics. PFC learns to produce useful goal patterns.
     - Per-stripe organization → groups of columns hold independent goals
     - Confidence signal → derived from activation strength, available
       for downstream monitoring ("I don't know" detection)
@@ -40,6 +54,7 @@ class PFCRegion(CorticalRegion):
         voltage_decay: float = 0.97,
         learning_rate: float = 0.02,
         eligibility_decay: float = 0.98,
+        eligibility_clip: float = 0.05,
         seed: int = 0,
         **kwargs,
     ):
@@ -67,6 +82,12 @@ class PFCRegion(CorticalRegion):
         # Used for echo mode (M1 tries to reproduce this pattern).
         self._goal_context = np.zeros(self.n_l23_total, dtype=np.float64)
 
+        # Three-factor learning: eligibility traces on ff_weights.
+        # Slower decay (0.98 ≈ 50-step window) than Motor (0.95 ≈ 20-step)
+        # to match PFC's slow voltage dynamics.
+        self._ff_eligibility = np.zeros_like(self.ff_weights)
+        self._eligibility_clip = eligibility_clip
+
     @property
     def confidence(self) -> float:
         """Current confidence: how strongly are columns activated?
@@ -88,7 +109,15 @@ class PFCRegion(CorticalRegion):
         When gate is open: process new input normally (update goal).
         When gate is closed: zero feedforward drive, rely on slow
         voltage decay to maintain previous activation (hold goal).
+
+        Eligibility traces decay unconditionally — even when gate is
+        closed. Otherwise stale traces from the listen phase persist
+        through the entire hold phase and get consolidated by reward
+        that was earned many steps later.
         """
+        # Always decay eligibility traces (even gate-closed)
+        self._ff_eligibility *= self.eligibility_decay
+
         flat = encoding.flatten().astype(np.float64)
 
         if self.gate_open:
@@ -97,15 +126,88 @@ class PFCRegion(CorticalRegion):
             # Gate closed: no new input, maintain via slow decay
             neuron_drive = np.zeros(self.n_l4_total)
 
-        self.last_column_drive = neuron_drive.reshape(self.n_columns, self.n_l4).max(
-            axis=1
-        )
+        self.last_column_drive = neuron_drive.reshape(
+            self.n_columns, self.n_l4
+        ).max(axis=1)
         active = self.step(neuron_drive)
 
         if self.learning_enabled and self.gate_open:
             self._learn_ff(flat)
 
         return active
+
+    def _learn_ff(self, flat_input: np.ndarray):
+        """Three-factor Hebbian learning on ff_weights.
+
+        Records Hebbian coincidences in eligibility traces instead of
+        modifying weights directly. Weights are updated only when
+        apply_reward() is called with the reward signal.
+
+        This teaches PFC to produce activation patterns that lead to
+        downstream reward — the S2+S3 → PFC mapping becomes reward-
+        optimized, not just input-representative.
+        """
+        # Note: trace decay happens in process() unconditionally
+
+        active_cols = np.nonzero(self.active_columns)[0]
+        if len(active_cols) == 0:
+            return
+
+        # Find winner neurons (one per active column)
+        voltage_by_col = self.voltage_l4.reshape(
+            self.n_columns, self.n_l4
+        )
+        active_by_col = self.active_l4.reshape(
+            self.n_columns, self.n_l4
+        )
+        is_burst = self.bursting_columns[active_cols]
+
+        winner_indices = np.empty(len(active_cols), dtype=np.intp)
+        if is_burst.any():
+            winner_indices[is_burst] = (
+                active_cols[is_burst] * self.n_l4
+                + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
+            )
+        precise = ~is_burst
+        if precise.any():
+            winner_indices[precise] = (
+                active_cols[precise] * self.n_l4
+                + active_by_col[active_cols[precise]].argmax(axis=1)
+            )
+
+        # Record Hebbian coincidence in eligibility trace (not weights)
+        self._ff_eligibility[:, winner_indices] += (
+            self.learning_rate * flat_input[:, np.newaxis]
+        )
+
+    def apply_reward(self, reward: float) -> None:
+        """Consolidate eligibility traces into weights using reward.
+
+        Three-factor rule: dw = reward * eligibility_trace
+        Positive reward → strengthen mappings that led to good output
+        Negative reward → weaken mappings that led to bad output
+
+        Biologically: dopamine from VTA gates synaptic consolidation
+        in PFC via D1/D5 receptors. High DA = strengthen recent
+        synaptic changes. Low DA = let them decay.
+        """
+        if not self.learning_enabled:
+            return
+        if abs(reward) < 1e-6:
+            return
+
+        # Clamp eligibility traces before consolidation
+        if self._eligibility_clip > 0:
+            np.clip(
+                self._ff_eligibility,
+                -self._eligibility_clip,
+                self._eligibility_clip,
+                out=self._ff_eligibility,
+            )
+
+        self.ff_weights += reward * self._ff_eligibility
+        self.ff_weights *= self.ff_mask
+        np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
 
     def snapshot_goal(self) -> None:
         """Capture current L2/3 state as the active goal.
@@ -126,3 +228,4 @@ class PFCRegion(CorticalRegion):
         super().reset_working_memory()
         self.gate_open = True
         self._goal_context[:] = 0.0
+        self._ff_eligibility[:] = 0.0

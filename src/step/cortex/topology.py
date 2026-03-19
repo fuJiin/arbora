@@ -1487,6 +1487,8 @@ class Topology:
                 batch_r = sum(step_rewards) / len(step_rewards)
                 if hasattr(motor_region, "apply_reward"):
                     motor_region.apply_reward(batch_r)
+                if hasattr(pfc_region, "apply_reward"):
+                    pfc_region.apply_reward(batch_r)
 
             # Score: how many chars matched?
             n_match = sum(
@@ -1515,20 +1517,15 @@ class Topology:
                         f"  [echo] curriculum: advancing to max_len={curr_max_len}"
                     )
 
-            # Route reward to PFC: modulate its learning rate.
-            # Then re-process the heard word so PFC's ff_weights
-            # are updated with reward-scaled Hebbian learning.
-            # Good echo → PFC's word representation strengthened.
-            # Bad echo → learning suppressed, representation drifts.
-            avg_episode_reward = episode_reward / max(len(word), 1)
-            # Map reward to modulator range [0.5, 2.0]
-            pfc_region.reward_modulator = max(0.5, min(2.0, 1.0 + avg_episode_reward))
-            pfc_region.gate_open = True
-            for ch in word:
-                encoding = self._encoder.encode(ch)
-                topo_order = self._topo_order()
-                self._propagate_feedforward(topo_order, entry_name, encoding)
-            pfc_region.reward_modulator = 1.0  # Reset modulator
+            # Route reward to PFC via three-factor consolidation.
+            # PFC's eligibility traces captured which S2+S3→PFC
+            # mappings were active during the listen phase. Reward
+            # consolidates: good echo → strengthen those mappings,
+            # bad echo → weaken them. No replay needed.
+            if not batch_reward:
+                avg_r = episode_reward / max(len(word), 1)
+                if hasattr(pfc_region, "apply_reward"):
+                    pfc_region.apply_reward(avg_r)
 
             # Reset for next episode
             for s in self._regions.values():
@@ -1702,15 +1699,10 @@ class Topology:
             rewards.append(episode_reward)
             matches.append(match_rate)
 
-            # PFC reward-modulated replay
+            # PFC three-factor consolidation (no replay needed)
             avg_r = episode_reward / max(max_response_len, 1)
-            pfc_region.reward_modulator = max(0.5, min(2.0, 1.0 + avg_r))
-            pfc_region.gate_open = True
-            for ch in utt[:10]:  # Replay start of utterance
-                encoding = self._encoder.encode(ch)
-                topo_order = self._topo_order()
-                self._propagate_feedforward(topo_order, entry_name, encoding)
-            pfc_region.reward_modulator = 1.0
+            if hasattr(pfc_region, "apply_reward"):
+                pfc_region.apply_reward(avg_r)
 
             # Reset
             for s in self._regions.values():
