@@ -810,7 +810,7 @@ def build_segment_health_over_time(
         ("L2/3 Lateral", "n_active_l23_segments", "#06d6a0"),
         ("Apical (S2->S1)", "n_apical_predicted_cols", "#118ab2"),
     ]:
-        data = [getattr(s, attr) for s in diag.snapshots]
+        data = [getattr(s, attr, 0) for s in diag.snapshots]
         if any(d > 0 for d in data):
             fig.add_trace(
                 go.Scatter(
@@ -868,7 +868,7 @@ def build_apical_prediction_over_time(
         total_hits = 0
         for j in range(start, i + 1):
             f = timeline.frames[j]
-            pred_set = set(f.apical_predicted_columns)
+            pred_set = set(getattr(f, "apical_predicted_columns", []))
             active_set = set(f.active_columns)
             total_pred += len(pred_set)
             total_hits += len(pred_set & active_set)

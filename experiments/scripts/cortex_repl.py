@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Interactive REPL for exploring cortex model behavior.
 
-Trains a model on TinyDialogues, then enters interactive mode where
-you type text and see the model's predictions, surprise, and internal
-state in real time. Uses the full S1→S2→M1+BG architecture:
+Trains a model, then enters interactive mode where you type text and
+see the model's predictions, surprise, and internal state in real time.
+Uses the full S1→S2→S3→PFC→M2→M1+BG architecture:
 
 - Input phase: each char processed through hierarchy, M1 interruptions shown
 - EOM injection: after your input, M1 gets a chance to speak
@@ -26,9 +26,14 @@ import numpy as np
 import step.env  # noqa: F401
 from step.config import (
     _default_motor_config,
+    _default_pfc_config,
+    _default_premotor_config,
     _default_region2_config,
+    _default_region3_config,
     _default_s1_config,
     make_motor_region,
+    make_pfc_region,
+    make_premotor_region,
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
@@ -68,9 +73,11 @@ def surprise_color(bits: float, vocab_size: int = 65) -> str:
 
 
 def build_model(alphabet: str):
-    """Build full hierarchy matching staged topology (S1+S2+S3+M1)."""
-    from step.config import _default_region3_config
+    """Build full hierarchy matching staged topology.
 
+    S1→S2→S3 (sensory), PFC (goals), M2 (sequencing), M1 (output).
+    Same architecture as cortex_staged.py build_topology().
+    """
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
 
     s1_cfg = _default_s1_config()
@@ -86,21 +93,33 @@ def build_model(alphabet: str):
     r3_cfg = _default_region3_config()
     region3 = make_sensory_region(r3_cfg, region2.n_l23_total * 8, seed=789)
 
+    # PFC: receives S2 + S3 concatenated
+    pfc_cfg = _default_pfc_config()
+    pfc = make_pfc_region(
+        pfc_cfg, region2.n_l23_total + region3.n_l23_total, seed=999
+    )
+
+    # M2: receives S2 + PFC concatenated
+    m2_cfg = _default_premotor_config()
+    m2 = make_premotor_region(
+        m2_cfg, region2.n_l23_total + pfc.n_l23_total, seed=321
+    )
+
+    # M1: receives M2 feedforward
     m1_cfg = _default_motor_config()
-    motor = make_motor_region(m1_cfg, region1.n_l23_total, seed=456)
+    m2_n_l23 = m2_cfg.n_columns * m2_cfg.n_l23
+    motor = make_motor_region(m1_cfg, m2_n_l23, seed=456)
     # Vocabulary-constrained L5
     output_vocab = [ord(ch) for ch in encoder._char_to_idx]
     motor._output_vocab = np.array(output_vocab, dtype=np.int64)
     motor.n_output_tokens = len(output_vocab)
     n_l23 = motor.n_l23_total
     motor.output_weights = motor._rng.uniform(
-        0,
-        0.01,
-        size=(n_l23, len(output_vocab)),
+        0, 0.01, size=(n_l23, len(output_vocab))
     )
-    motor.output_mask = (motor._rng.random((n_l23, len(output_vocab))) < 0.5).astype(
-        np.float64
-    )
+    motor.output_mask = (
+        motor._rng.random((n_l23, len(output_vocab))) < 0.5
+    ).astype(np.float64)
     motor.output_weights *= motor.output_mask
     motor._output_eligibility = np.zeros((n_l23, len(output_vocab)))
 
@@ -114,16 +133,30 @@ def build_model(alphabet: str):
     cortex.add_region("S1", region1, entry=True)
     cortex.add_region("S2", region2)
     cortex.add_region("S3", region3)
+    cortex.add_region("PFC", pfc)
+    cortex.add_region("M2", m2)
     cortex.add_region("M1", motor, basal_ganglia=bg)
 
+    # Feedforward
     cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
     cortex.connect("S2", "S3", "feedforward", buffer_depth=8, burst_gate=True)
-    cortex.connect("S1", "M1", "feedforward")
+    cortex.connect("S2", "PFC", "feedforward")
+    cortex.connect("S3", "PFC", "feedforward")
+    cortex.connect("S2", "M2", "feedforward")
+    cortex.connect("PFC", "M2", "feedforward")
+    cortex.connect("M2", "M1", "feedforward")
+    # Surprise
     cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
     cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
     cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
+    # Apical — sensory top-down
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
+    # Apical — motor monitoring
+    cortex.connect("M1", "M2", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("M2", "PFC", "apical", thalamic_gate=ThalamicGate())
+    # Apical — cross-hierarchy
+    cortex.connect("S1", "M1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
 
     decoder = cortex._regions["S1"].dendritic_decoder
@@ -245,7 +278,7 @@ def print_help():
     print(f"{DIM}  /probe          Show S1/S2/S3/M1 representation quality{RESET}")
     print(f"{DIM}  /quit, /q        Exit{RESET}")
     print()
-    print(f"{DIM}Type text to feed it through S1→S2→M1+BG.{RESET}")
+    print(f"{DIM}Type text to feed through S1→S2→S3→PFC→M2→M1.{RESET}")
     print(f"{DIM}After your input, EOM is injected and M1 gets a turn to speak.{RESET}")
     print(f"{DIM}M1 interruptions during input are shown inline.{RESET}")
 
@@ -275,6 +308,17 @@ def print_info(cortex, encoder, region1, motor, decoder):
         known = sorted(decoder._neurons.keys())
         chars = [chr(t) if 32 <= t < 127 else f"<{t}>" for t in known]
         print(f"  {DIM}Known chars ({len(chars)}):{RESET} {''.join(chars)}")
+
+    # PFC status
+    pfc_state = cortex._regions.get("PFC")
+    if pfc_state is not None:
+        pfc_r = pfc_state.region
+        print(
+            f"  {DIM}PFC:{RESET} {pfc_r.n_columns} cols, "
+            f"k={pfc_r.k_columns}, "
+            f"gate={'open' if pfc_r.gate_open else 'closed'}, "
+            f"confidence={pfc_r.confidence:.3f}"
+        )
 
     # M1 status
     if motor:
@@ -330,8 +374,8 @@ def reset_state(cortex, encoder):
 
 
 def run_babble(cortex, encoder, region1, motor, n_chars=200):
-    """Watch M1 babble in real time."""
-    print(f"\n{DIM}  M1 babbling {n_chars} chars...{RESET}")
+    """Watch M1 babble in real time using full topology."""
+    print(f"\n{DIM}  M1 babbling {n_chars} chars (PFC→M2→M1)...{RESET}")
     print(f"  {BOLD}", end="", flush=True)
 
     # Force gate open, set babbling noise for exploration
@@ -345,15 +389,9 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
     word_buf = []
 
     for _i in range(n_chars):
-        # Encode and process through S1
-        encoding = encoder.encode(current_char)
-        region1.process(encoding)
-
-        # Propagate to M1
-        for conn in cortex._connections:
-            if conn.target == "M1" and conn.kind == "feedforward" and conn.enabled:
-                motor.process(cortex._get_ff_signal(conn))
-                break
+        # Use topology's step() for proper propagation
+        token_id = ord(current_char) if current_char else ord(" ")
+        cortex.step(token_id, current_char)
 
         # M1 output
         pop_id, pop_conf = motor.get_population_output()
@@ -361,14 +399,11 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
             ch = chr(pop_id)
             produced.append(ch)
 
-            # Color: green for high confidence, yellow for low
             color = GREEN if pop_conf > 0.1 else YELLOW
             sys.stdout.write(f"{color}{ch}{RESET}{BOLD}")
             sys.stdout.flush()
 
-            # Track words
             if ch in " .!?'-,":
-                # Highlight recognized words (visual only)
                 word_buf.clear()
             else:
                 word_buf.append(ch)
@@ -455,6 +490,16 @@ def run_probe(cortex):
                 f"    L5: {n_tokens} tokens, "
                 f"max={l5_max:.3f}, "
                 f"top chars: {' '.join(top_chars)}"
+            )
+
+        # PFC-specific: confidence and gate
+        from step.cortex.pfc import PFCRegion
+
+        if isinstance(r, PFCRegion):
+            print(
+                f"    PFC: gate={'open' if r.gate_open else 'closed'}, "
+                f"confidence={r.confidence:.3f}, "
+                f"trace_norm={float(np.abs(r._ff_eligibility).mean()):.5f}"
             )
 
         # Apical gain stats
@@ -763,7 +808,7 @@ def main():
     print(f"{DIM}Vocab: {len(alphabet)} chars{RESET}")
 
     # Build model
-    print(f"{DIM}Building model (S1=128/k=8, S2, M1+BG)...{RESET}")
+    print(f"{DIM}Building model (S1→S2→S3→PFC→M2→M1+BG)...{RESET}")
     cortex, encoder, region1, motor, decoder = build_model(alphabet_str)
 
     # Load checkpoint or warmup
