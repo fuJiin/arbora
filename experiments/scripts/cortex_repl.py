@@ -703,6 +703,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
         line_correct = 0
         line_total = 0
         line_bits = []
+        line_bursts = []
         last_token = (ord(" "), " ")
 
         for ch in line:
@@ -728,7 +729,8 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
             n_burst = int(region1.bursting_columns.sum())
             burst_frac = n_burst / n_active
 
-            # Track prediction accuracy (did top-1 match?)
+            # Track per-char stats
+            line_bursts.append(burst_frac)
             line_total += 1
             if preds and preds[0][0] == ch:
                 line_correct += 1
@@ -763,12 +765,12 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
             recent_bpc = sum(recent_bits) / len(recent_bits) if recent_bits else 0
             line_bpc = sum(line_bits) / len(line_bits) if line_bits else 0
             line_acc = line_correct / line_total if line_total > 0 else 0
-            burst_pct = float(region1.bursting_columns.sum()) / max(
-                region1.n_columns, 1
+            avg_burst = (
+                sum(line_bursts) / len(line_bursts) if line_bursts else 0
             )
             print(
                 f"\n{DIM}  {line_acc:.0%} predicted, "
-                f"{burst_pct:.0%} surprised"
+                f"{avg_burst:.0%} avg surprise"
                 f"  [{line_bpc:.1f} bpc]{RESET}"
             )
         print(f"\n{DIM}  [EOM → M1's turn]{RESET}")
