@@ -45,31 +45,34 @@ class SensoryRegion(CorticalRegion):
             self._ff_eligibility = np.zeros_like(self.ff_weights)
 
     def _learn_ff(self, flat_input: np.ndarray):
-        """Hybrid Hebbian + eligibility trace learning.
+        """Hebbian learning + additive eligibility traces.
 
-        When trace_fraction > 0, splits the Hebbian update:
-        - (1 - trace_fraction) applied directly (two-factor baseline)
-        - trace_fraction recorded in eligibility traces, consolidated
-          when apply_surprise() is called by downstream surprise signal
+        When trace_fraction > 0:
+        - Full two-factor Hebbian runs normally (unchanged)
+        - Additionally records traces that consolidate every step,
+          providing temporal credit from recent history
 
-        This lets sensory regions learn from input statistics (two-factor)
-        while also learning from downstream consequences (three-factor).
-        Models synaptic tagging: all synapses form short-term tags, but
-        only tags present when a modulatory signal arrives become permanent.
+        The trace is a decaying echo of recent Hebbian coincidences.
+        Consolidating it each step adds a gradient from temporal context:
+        "inputs from recent steps that co-occurred with my activation
+        also get credit." Sweep eligibility_decay to control how far
+        back this temporal window reaches.
         """
         if self.trace_fraction <= 0:
-            # Pure two-factor: delegate to base class
             super()._learn_ff(flat_input)
             return
 
-        # Decay eligibility traces
+        # Full two-factor Hebbian (unchanged from base class)
+        super()._learn_ff(flat_input)
+
+        # Additionally: record traces and consolidate
         self._ff_eligibility *= self.eligibility_decay
 
         active_cols = np.nonzero(self.active_columns)[0]
         if len(active_cols) == 0:
             return
 
-        # Find winner neurons (same logic as base class)
+        # Find winners (same as base)
         voltage_by_col = self.voltage_l4.reshape(
             self.n_columns, self.n_l4
         )
@@ -90,82 +93,15 @@ class SensoryRegion(CorticalRegion):
                 + active_by_col[active_cols[precise]].argmax(axis=1)
             )
 
-        neuromod = self.surprise_modulator * self.reward_modulator
-        ltp_rate = self.learning_rate * neuromod
-
-        # Split: direct fraction goes to weights, trace fraction to traces
-        direct_rate = ltp_rate * (1.0 - self.trace_fraction)
-        trace_rate = ltp_rate * self.trace_fraction
-
-        # Direct LTP (two-factor portion)
-        if len(winner_indices) > 0 and direct_rate > 0:
-            self.ff_weights[:, winner_indices] += (
-                direct_rate * flat_input[:, np.newaxis]
-            )
-
-        # Trace LTP (three-factor portion)
-        if len(winner_indices) > 0 and trace_rate > 0:
+        # Record trace (Hebbian coincidence)
+        trace_rate = self.learning_rate * self.trace_fraction
+        if len(winner_indices) > 0:
             self._ff_eligibility[:, winner_indices] += (
                 trace_rate * flat_input[:, np.newaxis]
             )
 
-        # LTD: always applied directly (structural refinement)
-        if len(winner_indices) > 0:
-            ltd_rate = self.ltd_rate * neuromod
-            inactive_input = 1.0 - flat_input
-            winner_cols = winner_indices // self.n_l4
-            col_masks = self._col_mask[:, winner_cols]
-            local_on = np.maximum(
-                (flat_input[:, np.newaxis] * col_masks).sum(axis=0),
-                1.0,
-            )
-            local_off = np.maximum(
-                (inactive_input[:, np.newaxis] * col_masks).sum(axis=0),
-                1.0,
-            )
-            local_scales = local_on / local_off
-            neuron_masks = self.ff_mask[:, winner_indices]
-            self.ff_weights[:, winner_indices] -= (
-                ltd_rate
-                * local_scales[np.newaxis, :]
-                * inactive_input[:, np.newaxis]
-                * neuron_masks
-            )
-            w = self.ff_weights[:, winner_indices]
-            w[~neuron_masks] = 0.0
-            np.clip(w, 0, 1, out=w)
-            self.ff_weights[:, winner_indices] = w
-
-        # Subthreshold LTP: direct only (background learning)
-        active_dims = np.flatnonzero(flat_input)
-        if len(active_dims) > 0:
-            sub_ltp = direct_rate * 0.1 * flat_input[
-                active_dims, np.newaxis
-            ]
-            self.ff_weights[active_dims] += sub_ltp
-            self.ff_weights[active_dims] *= self.ff_mask[active_dims]
-            np.minimum(
-                self.ff_weights[active_dims],
-                1,
-                out=self.ff_weights[active_dims],
-            )
-
-    def apply_surprise(self, surprise_improvement: float) -> None:
-        """Consolidate eligibility traces using downstream surprise.
-
-        Called when the downstream region's surprise decreases (= this
-        region's representations helped). Positive = good (consolidate
-        traces), negative = bad (reverse traces).
-
-        Models synaptic tagging: norepinephrine from locus coeruleus
-        signals "what just happened was important" and converts
-        short-term synaptic tags into long-term changes.
-        """
-        if self.trace_fraction <= 0 or not self.learning_enabled:
-            return
-        if abs(surprise_improvement) < 1e-6:
-            return
-
+        # Consolidate traces into weights every step
+        # Clip first to prevent unbounded accumulation
         if self._eligibility_clip > 0:
             np.clip(
                 self._ff_eligibility,
@@ -173,8 +109,7 @@ class SensoryRegion(CorticalRegion):
                 self._eligibility_clip,
                 out=self._ff_eligibility,
             )
-
-        self.ff_weights += surprise_improvement * self._ff_eligibility
+        self.ff_weights += self._ff_eligibility
         self.ff_weights *= self.ff_mask
         np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
 
