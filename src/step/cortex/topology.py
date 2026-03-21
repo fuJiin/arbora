@@ -82,6 +82,8 @@ class _RegionState:
     dendritic_decoder: DendriticDecoder | None = None
     # Motor region decoder (maps M1 L2/3 → token predictions):
     motor_decoder: DendriticDecoder | None = None
+    # Word-level decoder (maps L2/3 → word predictions):
+    word_decoder: object | None = None
 
 
 @dataclass
@@ -346,6 +348,14 @@ class Topology:
                 n_segments=16,
                 n_synapses=48,
                 perm_decay=self._decoder_perm_decay,
+            )
+
+        # Word decoder for non-entry regions (S2, S3, PFC, M2)
+        if not entry:
+            from step.decoders.word import WordDecoder
+
+            state.word_decoder = WordDecoder(
+                region.n_l23_total, seed=hash(name) % (2**31)
             )
 
         self._regions[name] = state
@@ -997,6 +1007,13 @@ class Topology:
                 token_id, token_str, encoding, entry_region.active_columns
             )
             entry_state.dendritic_decoder.observe(token_id, prev_l23)
+
+            # Train word decoders on all non-entry regions
+            for _wd_name, _wd_state in self._regions.items():
+                if _wd_state.word_decoder is not None:
+                    _wd_state.word_decoder.step(
+                        token_str, _wd_state.region.firing_rate_l23
+                    )
 
             self._total_steps += 1
 
@@ -1808,6 +1825,14 @@ class Topology:
             if s.motor_decoder is not None:
                 region_data["motor_decoder_neurons"] = s.motor_decoder._neurons
 
+            if s.word_decoder is not None:
+                region_data["word_decoder_state"] = {
+                    "neurons": s.word_decoder._decoder._neurons,
+                    "word_to_id": s.word_decoder._word_to_id,
+                    "id_to_word": s.word_decoder._id_to_word,
+                    "next_id": s.word_decoder._next_id,
+                }
+
             state["regions"][name] = region_data
 
         # Connection modulator state
@@ -1886,6 +1911,13 @@ class Topology:
 
             if s.motor_decoder is not None and "motor_decoder_neurons" in region_data:
                 s.motor_decoder._neurons = region_data["motor_decoder_neurons"]
+
+            if s.word_decoder is not None and "word_decoder_state" in region_data:
+                wd = region_data["word_decoder_state"]
+                s.word_decoder._decoder._neurons = wd["neurons"]
+                s.word_decoder._word_to_id = wd["word_to_id"]
+                s.word_decoder._id_to_word = wd["id_to_word"]
+                s.word_decoder._next_id = wd["next_id"]
 
         # Restore connection modulator state
         for conn_data in state.get("connections", []):
