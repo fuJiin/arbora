@@ -122,12 +122,18 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     # PFC: receives S2 (word-level) + S3 (topic-level) via multiple ff
     # input_dim = S2 + S3 concatenated
     pfc_cfg = _default_pfc_config()
-    pfc = make_pfc_region(pfc_cfg, s2.n_l23_total + s3.n_l23_total, seed=999)
+    pfc = make_pfc_region(
+        pfc_cfg, s2.n_l23_total + s3.n_l23_total, seed=999,
+        source_dims=[s2.n_l23_total, s3.n_l23_total],
+    )
     cortex.add_region("PFC", pfc)
 
     # M2: receives S2 (word context) + PFC (goal) via multiple ff
     # input_dim = S2 + PFC concatenated
-    m2 = make_premotor_region(m2_cfg, s2.n_l23_total + pfc.n_l23_total, seed=321)
+    m2 = make_premotor_region(
+        m2_cfg, s2.n_l23_total + pfc.n_l23_total, seed=321,
+        source_dims=[s2.n_l23_total, pfc.n_l23_total],
+    )
     cortex.add_region("M2", m2)
 
     # Feedforward chain (multiple ff to same target = summed/concatenated)

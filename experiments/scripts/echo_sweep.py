@@ -181,10 +181,16 @@ def build_topology(
     cortex.add_region("M1", m1, basal_ganglia=bg)
 
     pfc_cfg = _default_pfc_config()
-    pfc = make_pfc_region(pfc_cfg, s2.n_l23_total + s3.n_l23_total, seed=999)
+    pfc = make_pfc_region(
+        pfc_cfg, s2.n_l23_total + s3.n_l23_total, seed=999,
+        source_dims=[s2.n_l23_total, s3.n_l23_total],
+    )
     cortex.add_region("PFC", pfc)
 
-    m2 = make_premotor_region(m2_cfg, s2.n_l23_total + pfc.n_l23_total, seed=321)
+    m2 = make_premotor_region(
+        m2_cfg, s2.n_l23_total + pfc.n_l23_total, seed=321,
+        source_dims=[s2.n_l23_total, pfc.n_l23_total],
+    )
     cortex.add_region("M2", m2)
 
     cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
