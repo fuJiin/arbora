@@ -83,6 +83,7 @@ class CorticalRegion:
         l23_prediction_boost: float = 0.0,
         source_dims: list[int] | None = None,
         ff_sparsity: float = 0.0,
+        pre_trace_decay: float = 0.0,
         seed: int = 0,
     ):
         self.input_dim = input_dim
@@ -113,10 +114,15 @@ class CorticalRegion:
         self.l23_prediction_boost = l23_prediction_boost
         self._rng = np.random.default_rng(seed)
         # Source-aware structural sparsity for multi-ff inputs.
-        # source_dims: list of per-source dimensions in concatenated input
-        # ff_sparsity: fraction of connections to mask per source per column
         self._source_dims = source_dims
         self._ff_sparsity = ff_sparsity
+
+        # STDP-like presynaptic trace: decaying record of recent input
+        # activity. When a postsynaptic neuron fires (k-WTA), synapses
+        # from recently-active inputs get strengthened — giving temporal
+        # credit to inputs that preceded activation, not just coincided.
+        # 0.0 = disabled (pure coincidence Hebbian, original behavior).
+        self._pre_trace_decay = pre_trace_decay
 
         # Third-factor neuromodulatory signals (set externally each step).
         # Scales learning rates: 1.0 = normal, >1 = boosts learning.
@@ -185,6 +191,12 @@ class CorticalRegion:
             0.1, 0.5, int(self.ff_mask.sum())
         )
         self._col_mask = col_mask
+
+        # Presynaptic trace buffer (only allocated if enabled)
+        if self._pre_trace_decay > 0:
+            self._pre_trace = np.zeros(input_dim)
+        else:
+            self._pre_trace = None
 
         # Efference copy: predicted sensory consequence of motor output.
         # Set by set_efference_copy(), consumed (cleared) in process().
@@ -289,12 +301,30 @@ class CorticalRegion:
         return self.ff_weights[:, neuron_indices].sum(axis=1)
 
     def _learn_ff(self, flat_input: np.ndarray):
-        """Per-neuron Hebbian ff learning with LTD.
+        """Per-neuron Hebbian ff learning with optional STDP-like pre traces.
+
+        When pre_trace_decay > 0, uses presynaptic traces for temporal
+        credit assignment: inputs that fired recently (not just now) get
+        credit when a postsynaptic neuron activates. This is the core
+        STDP mechanism — pre before post → strengthen.
+
+        When pre_trace_decay == 0, uses standard coincidence Hebbian
+        (original behavior: only current input gets credit).
 
         LTP on active neurons (the winning neuron in each active column).
         LTD on active neurons' inactive input connections.
         Subthreshold LTP on all neurons in inactive columns.
         """
+        # Update presynaptic trace: decay + accumulate current input
+        if self._pre_trace is not None:
+            self._pre_trace *= self._pre_trace_decay
+            self._pre_trace += flat_input
+            # Use trace as the LTP signal (temporal credit)
+            ltp_signal = self._pre_trace
+        else:
+            # No trace: pure coincidence (original behavior)
+            ltp_signal = flat_input
+
         # Find winning neurons (one per active column) — vectorized
         active_cols = np.nonzero(self.active_columns)[0]
         winner_indices = np.empty(len(active_cols), dtype=np.intp)
@@ -313,15 +343,19 @@ class CorticalRegion:
                     precise
                 ] * self.n_l4 + active_by_col[active_cols[precise]].argmax(axis=1)
 
-        # Build per-neuron masks as compact vectors (only winners need them)
         neuromod = self.surprise_modulator * self.reward_modulator
         ltp_rate = self.learning_rate * neuromod
 
-        # LTP: sparse update on winner neurons only
+        # LTP: strengthen synapses from recently-active inputs → winners
         if len(winner_indices) > 0:
-            self.ff_weights[:, winner_indices] += ltp_rate * flat_input[:, np.newaxis]
+            self.ff_weights[:, winner_indices] += (
+                ltp_rate * ltp_signal[:, np.newaxis]
+            )
 
-        # LTD: sparse update on winner neurons only
+        # LTD: weaken synapses from NOT-recently-active inputs → winners
+        # Uses flat_input (not trace) for LTD — only current step's
+        # inactive inputs get weakened. Trace-based LTD would be too
+        # aggressive (would weaken inputs that were active recently).
         if len(winner_indices) > 0:
             ltd_rate = self.ltd_rate * neuromod
             inactive_input = 1.0 - flat_input
@@ -331,7 +365,8 @@ class CorticalRegion:
                 (flat_input[:, np.newaxis] * col_masks).sum(axis=0), 1.0
             )
             local_off = np.maximum(
-                (inactive_input[:, np.newaxis] * col_masks).sum(axis=0), 1.0
+                (inactive_input[:, np.newaxis] * col_masks).sum(axis=0),
+                1.0,
             )
             local_scales = local_on / local_off
             neuron_masks = self.ff_mask[:, winner_indices]
@@ -341,23 +376,21 @@ class CorticalRegion:
                 * inactive_input[:, np.newaxis]
                 * neuron_masks
             )
-            # Clip winners in-place
             w = self.ff_weights[:, winner_indices]
             w[~neuron_masks] = 0.0
             np.clip(w, 0, 1, out=w)
             self.ff_weights[:, winner_indices] = w
 
-        # Subthreshold: weak LTP on ALL neurons. Exploit input sparsity:
-        # only rows where flat_input > 0 need updating.
-        active_dims = np.flatnonzero(flat_input)
+        # Subthreshold: weak LTP on ALL neurons (uses trace too)
+        active_dims = np.flatnonzero(ltp_signal > 0.01)
         if len(active_dims) > 0:
-            sub_ltp = ltp_rate * 0.1 * flat_input[active_dims, np.newaxis]
+            sub_ltp = ltp_rate * 0.1 * ltp_signal[active_dims, np.newaxis]
             self.ff_weights[active_dims] += sub_ltp
-            # Enforce structural mask on modified rows — vectorized
             self.ff_weights[active_dims] *= self.ff_mask[active_dims]
-            # Upper clamp only on modified rows
             np.minimum(
-                self.ff_weights[active_dims], 1, out=self.ff_weights[active_dims]
+                self.ff_weights[active_dims],
+                1,
+                out=self.ff_weights[active_dims],
             )
 
     # ------------------------------------------------------------------
@@ -483,6 +516,8 @@ class CorticalRegion:
         self._pred_context_l23[:] = False
         self._pred_context_l4[:] = False
         self._efference_copy = None
+        if self._pre_trace is not None:
+            self._pre_trace[:] = 0.0
         # Clear apical contexts (preserve learned weights)
         for src in self._apical_sources.values():
             src["context"][:] = 0.0

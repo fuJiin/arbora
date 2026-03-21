@@ -1,11 +1,4 @@
-"""Sensory cortical region: encoding-specific receptive fields.
-
-Optional three-factor learning: hybrid Hebbian + eligibility traces.
-When enabled, a fraction of the Hebbian update goes into traces that
-consolidate based on downstream surprise (synaptic tagging model).
-This enables longer-range causal learning: S1 ff_weights improve
-when the representations they produce help S2 predict better.
-"""
+"""Sensory cortical region: encoding-specific receptive fields."""
 
 import numpy as np
 
@@ -19,7 +12,6 @@ class SensoryRegion(CorticalRegion):
     - Encoding-width-based receptive field masking for ff_weights
     - Local connectivity for dendritic segments (topographic constraint)
     - L2/3 lateral connectivity mask (local neighborhood)
-    - Optional three-factor learning (trace_fraction > 0)
     """
 
     def __init__(
@@ -27,97 +19,12 @@ class SensoryRegion(CorticalRegion):
         input_dim: int,
         *,
         encoding_width: int = 0,
-        trace_fraction: float = 0.0,
-        eligibility_clip: float = 0.05,
         seed: int = 0,
         **kwargs,
     ):
         # Store before super().__init__ so _build_ff_mask can use it
         self.encoding_width = encoding_width
         super().__init__(input_dim=input_dim, seed=seed, **kwargs)
-
-        # Three-factor hybrid learning.
-        # trace_fraction: what fraction of Hebbian update goes to traces
-        # (remainder applied directly as two-factor). 0.0 = pure two-factor.
-        self.trace_fraction = trace_fraction
-        self._eligibility_clip = eligibility_clip
-        if trace_fraction > 0:
-            self._ff_eligibility = np.zeros_like(self.ff_weights)
-
-    def _learn_ff(self, flat_input: np.ndarray):
-        """Hebbian learning + additive eligibility traces.
-
-        When trace_fraction > 0:
-        - Full two-factor Hebbian runs normally (unchanged)
-        - Additionally records traces that consolidate every step,
-          providing temporal credit from recent history
-
-        The trace is a decaying echo of recent Hebbian coincidences.
-        Consolidating it each step adds a gradient from temporal context:
-        "inputs from recent steps that co-occurred with my activation
-        also get credit." Sweep eligibility_decay to control how far
-        back this temporal window reaches.
-        """
-        if self.trace_fraction <= 0:
-            super()._learn_ff(flat_input)
-            return
-
-        # Full two-factor Hebbian (unchanged from base class)
-        super()._learn_ff(flat_input)
-
-        # Additionally: record traces and consolidate
-        self._ff_eligibility *= self.eligibility_decay
-
-        active_cols = np.nonzero(self.active_columns)[0]
-        if len(active_cols) == 0:
-            return
-
-        # Find winners (same as base)
-        voltage_by_col = self.voltage_l4.reshape(
-            self.n_columns, self.n_l4
-        )
-        active_by_col = self.active_l4.reshape(
-            self.n_columns, self.n_l4
-        )
-        is_burst = self.bursting_columns[active_cols]
-        winner_indices = np.empty(len(active_cols), dtype=np.intp)
-        if is_burst.any():
-            winner_indices[is_burst] = (
-                active_cols[is_burst] * self.n_l4
-                + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
-            )
-        precise = ~is_burst
-        if precise.any():
-            winner_indices[precise] = (
-                active_cols[precise] * self.n_l4
-                + active_by_col[active_cols[precise]].argmax(axis=1)
-            )
-
-        # Record trace (Hebbian coincidence)
-        trace_rate = self.learning_rate * self.trace_fraction
-        if len(winner_indices) > 0:
-            self._ff_eligibility[:, winner_indices] += (
-                trace_rate * flat_input[:, np.newaxis]
-            )
-
-        # Consolidate traces into weights every step
-        # Clip first to prevent unbounded accumulation
-        if self._eligibility_clip > 0:
-            np.clip(
-                self._ff_eligibility,
-                -self._eligibility_clip,
-                self._eligibility_clip,
-                out=self._ff_eligibility,
-            )
-        self.ff_weights += self._ff_eligibility
-        self.ff_weights *= self.ff_mask
-        np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
-
-    def reset_working_memory(self):
-        """Reset transient state, preserving learned weights."""
-        super().reset_working_memory()
-        if self.trace_fraction > 0:
-            self._ff_eligibility[:] = 0.0
 
     def _build_ff_mask(self, input_dim: int) -> np.ndarray:
         """Build encoding-width-aware receptive field mask."""

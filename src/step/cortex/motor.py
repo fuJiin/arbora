@@ -265,43 +265,46 @@ class MotorRegion(CorticalRegion):
         return np.nonzero(self.active_l4)[0]
 
     def _learn_ff(self, flat_input: np.ndarray):
-        """Three-factor Hebbian learning on ff_weights.
+        """Three-factor learning with STDP-like presynaptic traces.
 
-        Instead of applying weight changes immediately (two-factor Hebbian),
-        records changes in an eligibility trace. Changes are consolidated
-        when apply_reward() is called with the reward signal.
-
-        This lets reward determine whether recent motor activations were
-        good (consolidate) or bad (reverse).
+        Uses pre_trace (if enabled) for temporal credit in the
+        eligibility trace. Consolidated by apply_reward().
         """
+        # Update presynaptic trace
+        if self._pre_trace is not None:
+            self._pre_trace *= self._pre_trace_decay
+            self._pre_trace += flat_input
+            ltp_signal = self._pre_trace
+        else:
+            ltp_signal = flat_input
+
         # Decay eligibility trace
         self._ff_eligibility *= self._eligibility_decay
 
-        # Compute what the standard Hebbian update WOULD be
         active_cols = np.nonzero(self.active_columns)[0]
         if len(active_cols) == 0:
             return
 
-        # Find winner neurons
         voltage_by_col = self.voltage_l4.reshape(self.n_columns, self.n_l4)
         active_by_col = self.active_l4.reshape(self.n_columns, self.n_l4)
         is_burst = self.bursting_columns[active_cols]
 
         winner_indices = np.empty(len(active_cols), dtype=np.intp)
         if is_burst.any():
-            winner_indices[is_burst] = active_cols[
-                is_burst
-            ] * self.n_l4 + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
+            winner_indices[is_burst] = (
+                active_cols[is_burst] * self.n_l4
+                + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
+            )
         precise = ~is_burst
         if precise.any():
-            winner_indices[precise] = active_cols[precise] * self.n_l4 + active_by_col[
-                active_cols[precise]
-            ].argmax(axis=1)
+            winner_indices[precise] = (
+                active_cols[precise] * self.n_l4
+                + active_by_col[active_cols[precise]].argmax(axis=1)
+            )
 
-        # Record Hebbian coincidence in eligibility trace (not weights)
-        # LTP direction: input * post-activity
+        # Record in eligibility trace using temporal signal
         self._ff_eligibility[:, winner_indices] += (
-            self.learning_rate * flat_input[:, np.newaxis]
+            self.learning_rate * ltp_signal[:, np.newaxis]
         )
 
     def apply_reward(self, reward: float) -> None:
