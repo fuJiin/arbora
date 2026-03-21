@@ -162,7 +162,13 @@ def build_model(alphabet: str):
 
     decoder = cortex._regions["S1"].dendritic_decoder
 
-    return cortex, encoder, region1, motor, decoder
+    # S2 word-level decoder
+    from step.decoders.word import WordDecoder
+
+    s2_region = cortex._regions["S2"].region
+    word_decoder = WordDecoder(s2_region.n_l23_total, seed=42)
+
+    return cortex, encoder, region1, motor, decoder, word_decoder
 
 
 def warmup(cortex, tokens, log_interval=2000):
@@ -450,7 +456,7 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
     print()
 
 
-def run_probe(cortex):
+def run_probe(cortex, word_decoder=None):
     """Show representation quality for all regions."""
     print(f"\n{BOLD}=== Region Probe ==={RESET}\n")
     for name, state in cortex._regions.items():
@@ -504,11 +510,19 @@ def run_probe(cortex):
                 f"trace_norm={float(np.abs(r._ff_eligibility).mean()):.5f}"
             )
 
-        # Apical gain stats
-        if r.has_apical and r._apical_gain_weights is not None:
-            gain_mean = float(r._apical_gain_weights.mean())
-            gain_max = float(r._apical_gain_weights.max())
-            print(f"    Apical gain: mean={gain_mean:.4f} max={gain_max:.3f}")
+        # Apical gain stats (per-source)
+        if r._apical_sources:
+            for src_name, src in r._apical_sources.items():
+                w = src["weights"]
+                print(
+                    f"    Apical ({src_name}): "
+                    f"mean={float(w.mean()):.4f} "
+                    f"max={float(w.max()):.3f}"
+                )
+
+    # Word decoder stats
+    if word_decoder and word_decoder.n_words > 0:
+        print(f"  {BOLD}S2 word decoder{RESET}: {word_decoder.n_words} words")
 
     print()
 
@@ -608,7 +622,7 @@ def run_echo(cortex, encoder, motor, word: str):
         s.region.reset_working_memory()
 
 
-def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
+def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, load_fn):
     """Main REPL loop with full M1+BG turn-taking."""
     print(f"{BOLD}=== STEP Cortex REPL ==={RESET}")
     print_help()
@@ -687,7 +701,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                 run_babble(cortex, encoder, region1, motor, n)
                 continue
             elif cmd == "/probe":
-                run_probe(cortex)
+                run_probe(cortex, word_decoder)
                 continue
             elif cmd == "/echo":
                 word = parts[1] if len(parts) > 1 else "the"
@@ -731,6 +745,12 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
             n_burst = int(region1.bursting_columns.sum())
             burst_frac = n_burst / n_active
 
+            # S2 word decoder: step and check for word boundary
+            s2_region = cortex._regions["S2"].region
+            completed_word = word_decoder.step(
+                ch, s2_region.firing_rate_l23
+            )
+
             # Track per-char stats
             line_bursts.append(burst_frac)
             line_total += 1
@@ -756,6 +776,20 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, load_fn):
                 f" {color}{surprise_pct:>12s}{RESET}"
                 f"  {DIM}{pred_str}{RESET}\n"
             )
+
+            # At word boundaries, show S2's word-level context
+            if completed_word:
+                s2_preds = word_decoder.predict(
+                    s2_region.firing_rate_l23, k=3
+                )
+                if s2_preds:
+                    wp = " ".join(
+                        f"{w}:{s}" for w, s in s2_preds
+                    )
+                    sys.stdout.write(
+                        f"  {MAGENTA}     S2 context: "
+                        f"{wp}{RESET}\n"
+                    )
 
         # ── EOM INJECTION ──
         # Signal turn boundary: M1's turn to speak.
@@ -902,7 +936,9 @@ def main():
 
     # Build model
     print(f"{DIM}Building model (S1→S2→S3→PFC→M2→M1+BG)...{RESET}")
-    cortex, encoder, region1, motor, decoder = build_model(alphabet_str)
+    cortex, encoder, region1, motor, decoder, word_decoder = build_model(
+        alphabet_str
+    )
 
     # Load checkpoint or warmup
     if args.checkpoint:
@@ -925,7 +961,9 @@ def main():
     print_info(cortex, encoder, region1, motor, decoder)
 
     # Enter interactive mode
-    interactive_loop(cortex, encoder, region1, motor, decoder, load_fn)
+    interactive_loop(
+        cortex, encoder, region1, motor, decoder, word_decoder, load_fn
+    )
     print(f"{DIM}Goodbye!{RESET}")
 
 
