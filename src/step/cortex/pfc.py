@@ -137,23 +137,27 @@ class PFCRegion(CorticalRegion):
         return active
 
     def _learn_ff(self, flat_input: np.ndarray):
-        """Three-factor Hebbian learning on ff_weights.
+        """Three-factor learning with STDP-like presynaptic traces.
 
-        Records Hebbian coincidences in eligibility traces instead of
-        modifying weights directly. Weights are updated only when
-        apply_reward() is called with the reward signal.
-
-        This teaches PFC to produce activation patterns that lead to
-        downstream reward — the S2+S3 → PFC mapping becomes reward-
-        optimized, not just input-representative.
+        Uses pre_trace (if enabled) for temporal credit in the
+        eligibility trace. Inputs that fired before PFC activated
+        get credit, not just inputs active at the same time.
+        Weights updated only when apply_reward() is called.
         """
-        # Note: trace decay happens in process() unconditionally
+        # Update presynaptic trace
+        if self._pre_trace is not None:
+            self._pre_trace *= self._pre_trace_decay
+            self._pre_trace += flat_input
+            ltp_signal = self._pre_trace
+        else:
+            ltp_signal = flat_input
+
+        # Note: eligibility trace decay happens in process()
 
         active_cols = np.nonzero(self.active_columns)[0]
         if len(active_cols) == 0:
             return
 
-        # Find winner neurons (one per active column)
         voltage_by_col = self.voltage_l4.reshape(
             self.n_columns, self.n_l4
         )
@@ -175,9 +179,9 @@ class PFCRegion(CorticalRegion):
                 + active_by_col[active_cols[precise]].argmax(axis=1)
             )
 
-        # Record Hebbian coincidence in eligibility trace (not weights)
+        # Record in eligibility trace using temporal signal
         self._ff_eligibility[:, winner_indices] += (
-            self.learning_rate * flat_input[:, np.newaxis]
+            self.learning_rate * ltp_signal[:, np.newaxis]
         )
 
     def apply_reward(self, reward: float) -> None:
