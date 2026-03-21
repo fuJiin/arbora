@@ -162,11 +162,8 @@ def build_model(alphabet: str):
 
     decoder = cortex._regions["S1"].dendritic_decoder
 
-    # S2 word-level decoder
-    from step.decoders.word import WordDecoder
-
-    s2_region = cortex._regions["S2"].region
-    word_decoder = WordDecoder(s2_region.n_l23_total, seed=42)
+    # S2 word-level decoder (created by topology in add_region)
+    word_decoder = cortex._regions["S2"].word_decoder
 
     return cortex, encoder, region1, motor, decoder, word_decoder
 
