@@ -170,9 +170,19 @@ class CorticalRegion:
         self.trace_l4 = np.zeros(self.n_l4_total)
         self.trace_l23 = np.zeros(self.n_l23_total)
 
-        # Prediction-time context (saved for segment learning)
+        # Prediction-time context (saved for segment learning).
+        # Boolean snapshots used for prediction (threshold-based).
         self._pred_context_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
         self._pred_context_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
+        # Continuous traces for segment learning (STDP-like temporal credit).
+        # When pre_trace_decay > 0, segment learning uses these traces
+        # (which include recent history) instead of boolean snapshots.
+        if self._pre_trace_decay > 0:
+            self._seg_trace_l23 = np.zeros(self.n_l23_total)
+            self._seg_trace_l4 = np.zeros(self.n_l4_total)
+        else:
+            self._seg_trace_l23 = None
+            self._seg_trace_l4 = None
 
         # Apical feedback: per-source gain modulation (BAC firing model).
         # Multiple regions can send apical to the same target — each has
@@ -526,6 +536,10 @@ class CorticalRegion:
         self._efference_copy = None
         if self._pre_trace is not None:
             self._pre_trace[:] = 0.0
+        if self._seg_trace_l23 is not None:
+            self._seg_trace_l23[:] = 0.0
+        if self._seg_trace_l4 is not None:
+            self._seg_trace_l4[:] = 0.0
         # Clear apical contexts (preserve learned weights)
         for src in self._apical_sources.values():
             src["context"][:] = 0.0
@@ -600,7 +614,13 @@ class CorticalRegion:
         #    (current active state is from the previous step)
         self._pred_context_l23[:] = self.active_l23
         self._pred_context_l4[:] = self.active_l4
-        # Apical context used directly as gain in step 5a — no pred snapshot needed.
+        # Update continuous segment traces (STDP-like)
+        if self._seg_trace_l23 is not None:
+            self._seg_trace_l23 *= self._pre_trace_decay
+            self._seg_trace_l23[self.active_l23] += 1.0
+        if self._seg_trace_l4 is not None:
+            self._seg_trace_l4 *= self._pre_trace_decay
+            self._seg_trace_l4[self.active_l4] += 1.0
 
         # 4. Feedforward drive to L4 neurons
         self.voltage_l4 += drive
@@ -866,6 +886,11 @@ class CorticalRegion:
         - Burst (unpredicted): grow best-matching segment on trace winner
         - Precise + predicted: reinforce the active segments
         - Predicted but didn't fire: punish the active segments
+
+        When segment traces are enabled, uses continuous traces (with
+        temporal depth) for segment growth. Adapt still uses boolean
+        context (segments need active/inactive distinction for
+        permanence increment/decrement).
         """
         active_cols = np.nonzero(self.active_columns)[0]
         voltage_by_col = self.voltage_l4.reshape(self.n_columns, self.n_l4)
@@ -877,47 +902,60 @@ class CorticalRegion:
             for i, col in enumerate(burst_cols):
                 self._grow_best_segment(col * self.n_l4 + best_in_col[i])
 
+        # For adapt: use boolean context (traces are for growth only)
+        fb_ctx = self._pred_context_l23
+        lat_ctx = self._pred_context_l4
+        # If traces enabled, threshold to boolean for adapt
+        if self._seg_trace_l23 is not None:
+            threshold = self._pre_trace_threshold or 0.01
+            fb_ctx = self._seg_trace_l23 > threshold
+        if self._seg_trace_l4 is not None:
+            threshold = self._pre_trace_threshold or 0.01
+            lat_ctx = self._seg_trace_l4 > threshold
+
         # Precise + predicted: batch reinforce
         reinforce_neurons = np.nonzero(
             self.active_l4
             & self.predicted_l4
-            & np.repeat(self.active_columns & ~self.bursting_columns, self.n_l4)
+            & np.repeat(
+                self.active_columns & ~self.bursting_columns, self.n_l4
+            )
         )[0]
         if len(reinforce_neurons) > 0:
             self._adapt_segments_batch(
                 reinforce_neurons,
                 self.fb_seg_indices,
                 self.fb_seg_perm,
-                self._pred_context_l23,
+                fb_ctx,
                 reinforce=True,
             )
             self._adapt_segments_batch(
                 reinforce_neurons,
                 self.lat_seg_indices,
                 self.lat_seg_perm,
-                self._pred_context_l4,
+                lat_ctx,
                 reinforce=True,
             )
 
         # Punish false predictions (predicted but didn't fire)
-        false_predicted = np.nonzero(self.predicted_l4 & ~self.active_l4)[0]
+        false_predicted = np.nonzero(
+            self.predicted_l4 & ~self.active_l4
+        )[0]
         if len(false_predicted) > 0:
             self._adapt_segments_batch(
                 false_predicted,
                 self.fb_seg_indices,
                 self.fb_seg_perm,
-                self._pred_context_l23,
+                fb_ctx,
                 reinforce=False,
             )
             self._adapt_segments_batch(
                 false_predicted,
                 self.lat_seg_indices,
                 self.lat_seg_perm,
-                self._pred_context_l4,
+                lat_ctx,
                 reinforce=False,
             )
-
-        # Apical feedback is now pure gain modulation — no segment learning.
 
     # ------------------------------------------------------------------
     # Generic segment operations (shared by L4 and L2/3 segments)
@@ -1068,21 +1106,29 @@ class CorticalRegion:
         """Grow the best-matching L4 segment for a bursting neuron.
 
         Checks both fb (L2/3→L4) and lat (L4→L4) segment types,
-        picks the one with most context overlap.
+        picks the one with most context overlap. When segment traces
+        are enabled, uses continuous traces (recent history) for
+        overlap scoring and growth — giving segments temporal credit.
         """
-        best_overlap = -1
+        best_overlap = -1.0
         best_type = None
 
-        # Vectorized overlap computation per segment type
+        # Use traces if available, else boolean context
+        fb_ctx = self._pred_context_l23
+        lat_ctx = self._pred_context_l4
+        if self._seg_trace_l23 is not None:
+            fb_ctx = self._seg_trace_l23
+        if self._seg_trace_l4 is not None:
+            lat_ctx = self._seg_trace_l4
+
         for seg_type, seg_indices, ctx in [
-            ("fb", self.fb_seg_indices, self._pred_context_l23),
-            ("lat", self.lat_seg_indices, self._pred_context_l4),
+            ("fb", self.fb_seg_indices, fb_ctx),
+            ("lat", self.lat_seg_indices, lat_ctx),
         ]:
             if not ctx.any():
                 continue
-            # (n_seg, n_syn) -> sum over synapses
             overlaps = ctx[seg_indices[neuron]].sum(axis=1)
-            max_overlap = int(overlaps.max())
+            max_overlap = float(overlaps.max())
             if max_overlap > best_overlap:
                 best_overlap = max_overlap
                 best_type = seg_type
@@ -1093,13 +1139,18 @@ class CorticalRegion:
         if best_type == "fb":
             seg_indices = self.fb_seg_indices
             seg_perm = self.fb_seg_perm
-            ctx = self._pred_context_l23
+            ctx = fb_ctx
         else:
             seg_indices = self.lat_seg_indices
             seg_perm = self.lat_seg_perm
-            ctx = self._pred_context_l4
+            ctx = lat_ctx
 
         pool = self._get_source_pool(neuron, best_type)
+        # Convert continuous trace to boolean for _grow_segment
+        # (growth uses active/inactive distinction)
+        if ctx.dtype != np.bool_:
+            threshold = self._pre_trace_threshold or 0.01
+            ctx = ctx > threshold
         self._grow_segment(neuron, seg_indices, seg_perm, ctx, pool)
 
     def _adapt_segments(self, neuron: int, reinforce: bool):
@@ -1124,14 +1175,29 @@ class CorticalRegion:
     # ------------------------------------------------------------------
 
     def _learn_l23_segments(self):
-        """Update L2/3 lateral segment permanences based on prediction outcomes.
+        """Update L2/3 lateral segment permanences.
 
-        - Burst column: grow best-matching L2/3 segment on trace winner
-        - Precise + predicted L2/3: reinforce active segments
-        - Predicted L2/3 but didn't fire: punish active segments
+        Uses segment traces (if enabled) for temporal credit in growth.
+        Adapt uses thresholded traces or boolean context.
         """
         active_cols = np.nonzero(self.active_columns)[0]
-        voltage_l23_by_col = self.voltage_l23.reshape(self.n_columns, self.n_l23)
+        voltage_l23_by_col = self.voltage_l23.reshape(
+            self.n_columns, self.n_l23
+        )
+
+        # Context for growth: use trace if available
+        grow_ctx = self._pred_context_l23
+        if self._seg_trace_l23 is not None:
+            grow_ctx_continuous = self._seg_trace_l23
+        else:
+            grow_ctx_continuous = None
+
+        # Context for adapt: boolean (thresholded trace or snapshot)
+        if self._seg_trace_l23 is not None:
+            threshold = self._pre_trace_threshold or 0.01
+            adapt_ctx = self._seg_trace_l23 > threshold
+        else:
+            adapt_ctx = self._pred_context_l23
 
         # Burst columns: grow segment on trace winner
         burst_cols = active_cols[self.bursting_columns[active_cols]]
@@ -1140,11 +1206,18 @@ class CorticalRegion:
             for i, col in enumerate(burst_cols):
                 best = col * self.n_l23 + best_in_col[i]
                 pool = self._get_l23_source_pool(best)
+                # Use continuous trace for overlap scoring
+                if grow_ctx_continuous is not None:
+                    ctx = grow_ctx_continuous > (
+                        self._pre_trace_threshold or 0.01
+                    )
+                else:
+                    ctx = grow_ctx
                 self._grow_segment(
                     best,
                     self.l23_seg_indices,
                     self.l23_seg_perm,
-                    self._pred_context_l23,
+                    ctx,
                     pool,
                 )
 
@@ -1152,25 +1225,30 @@ class CorticalRegion:
         reinforce_neurons = np.nonzero(
             self.active_l23
             & self.predicted_l23
-            & np.repeat(self.active_columns & ~self.bursting_columns, self.n_l23)
+            & np.repeat(
+                self.active_columns & ~self.bursting_columns,
+                self.n_l23,
+            )
         )[0]
         if len(reinforce_neurons) > 0:
             self._adapt_segments_batch(
                 reinforce_neurons,
                 self.l23_seg_indices,
                 self.l23_seg_perm,
-                self._pred_context_l23,
+                adapt_ctx,
                 reinforce=True,
             )
 
         # Punish false predictions
-        false_predicted = np.nonzero(self.predicted_l23 & ~self.active_l23)[0]
+        false_predicted = np.nonzero(
+            self.predicted_l23 & ~self.active_l23
+        )[0]
         if len(false_predicted) > 0:
             self._adapt_segments_batch(
                 false_predicted,
                 self.l23_seg_indices,
                 self.l23_seg_perm,
-                self._pred_context_l23,
+                adapt_ctx,
                 reinforce=False,
             )
 
