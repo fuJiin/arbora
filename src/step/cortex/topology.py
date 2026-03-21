@@ -1974,6 +1974,13 @@ class Topology:
                 modulator = conn.surprise_tracker.update(burst_rate)
                 tgt.surprise_modulator = modulator
 
+                # Three-factor consolidation on source: when target is
+                # less surprised (modulator < 1), source's traces helped.
+                # improvement = 1 - modulator (positive = good).
+                if hasattr(src, "apply_surprise"):
+                    improvement = 1.0 - modulator
+                    src.apply_surprise(improvement)
+
             elif conn.kind == "apical":
                 if tgt.has_apical:
                     r_active = max(int(src.active_columns.sum()), 1)

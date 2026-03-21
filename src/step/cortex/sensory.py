@@ -1,4 +1,11 @@
-"""Sensory cortical region: encoding-specific receptive fields."""
+"""Sensory cortical region: encoding-specific receptive fields.
+
+Optional three-factor learning: hybrid Hebbian + eligibility traces.
+When enabled, a fraction of the Hebbian update goes into traces that
+consolidate based on downstream surprise (synaptic tagging model).
+This enables longer-range causal learning: S1 ff_weights improve
+when the representations they produce help S2 predict better.
+"""
 
 import numpy as np
 
@@ -12,6 +19,7 @@ class SensoryRegion(CorticalRegion):
     - Encoding-width-based receptive field masking for ff_weights
     - Local connectivity for dendritic segments (topographic constraint)
     - L2/3 lateral connectivity mask (local neighborhood)
+    - Optional three-factor learning (trace_fraction > 0)
     """
 
     def __init__(
@@ -19,12 +27,162 @@ class SensoryRegion(CorticalRegion):
         input_dim: int,
         *,
         encoding_width: int = 0,
+        trace_fraction: float = 0.0,
+        eligibility_clip: float = 0.05,
         seed: int = 0,
         **kwargs,
     ):
         # Store before super().__init__ so _build_ff_mask can use it
         self.encoding_width = encoding_width
         super().__init__(input_dim=input_dim, seed=seed, **kwargs)
+
+        # Three-factor hybrid learning.
+        # trace_fraction: what fraction of Hebbian update goes to traces
+        # (remainder applied directly as two-factor). 0.0 = pure two-factor.
+        self.trace_fraction = trace_fraction
+        self._eligibility_clip = eligibility_clip
+        if trace_fraction > 0:
+            self._ff_eligibility = np.zeros_like(self.ff_weights)
+
+    def _learn_ff(self, flat_input: np.ndarray):
+        """Hybrid Hebbian + eligibility trace learning.
+
+        When trace_fraction > 0, splits the Hebbian update:
+        - (1 - trace_fraction) applied directly (two-factor baseline)
+        - trace_fraction recorded in eligibility traces, consolidated
+          when apply_surprise() is called by downstream surprise signal
+
+        This lets sensory regions learn from input statistics (two-factor)
+        while also learning from downstream consequences (three-factor).
+        Models synaptic tagging: all synapses form short-term tags, but
+        only tags present when a modulatory signal arrives become permanent.
+        """
+        if self.trace_fraction <= 0:
+            # Pure two-factor: delegate to base class
+            super()._learn_ff(flat_input)
+            return
+
+        # Decay eligibility traces
+        self._ff_eligibility *= self.eligibility_decay
+
+        active_cols = np.nonzero(self.active_columns)[0]
+        if len(active_cols) == 0:
+            return
+
+        # Find winner neurons (same logic as base class)
+        voltage_by_col = self.voltage_l4.reshape(
+            self.n_columns, self.n_l4
+        )
+        active_by_col = self.active_l4.reshape(
+            self.n_columns, self.n_l4
+        )
+        is_burst = self.bursting_columns[active_cols]
+        winner_indices = np.empty(len(active_cols), dtype=np.intp)
+        if is_burst.any():
+            winner_indices[is_burst] = (
+                active_cols[is_burst] * self.n_l4
+                + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
+            )
+        precise = ~is_burst
+        if precise.any():
+            winner_indices[precise] = (
+                active_cols[precise] * self.n_l4
+                + active_by_col[active_cols[precise]].argmax(axis=1)
+            )
+
+        neuromod = self.surprise_modulator * self.reward_modulator
+        ltp_rate = self.learning_rate * neuromod
+
+        # Split: direct fraction goes to weights, trace fraction to traces
+        direct_rate = ltp_rate * (1.0 - self.trace_fraction)
+        trace_rate = ltp_rate * self.trace_fraction
+
+        # Direct LTP (two-factor portion)
+        if len(winner_indices) > 0 and direct_rate > 0:
+            self.ff_weights[:, winner_indices] += (
+                direct_rate * flat_input[:, np.newaxis]
+            )
+
+        # Trace LTP (three-factor portion)
+        if len(winner_indices) > 0 and trace_rate > 0:
+            self._ff_eligibility[:, winner_indices] += (
+                trace_rate * flat_input[:, np.newaxis]
+            )
+
+        # LTD: always applied directly (structural refinement)
+        if len(winner_indices) > 0:
+            ltd_rate = self.ltd_rate * neuromod
+            inactive_input = 1.0 - flat_input
+            winner_cols = winner_indices // self.n_l4
+            col_masks = self._col_mask[:, winner_cols]
+            local_on = np.maximum(
+                (flat_input[:, np.newaxis] * col_masks).sum(axis=0),
+                1.0,
+            )
+            local_off = np.maximum(
+                (inactive_input[:, np.newaxis] * col_masks).sum(axis=0),
+                1.0,
+            )
+            local_scales = local_on / local_off
+            neuron_masks = self.ff_mask[:, winner_indices]
+            self.ff_weights[:, winner_indices] -= (
+                ltd_rate
+                * local_scales[np.newaxis, :]
+                * inactive_input[:, np.newaxis]
+                * neuron_masks
+            )
+            w = self.ff_weights[:, winner_indices]
+            w[~neuron_masks] = 0.0
+            np.clip(w, 0, 1, out=w)
+            self.ff_weights[:, winner_indices] = w
+
+        # Subthreshold LTP: direct only (background learning)
+        active_dims = np.flatnonzero(flat_input)
+        if len(active_dims) > 0:
+            sub_ltp = direct_rate * 0.1 * flat_input[
+                active_dims, np.newaxis
+            ]
+            self.ff_weights[active_dims] += sub_ltp
+            self.ff_weights[active_dims] *= self.ff_mask[active_dims]
+            np.minimum(
+                self.ff_weights[active_dims],
+                1,
+                out=self.ff_weights[active_dims],
+            )
+
+    def apply_surprise(self, surprise_improvement: float) -> None:
+        """Consolidate eligibility traces using downstream surprise.
+
+        Called when the downstream region's surprise decreases (= this
+        region's representations helped). Positive = good (consolidate
+        traces), negative = bad (reverse traces).
+
+        Models synaptic tagging: norepinephrine from locus coeruleus
+        signals "what just happened was important" and converts
+        short-term synaptic tags into long-term changes.
+        """
+        if self.trace_fraction <= 0 or not self.learning_enabled:
+            return
+        if abs(surprise_improvement) < 1e-6:
+            return
+
+        if self._eligibility_clip > 0:
+            np.clip(
+                self._ff_eligibility,
+                -self._eligibility_clip,
+                self._eligibility_clip,
+                out=self._ff_eligibility,
+            )
+
+        self.ff_weights += surprise_improvement * self._ff_eligibility
+        self.ff_weights *= self.ff_mask
+        np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
+
+    def reset_working_memory(self):
+        """Reset transient state, preserving learned weights."""
+        super().reset_working_memory()
+        if self.trace_fraction > 0:
+            self._ff_eligibility[:] = 0.0
 
     def _build_ff_mask(self, input_dim: int) -> np.ndarray:
         """Build encoding-width-aware receptive field mask."""
