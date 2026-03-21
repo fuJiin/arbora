@@ -783,8 +783,9 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
                     s2_region.firing_rate_l23, k=3
                 )
                 if s2_preds:
+                    total = max(sum(s for _, s in s2_preds), 1)
                     wp = " ".join(
-                        f"{w}:{s}" for w, s in s2_preds
+                        f"{w}:{s / total:.0%}" for w, s in s2_preds
                     )
                     sys.stdout.write(
                         f"  {MAGENTA}     S2 context: "
