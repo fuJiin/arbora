@@ -160,10 +160,12 @@ class CorticalRegion:
         self._pred_context_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
         self._pred_context_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
 
-        # Apical feedback (S2 L2/3 → S1 L4): initialized lazily via
-        # init_apical_context() once the higher region exists.
-        # Uses per-neuron learned gain weights (BAC firing model):
-        # gain = 1 + context @ apical_gain_weights (multiplicative on voltage)
+        # Apical feedback: per-source gain modulation (BAC firing model).
+        # Multiple regions can send apical to the same target — each has
+        # its own learned gain weights. Gains from all sources are summed.
+        # Initialized lazily via init_apical_context() per source.
+        self._apical_sources: dict[str, dict] = {}
+        # Backward-compat aliases (set to first source on init)
         self._apical_source_dim: int = 0
         self._apical_context = np.zeros(0, dtype=np.float64)
         self._apical_gain_weights: np.ndarray | None = None
@@ -373,41 +375,46 @@ class CorticalRegion:
                     l23_pool, n_syn, replace=len(l23_pool) < n_syn
                 )
 
-    def init_apical_context(self, source_dim: int):
+    def init_apical_context(self, source_dim: int, source_name: str = ""):
         """Initialize apical gain modulation from a higher region.
 
-        Creates a learned weight matrix mapping the higher region's L2/3
-        firing rates to per-neuron gain factors on this region's L4.
+        Supports multiple apical sources — each gets its own learned
+        weight matrix. Gains from all sources are summed before applying
+        to L4 voltage.
+
         Models biological BAC (backpropagation-activated calcium) firing:
-        apical input lowers firing threshold without directly causing spikes.
+        apical input lowers firing threshold without directly causing
+        spikes. Different apical dendrite branches receive different
+        top-down inputs and their effects combine additively.
 
-        The gain is multiplicative on voltage: neurons with no feedforward
-        drive are unaffected regardless of apical signal. This prevents
-        the instructive feedback loop where top-down signals override
-        bottom-up representations.
-
-        Learning is slow (10x slower than feedforward) to prevent
-        sender-receiver coupling that disrupts the sender's representations.
+        Args:
+            source_dim: Dimensionality of the source region's L2/3.
+            source_name: Identifier for this source (e.g., "S2", "M1").
         """
-        self._apical_source_dim = source_dim
-        self._apical_context = np.zeros(source_dim, dtype=np.float64)
-        # Per-neuron gain weights: (source_dim, n_l4_total)
-        # Initialized small positive — slight uniform gain initially
-        self._apical_gain_weights = self._rng.uniform(
-            0.0,
-            0.1,
-            (source_dim, self.n_l4_total),
-        )
+        name = source_name or f"src_{len(self._apical_sources)}"
+        self._apical_sources[name] = {
+            "dim": source_dim,
+            "context": np.zeros(source_dim, dtype=np.float64),
+            "weights": self._rng.uniform(
+                0.0, 0.1, (source_dim, self.n_l4_total)
+            ),
+        }
+        # Backward-compat: set single-source aliases to first source
+        if self._apical_source_dim == 0:
+            self._apical_source_dim = source_dim
+            src = self._apical_sources[name]
+            self._apical_context = src["context"]
+            self._apical_gain_weights = src["weights"]
 
     # Keep old name as alias for backward compat (topology.connect uses it)
-    def init_apical_segments(self, source_dim: int):
+    def init_apical_segments(self, source_dim: int, source_name: str = ""):
         """Backward-compatible alias for init_apical_context."""
-        self.init_apical_context(source_dim)
+        self.init_apical_context(source_dim, source_name)
 
     @property
     def has_apical(self) -> bool:
-        """Whether apical context has been initialized."""
-        return self._apical_source_dim > 0
+        """Whether any apical source has been initialized."""
+        return len(self._apical_sources) > 0
 
     def predict_neuron(self, l4_idx: int, source_idx: int, segment_type: str = "fb"):
         """Set up a dendritic segment that fires when source_idx is active.
@@ -447,9 +454,9 @@ class CorticalRegion:
         self._pred_context_l23[:] = False
         self._pred_context_l4[:] = False
         self._efference_copy = None
-        if self.has_apical:
-            self._apical_context[:] = 0.0
-            # Preserve _apical_gain_weights (learned, not transient)
+        # Clear apical contexts (preserve learned weights)
+        for src in self._apical_sources.values():
+            src["context"][:] = 0.0
 
     def _predict_from_segments(self) -> np.ndarray:
         """Check which L4 neurons have active dendritic segments.
@@ -528,14 +535,22 @@ class CorticalRegion:
 
         # 5a. Apical gating: per-neuron gain from top-down context.
         #     Models BAC firing: apical calcium plateau lowers threshold.
-        #     gain_per_neuron = 1 + context @ weights (always >= 1).
+        #     Multiple apical sources contribute additively to gain.
+        #     gain = 1 + sum(context_i @ weights_i) for each source i.
         #     Multiplicative on voltage — can't fire without basal drive.
-        if self.has_apical and self._apical_context.any():
-            raw_gain = self._apical_context @ self._apical_gain_weights
-            # Clamp to [0, prediction_gain-1] then shift to [1, prediction_gain]
-            np.clip(raw_gain, 0.0, self.prediction_gain - 1.0, out=raw_gain)
-            raw_gain += 1.0
-            self.voltage_l4 *= raw_gain
+        if self._apical_sources:
+            raw_gain = np.zeros(self.n_l4_total)
+            for src in self._apical_sources.values():
+                ctx = src["context"]
+                if ctx.any():
+                    raw_gain += ctx @ src["weights"]
+            if raw_gain.any():
+                np.clip(
+                    raw_gain, 0.0, self.prediction_gain - 1.0,
+                    out=raw_gain,
+                )
+                raw_gain += 1.0
+                self.voltage_l4 *= raw_gain
 
         # 5b. Predicted neurons get a voltage boost (they're primed)
         self.voltage_l4[self.predicted_l4] += self.fb_boost
@@ -601,13 +616,37 @@ class CorticalRegion:
             predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
         return predicted
 
-    def set_apical_context(self, context: np.ndarray):
-        """Set the apical feedback signal from a higher region.
+    def set_apical_context(
+        self, context: np.ndarray, source_name: str = ""
+    ):
+        """Set apical feedback signal from a specific source.
 
         Called each step by the runner before this region's step().
-        context: continuous firing rate signal from the higher region's L2/3.
+        Multiple sources accumulate — each has its own context buffer.
+
+        Args:
+            context: Firing rate signal from the source region's L2/3.
+            source_name: Which source (must match init_apical_context).
         """
-        self._apical_context[:] = context
+        if source_name and source_name in self._apical_sources:
+            self._apical_sources[source_name]["context"][:] = context
+        elif self._apical_sources:
+            # Backward compat: if no name given, match by dimension
+            for src in self._apical_sources.values():
+                if src["dim"] == len(context):
+                    src["context"][:] = context
+                    break
+            else:
+                # Fallback: set first source
+                first = next(iter(self._apical_sources.values()))
+                n = min(len(context), first["dim"])
+                first["context"][:n] = context[:n]
+        # Update backward-compat alias to whichever source has signal
+        for src in self._apical_sources.values():
+            if src["context"].any():
+                self._apical_context = src["context"]
+                self._apical_gain_weights = src["weights"]
+                break
 
     def _compute_predictions(self):
         """Determine which neurons are in predictive state via segments."""
@@ -712,33 +751,32 @@ class CorticalRegion:
             self.active_l23[precise_cols * self.n_l23 + winners] = True
 
     def _learn_apical_gain(self):
-        """Slow Hebbian learning on apical gain weights.
+        """Slow Hebbian learning on apical gain weights (all sources).
 
-        Models plasticity at apical synapses — which higher-region neurons
-        can modulate which lower-region neurons. Learning rate is 10x
-        slower than feedforward to prevent sender-receiver coupling.
-
-        Rule: if context was active AND neuron fired → strengthen (LTP).
-        Passive decay keeps weights bounded.
+        Per-source plasticity: each source's weights learn independently.
+        Rule: if source context was active AND neuron fired → LTP.
+        10x slower than feedforward to prevent sender-receiver coupling.
         """
-        # Slow learning rate: 10x slower than feedforward
         apical_lr = self.learning_rate * 0.1
-
-        # Context as column vector, active neurons as row vector
-        ctx = self._apical_context  # (source_dim,)
-        active = self.active_l4.astype(np.float64)  # (n_l4_total,)
-
-        # Sparse update: only where context is nonzero
-        ctx_nz = np.flatnonzero(ctx)
+        active = self.active_l4.astype(np.float64)
         active_nz = np.flatnonzero(active)
-        if len(ctx_nz) > 0 and len(active_nz) > 0:
-            # LTP: outer product of active context x active neurons
-            delta = apical_lr * ctx[ctx_nz, np.newaxis] * active[np.newaxis, active_nz]
-            self._apical_gain_weights[np.ix_(ctx_nz, active_nz)] += delta
+        if len(active_nz) == 0:
+            return
 
-        # Passive decay to prevent unbounded growth
-        self._apical_gain_weights *= 0.9999
-        np.clip(self._apical_gain_weights, 0.0, 1.0, out=self._apical_gain_weights)
+        for src in self._apical_sources.values():
+            ctx = src["context"]
+            weights = src["weights"]
+            ctx_nz = np.flatnonzero(ctx)
+            if len(ctx_nz) > 0:
+                delta = (
+                    apical_lr
+                    * ctx[ctx_nz, np.newaxis]
+                    * active[np.newaxis, active_nz]
+                )
+                weights[np.ix_(ctx_nz, active_nz)] += delta
+            # Passive decay per source
+            weights *= 0.9999
+            np.clip(weights, 0.0, 1.0, out=weights)
 
     def _learn(self):
         """Dendritic segment updates for L4 and L2/3 prediction.
