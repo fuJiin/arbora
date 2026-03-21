@@ -389,8 +389,11 @@ class Topology:
         if kind == "apical":
             src_region = self._regions[source].region
             tgt_region = self._regions[target].region
-            if not tgt_region.has_apical:
-                tgt_region.init_apical_segments(source_dim=src_region.n_l23_total)
+            # Each apical source gets its own gain weights (keyed by name)
+            tgt_region.init_apical_segments(
+                source_dim=src_region.n_l23_total,
+                source_name=source,
+            )
 
         # Allocate temporal buffer for feedforward connections
         if kind == "feedforward" and buffer_depth > 1:
@@ -545,7 +548,7 @@ class Topology:
                         tgt_burst_rate = tgt_bursting / max(tgt_active, 1)
                         readiness = conn.thalamic_gate.update(tgt_burst_rate)
                         signal = signal * readiness
-                    tgt.set_apical_context(signal)
+                    tgt.set_apical_context(signal, source_name=conn.source)
 
         # -- Motor processing --
         for _name, s in self._regions.items():
@@ -763,7 +766,7 @@ class Topology:
                             signal = signal * readiness
                             key = f"{conn.source}->{conn.target}"
                             thalamic_readiness[key].append(readiness)
-                        tgt.set_apical_context(signal)
+                        tgt.set_apical_context(signal, source_name=conn.source)
 
             # -- Per-region bookkeeping (sampled to reduce overhead) --
             is_metric_step = (t % metric_interval == 0) or (t < 100)
@@ -1782,9 +1785,12 @@ class Topology:
                 "l23_seg_indices": r.l23_seg_indices,
                 "l23_seg_perm": r.l23_seg_perm,
             }
-            # Apical per-neuron gain weights
-            if r._apical_gain_weights is not None:
-                region_data["apical_gain_weights"] = r._apical_gain_weights
+            # Apical per-source gain weights
+            if r._apical_sources:
+                region_data["apical_sources"] = {
+                    name: src["weights"].copy()
+                    for name, src in r._apical_sources.items()
+                }
 
             if isinstance(r, MotorRegion):
                 region_data["output_weights"] = r.output_weights
@@ -1850,11 +1856,16 @@ class Topology:
             r.l23_seg_indices[:] = region_data["l23_seg_indices"]
             r.l23_seg_perm[:] = region_data["l23_seg_perm"]
 
-            # Load apical gain weights (new) or skip old segment data
-            if (
+            # Load apical gain weights (per-source or legacy single)
+            if "apical_sources" in region_data:
+                for src_name, weights in region_data["apical_sources"].items():
+                    if src_name in r._apical_sources:
+                        r._apical_sources[src_name]["weights"][:] = weights
+            elif (
                 "apical_gain_weights" in region_data
                 and r._apical_gain_weights is not None
             ):
+                # Legacy: single-source checkpoint
                 r._apical_gain_weights[:] = region_data["apical_gain_weights"]
 
             if isinstance(r, MotorRegion):
@@ -1974,7 +1985,7 @@ class Topology:
                         tgt_bursting = int(tgt.bursting_columns.sum())
                         tgt_burst_rate = tgt_bursting / tgt_active
                         conn.thalamic_gate.update(tgt_burst_rate)
-                    tgt.set_apical_context(signal)
+                    tgt.set_apical_context(signal, source_name=conn.source)
 
     def _build_bg_ctx(self, precision: np.ndarray, prec_frac: float) -> np.ndarray:
         """Build BG context vector using a pre-allocated buffer."""
