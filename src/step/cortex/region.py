@@ -123,6 +123,7 @@ class CorticalRegion:
         # credit to inputs that preceded activation, not just coincided.
         # 0.0 = disabled (pure coincidence Hebbian, original behavior).
         self._pre_trace_decay = pre_trace_decay
+        self._pre_trace_threshold = 0.0  # min value to use (sparsity)
 
         # Third-factor neuromodulatory signals (set externally each step).
         # Scales learning rates: 1.0 = normal, >1 = boosts learning.
@@ -319,8 +320,15 @@ class CorticalRegion:
         if self._pre_trace is not None:
             self._pre_trace *= self._pre_trace_decay
             self._pre_trace += flat_input
-            # Use trace as the LTP signal (temporal credit)
-            ltp_signal = self._pre_trace
+            # Threshold for sparsity: ignore faint echoes
+            if self._pre_trace_threshold > 0:
+                ltp_signal = np.where(
+                    self._pre_trace > self._pre_trace_threshold,
+                    self._pre_trace,
+                    0.0,
+                )
+            else:
+                ltp_signal = self._pre_trace
         else:
             # No trace: pure coincidence (original behavior)
             ltp_signal = flat_input
