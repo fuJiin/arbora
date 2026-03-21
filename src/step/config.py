@@ -200,6 +200,7 @@ def make_pfc_region(
     cfg: CortexConfig,
     input_dim: int,
     seed: int | None = None,
+    source_dims: list[int] | None = None,
 ):
     """Create a PFCRegion from a CortexConfig."""
     from step.cortex.pfc import PFCRegion
@@ -214,6 +215,8 @@ def make_pfc_region(
         n_columns=cfg.n_columns,
         k_columns=cfg.k_columns,
         ltd_rate=cfg.ltd_rate,
+        source_dims=source_dims,
+        ff_sparsity=0.4 if source_dims else 0.0,
         seed=seed if seed is not None else s,
         **d,
     )
@@ -241,6 +244,7 @@ def make_premotor_region(
     cfg: CortexConfig,
     input_dim: int,
     seed: int | None = None,
+    source_dims: list[int] | None = None,
 ):
     """Create a PremotorRegion from a CortexConfig."""
     from step.cortex.premotor import PremotorRegion
@@ -255,6 +259,8 @@ def make_premotor_region(
         n_columns=cfg.n_columns,
         k_columns=cfg.k_columns,
         ltd_rate=cfg.ltd_rate,
+        source_dims=source_dims,
+        ff_sparsity=0.4 if source_dims else 0.0,
         seed=seed if seed is not None else s,
         **d,
     )

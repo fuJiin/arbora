@@ -81,6 +81,8 @@ class CorticalRegion:
         prediction_gain: float = 2.5,
         n_apical_segments: int = 4,
         l23_prediction_boost: float = 0.0,
+        source_dims: list[int] | None = None,
+        ff_sparsity: float = 0.0,
         seed: int = 0,
     ):
         self.input_dim = input_dim
@@ -110,6 +112,11 @@ class CorticalRegion:
         # L2/3 segment prediction boost (0 = use fb_boost for both layers)
         self.l23_prediction_boost = l23_prediction_boost
         self._rng = np.random.default_rng(seed)
+        # Source-aware structural sparsity for multi-ff inputs.
+        # source_dims: list of per-source dimensions in concatenated input
+        # ff_sparsity: fraction of connections to mask per source per column
+        self._source_dims = source_dims
+        self._ff_sparsity = ff_sparsity
 
         # Third-factor neuromodulatory signals (set externally each step).
         # Scales learning rates: 1.0 = normal, >1 = boosts learning.
@@ -195,9 +202,31 @@ class CorticalRegion:
     def _build_ff_mask(self, input_dim: int) -> np.ndarray:
         """Build structural connectivity mask: (input_dim, n_columns).
 
-        Default: full connectivity (every column sees every input dim).
+        If source_dims is set (multi-ff input), applies per-source
+        random sparsity so each column connects to a subset of each
+        source. This prevents neurons from being overloaded by the
+        full concatenated drive and encourages source specialization.
+
         Subclasses override for encoding-specific receptive fields.
         """
+        source_dims = getattr(self, "_source_dims", None)
+        ff_sparsity = getattr(self, "_ff_sparsity", 0.0)
+        if source_dims and ff_sparsity > 0:
+            # Source-aware sparsity: random mask per source per column
+            mask = np.zeros((input_dim, self.n_columns), dtype=np.bool_)
+            pos = 0
+            for sdim in source_dims:
+                # Each column connects to (1 - ff_sparsity) of this source
+                src_mask = (
+                    self._rng.random((sdim, self.n_columns))
+                    < (1.0 - ff_sparsity)
+                )
+                mask[pos : pos + sdim] = src_mask
+                pos += sdim
+            # Fill any remaining dims (rounding) with full connectivity
+            if pos < input_dim:
+                mask[pos:] = True
+            return mask
         return np.ones((input_dim, self.n_columns), dtype=np.bool_)
 
     # ------------------------------------------------------------------

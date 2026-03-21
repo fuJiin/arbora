@@ -95,13 +95,15 @@ def build_model(alphabet: str):
     # PFC: receives S2 + S3 concatenated
     pfc_cfg = _default_pfc_config()
     pfc = make_pfc_region(
-        pfc_cfg, region2.n_l23_total + region3.n_l23_total, seed=999
+        pfc_cfg, region2.n_l23_total + region3.n_l23_total, seed=999,
+        source_dims=[region2.n_l23_total, region3.n_l23_total],
     )
 
     # M2: receives S2 + PFC concatenated
     m2_cfg = _default_premotor_config()
     m2 = make_premotor_region(
-        m2_cfg, region2.n_l23_total + pfc.n_l23_total, seed=321
+        m2_cfg, region2.n_l23_total + pfc.n_l23_total, seed=321,
+        source_dims=[region2.n_l23_total, pfc.n_l23_total],
     )
 
     # M1: receives M2 feedforward
