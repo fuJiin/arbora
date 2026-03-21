@@ -23,41 +23,46 @@ Surprise: S1→S2, S2→S3, S1→M1
 ```
 
 Learning types by region:
-- SensoryRegion (S1/S2/S3): **two-factor Hebbian** (traces available but default off)
-- PFCRegion (PFC): **three-factor** (eligibility traces + reward), slow decay 0.97
+- SensoryRegion (S1/S2/S3): two-factor Hebbian (traces available but default off)
+- PFCRegion (PFC): three-factor (eligibility traces + reward), slow decay 0.97
 - PremotorRegion (M2): two-factor Hebbian, temporal sequencing via lateral segments
-- MotorRegion (M1): **three-factor** (eligibility traces + reward), L5 output, babbling
+- MotorRegion (M1): three-factor (eligibility traces + reward), L5 output, babbling
 
 ## Key Results
 
-### Echo (PFC→M2→M1) — 4 sweep iterations
-- **PFC three-factor** was biggest win: baseline 3.1% → 8.2%
-- **Eligibility clip (0.05)** only consistently helpful tuning fix
-- **RPE match reward** cleaner but slightly underperforms (5.7% vs 8.2%)
-- **Babbling warmup before echo hurts** — proactive interference
-- **Motor surprise** (M1→M2, M2→M1): neutral to harmful
+### Structural sparsity validated
+40% per-source sparsity on PFC/M2 improves echo 38% (6.9% vs 5.0%).
 
-### Sensory Eligibility Traces — negative result
-Swept 9 configs (trace_fraction x decay). No improvement on burst rate or centroid BPC. Best config (tf=0.1, decay=0.90) was within noise. Two-factor Hebbian with surprise modulation is already well-tuned for sensory learning — character representations are per-step, temporal echoes add noise. Infrastructure preserved (SensoryRegion.trace_fraction) but default off.
+### Echo (PFC→M2→M1)
+- PFC three-factor biggest win: 3.1% → 8.2%
+- Eligibility clip (0.05) only consistent tuning fix
+- Babbling warmup before echo hurts (proactive interference)
+
+### Sensory eligibility traces — wrong approach, not wrong idea
+Swept 9 configs — no improvement. BUT: we implemented joint coincidence traces (pre AND post must co-occur, then smooth over time). This is temporal smoothing, not temporal credit assignment. The RIGHT approach is STDP-like presynaptic traces:
+- Pre fires → trace on outbound synapses (regardless of post)
+- Post fires later → strengthen synapses WITH traces, weaken WITHOUT
+- This gives credit to inputs that PRECEDED activation, not just coincided
+
+### Biology comparison (language focus)
+**Good alignment**: columnar org, hierarchical abstraction, temporal integration, apical gain (BAC), dendritic segments, surprise modulation, BG gating, developmental stages, efference copy, mirror-like M2 activation during listen+speak
+**Key gaps**: no cerebellum (forward model error correction), no thalamic relay, no STDP, passive PFC decay (should be recurrent), no dual stream distinction, no pattern completion (segments do temporal prediction only)
 
 ### Architecture Fixes (this session)
-- **Apical multi-source**: fixed overwrite bug, per-source gain weights
-- **Multi-ff structural sparsity**: 40% sparse per source on PFC/M2
-- **Topology.step() multi-ff**: proper concatenation for PFC/M2
-- **PFC three-factor**: eligibility traces + reward consolidation
-- **EchoReward RPE**: self-dampening match signal, partial credit
-- **S2 WordDecoder**: word-level predictions in REPL
-
-### Demo Tools
-- **REPL**: full architecture, /echo, /babble, /probe, burst surprise %, S2 word context, checkpoint loading
-- **Dashboard**: hierarchy tabs, all fixes, served on port 8080
+- Apical multi-source (was silently dropping signals)
+- Multi-ff structural sparsity (40% per source on PFC/M2)
+- Topology.step() multi-ff (proper concatenation)
+- PFC three-factor (replaced reward_modulator replay hack)
+- EchoReward RPE + partial credit
+- S2 WordDecoder (trained during run(), saved in checkpoints)
 
 ## Uncommitted
-- `.github/workflows/ci.yml` — typecheck scoped to core modules (needs workflow OAuth scope)
+- `.github/workflows/ci.yml` — typecheck scoped to core modules
 
 ## Next Steps (Priority Order)
-- [ ] **M2 three-factor** — credit assignment gap: PFC→[2f]→M2→[2f]→M1
-- [ ] **Longer echo runs** (5k+ episodes) with best config
-- [ ] **Per-stripe PFC gating** — needed for multiple concurrent goals
-- [ ] **Dialogue training** with stable echo as foundation
-- [ ] **Apical-triggered sensory consolidation** — if we revisit sensory traces, use apical calcium signal instead of surprise EMA
+- [ ] **STDP-like presynaptic traces in CorticalRegion** — foundation for all regions. Pre_trace decays + accumulates on input activity. Used when post fires (k-WTA). Third factor (reward) optional per region. Replaces current joint-coincidence approach.
+- [ ] **Minimal cerebellar forward model** — M1 output → predicted S1 → error → M2. Addresses echo oscillation.
+- [ ] **Recurrent PFC maintenance** — self-excitation within active columns, replacing passive voltage decay
+- [ ] **M2 three-factor** — credit assignment gap
+- [ ] **Per-stripe PFC gating** — concurrent goals
+- [ ] **Longer echo runs** (5k+ episodes)
