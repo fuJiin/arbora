@@ -547,24 +547,13 @@ class CorticalRegion:
     def _predict_from_segments(self) -> np.ndarray:
         """Check which L4 neurons have active dendritic segments.
 
-        When segment traces are enabled, uses continuous scoring:
-        each synapse votes with its trace value (0-1) instead of
-        binary (0/1). Recent activity contributes more than old.
-        The activation threshold is the same but applied to the
-        weighted sum instead of a binary count.
+        Prediction always uses CURRENT boolean state — "are enough
+        connected sources active right now?" Traces affect learning
+        (which synapses grow), not prediction (whether segment fires).
 
         Returns boolean mask of shape (n_l4_total,).
         """
-        # Choose context signals: continuous traces or boolean
-        use_traces = self._seg_trace_l23 is not None
-        if use_traces:
-            fb_ctx = self._seg_trace_l23
-            lat_ctx = self._seg_trace_l4
-        else:
-            fb_ctx = self.active_l23
-            lat_ctx = self.active_l4
-
-        if not use_traces and _HAS_NUMBA:
+        if _HAS_NUMBA:
             predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
             if self.active_l23.any():
                 predicted |= _nb_predict(
@@ -585,27 +574,20 @@ class CorticalRegion:
             return predicted
 
         predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
-        threshold = float(self.seg_activation_threshold)
-
-        if fb_ctx.any():
-            ctx_at_syn = fb_ctx[self.fb_seg_indices]
+        if self.active_l23.any():
+            active_at_syn = self.active_l23[self.fb_seg_indices]
             connected = self.fb_seg_perm > self.perm_threshold
-            if use_traces:
-                # Continuous: weighted sum of trace values
-                scores = (ctx_at_syn * connected).sum(axis=2)
-            else:
-                scores = (ctx_at_syn & connected).sum(axis=2)
-            predicted |= (scores >= threshold).any(axis=1)
-
-        if lat_ctx.any():
-            ctx_at_syn = lat_ctx[self.lat_seg_indices]
+            counts = (active_at_syn & connected).sum(axis=2)
+            predicted |= (counts >= self.seg_activation_threshold).any(
+                axis=1
+            )
+        if self.active_l4.any():
+            active_at_syn = self.active_l4[self.lat_seg_indices]
             connected = self.lat_seg_perm > self.perm_threshold
-            if use_traces:
-                scores = (ctx_at_syn * connected).sum(axis=2)
-            else:
-                scores = (ctx_at_syn & connected).sum(axis=2)
-            predicted |= (scores >= threshold).any(axis=1)
-
+            counts = (active_at_syn & connected).sum(axis=2)
+            predicted |= (counts >= self.seg_activation_threshold).any(
+                axis=1
+            )
         return predicted
 
     def get_prediction(self, k: int) -> np.ndarray:
@@ -710,13 +692,11 @@ class CorticalRegion:
     def _predict_l23_from_segments(self) -> np.ndarray:
         """Check which L2/3 neurons have active lateral dendritic segments.
 
-        Uses continuous traces (if enabled) or boolean active state.
+        Prediction uses current boolean state only. Traces affect
+        learning, not prediction.
         Returns boolean mask of shape (n_l23_total,).
         """
-        use_traces = self._seg_trace_l23 is not None
-        ctx = self._seg_trace_l23 if use_traces else self.active_l23
-
-        if not use_traces and _HAS_NUMBA and self.active_l23.any():
+        if _HAS_NUMBA and self.active_l23.any():
             return _nb_predict(
                 self.active_l23,
                 self.l23_seg_indices,
@@ -726,15 +706,13 @@ class CorticalRegion:
             )
 
         predicted = np.zeros(self.n_l23_total, dtype=np.bool_)
-        if ctx.any():
-            ctx_at_syn = ctx[self.l23_seg_indices]
+        if self.active_l23.any():
+            active_at_syn = self.active_l23[self.l23_seg_indices]
             connected = self.l23_seg_perm > self.perm_threshold
-            if use_traces:
-                scores = (ctx_at_syn * connected).sum(axis=2)
-            else:
-                scores = (ctx_at_syn & connected).sum(axis=2)
-            threshold = float(self.seg_activation_threshold)
-            predicted |= (scores >= threshold).any(axis=1)
+            counts = (active_at_syn & connected).sum(axis=2)
+            predicted |= (
+                counts >= self.seg_activation_threshold
+            ).any(axis=1)
         return predicted
 
     def set_apical_context(
