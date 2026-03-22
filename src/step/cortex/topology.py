@@ -2324,6 +2324,12 @@ class Topology:
                 bpc_str += f" bdry={avg_b:.2f} stdy={avg_s:.2f}"
         if centroid_probe.n_tokens > 1 and centroid_probe.bpc < float("inf"):
             bpc_str += f" cbpc={centroid_probe.recent_bpc:.2f}"
+        # Decoder BPC: approximate from dendritic decoder accuracy
+        if roll_den > 0.001:
+            import math
+
+            dbpc = -math.log2(max(roll_den, 1e-10))
+            bpc_str += f" dbpc={dbpc:.2f}"
 
         print(
             f"  [{label}] t={t:,} "
