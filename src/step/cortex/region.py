@@ -547,13 +547,24 @@ class CorticalRegion:
     def _predict_from_segments(self) -> np.ndarray:
         """Check which L4 neurons have active dendritic segments.
 
-        A segment is active when >= seg_activation_threshold of its
-        connected synapses (permanence > perm_threshold) have active
-        source neurons. A neuron is predicted if any segment is active.
+        When segment traces are enabled, uses continuous scoring:
+        each synapse votes with its trace value (0-1) instead of
+        binary (0/1). Recent activity contributes more than old.
+        The activation threshold is the same but applied to the
+        weighted sum instead of a binary count.
 
         Returns boolean mask of shape (n_l4_total,).
         """
-        if _HAS_NUMBA:
+        # Choose context signals: continuous traces or boolean
+        use_traces = self._seg_trace_l23 is not None
+        if use_traces:
+            fb_ctx = self._seg_trace_l23
+            lat_ctx = self._seg_trace_l4
+        else:
+            fb_ctx = self.active_l23
+            lat_ctx = self.active_l4
+
+        if not use_traces and _HAS_NUMBA:
             predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
             if self.active_l23.any():
                 predicted |= _nb_predict(
@@ -574,16 +585,27 @@ class CorticalRegion:
             return predicted
 
         predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
-        if self.active_l23.any():
-            active_at_syn = self.active_l23[self.fb_seg_indices]
+        threshold = float(self.seg_activation_threshold)
+
+        if fb_ctx.any():
+            ctx_at_syn = fb_ctx[self.fb_seg_indices]
             connected = self.fb_seg_perm > self.perm_threshold
-            counts = (active_at_syn & connected).sum(axis=2)
-            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
-        if self.active_l4.any():
-            active_at_syn = self.active_l4[self.lat_seg_indices]
+            if use_traces:
+                # Continuous: weighted sum of trace values
+                scores = (ctx_at_syn * connected).sum(axis=2)
+            else:
+                scores = (ctx_at_syn & connected).sum(axis=2)
+            predicted |= (scores >= threshold).any(axis=1)
+
+        if lat_ctx.any():
+            ctx_at_syn = lat_ctx[self.lat_seg_indices]
             connected = self.lat_seg_perm > self.perm_threshold
-            counts = (active_at_syn & connected).sum(axis=2)
-            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
+            if use_traces:
+                scores = (ctx_at_syn * connected).sum(axis=2)
+            else:
+                scores = (ctx_at_syn & connected).sum(axis=2)
+            predicted |= (scores >= threshold).any(axis=1)
+
         return predicted
 
     def get_prediction(self, k: int) -> np.ndarray:
@@ -688,10 +710,13 @@ class CorticalRegion:
     def _predict_l23_from_segments(self) -> np.ndarray:
         """Check which L2/3 neurons have active lateral dendritic segments.
 
-        Uses previous active_l23 as context (saved in _pred_context_l23).
+        Uses continuous traces (if enabled) or boolean active state.
         Returns boolean mask of shape (n_l23_total,).
         """
-        if _HAS_NUMBA and self.active_l23.any():
+        use_traces = self._seg_trace_l23 is not None
+        ctx = self._seg_trace_l23 if use_traces else self.active_l23
+
+        if not use_traces and _HAS_NUMBA and self.active_l23.any():
             return _nb_predict(
                 self.active_l23,
                 self.l23_seg_indices,
@@ -701,11 +726,15 @@ class CorticalRegion:
             )
 
         predicted = np.zeros(self.n_l23_total, dtype=np.bool_)
-        if self.active_l23.any():
-            active_at_syn = self.active_l23[self.l23_seg_indices]
+        if ctx.any():
+            ctx_at_syn = ctx[self.l23_seg_indices]
             connected = self.l23_seg_perm > self.perm_threshold
-            counts = (active_at_syn & connected).sum(axis=2)
-            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
+            if use_traces:
+                scores = (ctx_at_syn * connected).sum(axis=2)
+            else:
+                scores = (ctx_at_syn & connected).sum(axis=2)
+            threshold = float(self.seg_activation_threshold)
+            predicted |= (scores >= threshold).any(axis=1)
         return predicted
 
     def set_apical_context(
@@ -902,16 +931,16 @@ class CorticalRegion:
             for i, col in enumerate(burst_cols):
                 self._grow_best_segment(col * self.n_l4 + best_in_col[i])
 
-        # For adapt: use boolean context (traces are for growth only)
-        fb_ctx = self._pred_context_l23
-        lat_ctx = self._pred_context_l4
-        # If traces enabled, threshold to boolean for adapt
+        # Context for adapt: use continuous traces (if enabled) for
+        # weighted scoring, or boolean context for binary scoring
         if self._seg_trace_l23 is not None:
-            threshold = self._pre_trace_threshold or 0.01
-            fb_ctx = self._seg_trace_l23 > threshold
+            fb_ctx = self._seg_trace_l23
+        else:
+            fb_ctx = self._pred_context_l23
         if self._seg_trace_l4 is not None:
-            threshold = self._pre_trace_threshold or 0.01
-            lat_ctx = self._seg_trace_l4 > threshold
+            lat_ctx = self._seg_trace_l4
+        else:
+            lat_ctx = self._pred_context_l4
 
         # Precise + predicted: batch reinforce
         reinforce_neurons = np.nonzero(
@@ -1051,7 +1080,12 @@ class CorticalRegion:
         ctx: np.ndarray,
         reinforce: bool,
     ):
-        """Reinforce or punish active segments for a batch of neurons."""
+        """Reinforce or punish active segments for a batch of neurons.
+
+        Supports both boolean ctx (original) and continuous trace ctx.
+        With traces, segment activation scoring uses weighted sums
+        instead of binary counts.
+        """
         if len(neurons) == 0 or not ctx.any():
             return
 
@@ -1059,7 +1093,10 @@ class CorticalRegion:
         inc = self.perm_increment * neuromod
         dec = self.perm_decrement * neuromod
 
-        if _HAS_NUMBA:
+        is_continuous = ctx.dtype != np.bool_
+
+        # Numba path only for boolean ctx
+        if not is_continuous and _HAS_NUMBA:
             _nb_adapt(
                 neurons.astype(np.intp),
                 seg_indices,
@@ -1073,19 +1110,24 @@ class CorticalRegion:
             )
             return
 
-        # NumPy fallback
         batch_idx = seg_indices[neurons]
         batch_perm = seg_perm[neurons]
-        syn_active = ctx[batch_idx]
+        ctx_at_syn = ctx[batch_idx]
         connected = batch_perm > self.perm_threshold
-        counts = (syn_active & connected).sum(axis=2)
-        active_mask = counts >= self.seg_activation_threshold
+
+        # Score segments: continuous weighted sum or binary count
+        if is_continuous:
+            scores = (ctx_at_syn * connected).sum(axis=2)
+        else:
+            scores = (ctx_at_syn & connected).sum(axis=2)
+        threshold = float(self.seg_activation_threshold)
+        active_mask = scores >= threshold
 
         if not active_mask.any():
             return
 
         active_f = active_mask[:, :, np.newaxis].astype(np.float64)
-        syn_f = syn_active.astype(np.float64)
+        syn_f = ctx_at_syn.astype(np.float64)
 
         if reinforce:
             delta = active_f * (syn_f * inc - (1.0 - syn_f) * dec)
@@ -1192,10 +1234,9 @@ class CorticalRegion:
         else:
             grow_ctx_continuous = None
 
-        # Context for adapt: boolean (thresholded trace or snapshot)
+        # Context for adapt: continuous trace or boolean
         if self._seg_trace_l23 is not None:
-            threshold = self._pre_trace_threshold or 0.01
-            adapt_ctx = self._seg_trace_l23 > threshold
+            adapt_ctx = self._seg_trace_l23
         else:
             adapt_ctx = self._pred_context_l23
 
@@ -1203,21 +1244,20 @@ class CorticalRegion:
         burst_cols = active_cols[self.bursting_columns[active_cols]]
         if len(burst_cols) > 0:
             best_in_col = voltage_l23_by_col[burst_cols].argmax(axis=1)
+            # Growth context: threshold trace to boolean for _grow_segment
+            if grow_ctx_continuous is not None:
+                threshold = self._pre_trace_threshold or 0.01
+                grow_bool = grow_ctx_continuous > threshold
+            else:
+                grow_bool = grow_ctx
             for i, col in enumerate(burst_cols):
                 best = col * self.n_l23 + best_in_col[i]
                 pool = self._get_l23_source_pool(best)
-                # Use continuous trace for overlap scoring
-                if grow_ctx_continuous is not None:
-                    ctx = grow_ctx_continuous > (
-                        self._pre_trace_threshold or 0.01
-                    )
-                else:
-                    ctx = grow_ctx
                 self._grow_segment(
                     best,
                     self.l23_seg_indices,
                     self.l23_seg_perm,
-                    ctx,
+                    grow_bool,
                     pool,
                 )
 
