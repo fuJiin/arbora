@@ -20,33 +20,23 @@ Surprise: S1→S2, S2→S3, S1→M1
 
 ## Learning: STDP Presynaptic Traces
 
-Implemented in CorticalRegion base. Two separate trace systems:
-
-**FF traces** (`_pre_trace`): decaying input trace for ff_weight LTP.
-Inputs that preceded activation get temporal credit.
-
-**Segment traces** (`_seg_trace_l23/l4`): decaying activity traces for
-segment growth/adapt. Segments grow connections to recently-active
-neurons (not just currently-active). Prediction stays boolean (current
-state only) — traces affect plasticity, not activation. This is
-biologically correct: STDP modifies synaptic strength, not firing.
-
-Key insight from sweep: traces-for-learning-only gives best centroid
-BPC ever (6.88 vs 7.79 baseline) but burst rate increases (57.6% vs
-49.0%). Segments learn richer multi-step patterns but can only verify
-single-step state at prediction time. Need longer training for segments
-to adapt.
-
-**300k trace run in background** — check results next session.
-Checkpoint: `experiments/checkpoints/stage1_sensory_traces.ckpt`
-Run: `experiments/runs/sensory-traces-300k--*`
-
-## Key Parameters
-- `pre_trace_decay`: 0.0 = disabled (default), 0.8 = good for sensory
-- `_pre_trace_threshold`: sparsity control on ff traces
-- Segment traces share decay rate with ff traces
+In CorticalRegion base. Traces affect LEARNING only, not prediction:
+- **FF traces** (`_pre_trace`): decaying input trace for ff_weight LTP
+- **Segment traces** (`_seg_trace_l23/l4`): decaying activity traces for segment growth/adapt
+- **Prediction stays boolean** (current state) — biologically correct
 - Three-factor (PFC, M1): pre_trace feeds eligibility → reward
-- Two-factor (sensory, M2): pre_trace used directly in Hebbian LTP
+- Default pre_trace_decay=0.0 (disabled). 0.8 tested, shows improvement.
+
+### 300k Trace Results
+- **Decoder BPC: 3.63** (vs ~5.6 baseline) — representations highly decodable
+- Centroid BPC: 7.23 (vs 7.79 baseline) — also improved
+- Burst rate: unknown from probe, was 57.6% at 100k (higher than 49% baseline)
+- Segments learn richer patterns via traces but predict from boolean — tension that may resolve with longer training
+
+### Evaluation
+- **Primary**: burst rate (surprise) — what the model optimizes
+- **Secondary**: decoder BPC (dbpc in logs) — architecturally grounded
+- Centroid BPC (cbpc): kept in logs but being deprecated
 
 ## Validated Results
 - Structural sparsity: 38% echo improvement (6.9% vs 5.0%)
@@ -57,8 +47,9 @@ Run: `experiments/runs/sensory-traces-300k--*`
 - `.github/workflows/ci.yml` — needs workflow OAuth scope
 
 ## Next Steps
-- [ ] **Check 300k trace results** — does burst rate converge?
-- [ ] **Make traces default** once decay tuned per region
+- [ ] **Echo with traces** — do better representations help motor output?
+- [ ] **Tune decay per region** — sensory/PFC/M1 may want different values
+- [ ] **Make traces default** once echo results confirm
 - [ ] **Performance**: numba for trace-based learning
 - [ ] **Cerebellar forward model** — M1→predicted S1→error→M2
 - [ ] **Recurrent PFC** — replace passive voltage decay
