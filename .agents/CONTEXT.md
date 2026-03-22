@@ -7,10 +7,9 @@ Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + thr
 ```
 Topo order: S1 → S2 → S3 → PFC → M2 → M1
 
-Feedforward (concatenated, source-aware sparsity on PFC/M2):
+Feedforward (source-aware sparsity on PFC/M2):
   S1→S2 (buf=4), S2→S3 (buf=8)
-  S2+S3→PFC (40% sparse per source)
-  S2+PFC→M2 (40% sparse per source)
+  S2+S3→PFC (40% sparse), S2+PFC→M2 (40% sparse)
   M2→M1
 
 Apical (multi-source, per-source gain weights):
@@ -19,41 +18,48 @@ Apical (multi-source, per-source gain weights):
 Surprise: S1→S2, S2→S3, S1→M1
 ```
 
-## Learning Mechanism: STDP-like Presynaptic Traces
+## Learning: STDP Presynaptic Traces
 
-Implemented in CorticalRegion base class, applies to ALL connections:
-- `pre_trace_decay`: ff_weight learning uses decaying input trace
-- `_seg_trace_l23/l4`: segment learning uses decaying activity traces
-- `_pre_trace_threshold`: sparsity control (ignore faint echoes)
-- Three-factor regions (PFC, M1): pre_trace feeds eligibility → reward
-- Default pre_trace_decay=0.0 (disabled, coincidence only)
+Implemented in CorticalRegion base. Two separate trace systems:
 
-### Sweep Results (ff_weights only, no segment traces)
-Decoder BPC improves (9.94→8.50) with longer traces. Burst rate unaffected because surprise is driven by segments, not ff_weights.
+**FF traces** (`_pre_trace`): decaying input trace for ff_weight LTP.
+Inputs that preceded activation get temporal credit.
 
-### Sweep Results (ff + segment traces)
-- burst INCREASES (49%→59-63%) — segment predictions get LESS precise
-- centroid BPC IMPROVES (7.79→7.35) — representations more discriminative
-- Hypothesis: thresholded traces create broader "active context" for segments, making matches less precise. Segments need higher threshold or longer training to adapt.
+**Segment traces** (`_seg_trace_l23/l4`): decaying activity traces for
+segment growth/adapt. Segments grow connections to recently-active
+neurons (not just currently-active). Prediction stays boolean (current
+state only) — traces affect plasticity, not activation. This is
+biologically correct: STDP modifies synaptic strength, not firing.
 
-### Evaluation
-- **Primary**: burst rate (surprise) — what the model actually optimizes
-- **Secondary**: dendritic decoder (how downstream regions would read)
-- **Deprecated**: centroid BPC (external probe, not architecturally grounded)
+Key insight from sweep: traces-for-learning-only gives best centroid
+BPC ever (6.88 vs 7.79 baseline) but burst rate increases (57.6% vs
+49.0%). Segments learn richer multi-step patterns but can only verify
+single-step state at prediction time. Need longer training for segments
+to adapt.
 
-## Key Results
-- **Structural sparsity**: 40% per-source on PFC/M2 → 38% echo improvement
-- **PFC three-factor**: baseline echo 3.1%→8.2%
-- **Eligibility clip (0.05)**: only consistent tuning fix across sweeps
+**300k trace run in background** — check results next session.
+Checkpoint: `experiments/checkpoints/stage1_sensory_traces.ckpt`
+Run: `experiments/runs/sensory-traces-300k--*`
+
+## Key Parameters
+- `pre_trace_decay`: 0.0 = disabled (default), 0.8 = good for sensory
+- `_pre_trace_threshold`: sparsity control on ff traces
+- Segment traces share decay rate with ff traces
+- Three-factor (PFC, M1): pre_trace feeds eligibility → reward
+- Two-factor (sensory, M2): pre_trace used directly in Hebbian LTP
+
+## Validated Results
+- Structural sparsity: 38% echo improvement (6.9% vs 5.0%)
+- PFC three-factor: 3.1% → 8.2% echo
+- Eligibility clip (0.05): only consistent tuning fix
 
 ## Uncommitted
 - `.github/workflows/ci.yml` — needs workflow OAuth scope
 
 ## Next Steps
-- [ ] **Tune segment trace threshold** — current 0.01 too low, segments match too broadly. Try 0.1-0.5 or scale with decay.
-- [ ] **Longer training with traces** — 100k may not be enough for segments to adapt to trace-based context
-- [ ] **Make pre_trace_decay>0 default** once tuned — universal STDP learning
-- [ ] **Performance**: threshold + numba for trace-based learning
+- [ ] **Check 300k trace results** — does burst rate converge?
+- [ ] **Make traces default** once decay tuned per region
+- [ ] **Performance**: numba for trace-based learning
 - [ ] **Cerebellar forward model** — M1→predicted S1→error→M2
-- [ ] **Recurrent PFC** — replace passive decay
+- [ ] **Recurrent PFC** — replace passive voltage decay
 - [ ] **M2 three-factor** — credit assignment gap
