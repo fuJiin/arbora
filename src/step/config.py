@@ -35,6 +35,7 @@ class CortexConfig:
     prediction_gain: float = 2.5
     n_apical_segments: int = 4
     l23_prediction_boost: float = 0.0
+    pre_trace_decay: float = 0.8
     seed: int = 0
 
 
