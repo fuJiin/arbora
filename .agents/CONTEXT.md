@@ -21,36 +21,40 @@ Surprise: S1→S2, S2→S3, S1→M1
 ## Learning: STDP Presynaptic Traces (DEFAULT ON)
 
 `pre_trace_decay=0.8` in CortexConfig, all regions from construction.
-- **FF traces**: decaying input → ff_weight LTP (temporal credit)
-- **Segment traces**: decaying activity → segment growth/adapt
-- **Prediction stays boolean** — traces for plasticity, not activation
+- FF traces + segment traces for plasticity, prediction stays boolean
 - Three-factor (PFC, M1): pre_trace feeds eligibility → reward
-- `_pre_trace_threshold`: sparsity control (default 0.0)
 
-### Key validation
-Echo with traces from construction: **7.3% avg, 7.5% last50** (best).
-Traces patched on after construction: 3.6% (worse than no traces 6.0%).
-**Lesson**: all regions must develop together with traces from step 1.
+## Echo Status
+
+### 2k episode run (traces default, 50k sensory warmup)
+- 0-500: 7.3%, 500-1000: 6.7%, 1000-1500: 6.8%, 1500-2000: **8.0%**
+- Stable, slight upward trend, no oscillation
+- **Problem**: M1 converges on 'h' during echo (not during babble)
+- 'h' gets partial credit from RPE because it appears in many common words
+- This is a reward signal problem, not a motor/representation problem
+- Babble output is diverse (17 unique chars, dominated by 'g'/'?'/space)
+
+### Echo reward issue
+RPE partial credit gives 0.2 for char-anywhere-in-word. 'h' appears in "the", "that", "what", "here", "have", etc. — consistent positive signal regardless of target. M1 learns "'h' is always somewhat right" and stops exploring.
+
+Fix options:
+1. Remove partial credit entirely (back to position-only matching)
+2. Make partial credit position-dependent only (no anywhere-in-word)
+3. Add exploration bonus / curiosity to echo reward
+4. Cerebellar error signal: "you produced 'h' but S1 expected 't'" — per-step corrective, not reward-based
 
 ## Validated Results
-- STDP traces from construction: 7.3% echo (best, still improving)
-- Structural sparsity: 38% echo improvement (6.9% vs 5.0%)
+- STDP traces from construction: 7.3% echo (best config)
+- Structural sparsity: 38% echo improvement
 - PFC three-factor: 3.1% → 8.2% echo
-- 300k trace sensory: decoder BPC 3.63 (vs ~5.6 baseline)
-
-## Evaluation
-- **Primary**: burst rate (surprise)
-- **Secondary**: decoder BPC (dbpc in logs)
-- Centroid BPC (cbpc): in logs, being deprecated
+- 300k trace sensory: decoder BPC 3.63
 
 ## Uncommitted
 - `.github/workflows/ci.yml` — needs workflow OAuth scope
 
 ## Next Steps
-- [ ] **Longer echo with traces** (2k-5k episodes) — still improving at 500
-- [ ] **Tune decay per region** — sensory/PFC/M1 may benefit from different values
+- [ ] **Fix echo reward** — partial credit creating 'h' attractor
+- [ ] **Cerebellar forward model** — per-step error correction, not reward
 - [ ] **Full staged training** with traces (sensory → babbling → echo)
-- [ ] **Cerebellar forward model** — M1→predicted S1→error→M2
 - [ ] **Recurrent PFC** — replace passive voltage decay
 - [ ] **M2 three-factor** — credit assignment gap
-- [ ] **Performance**: numba for trace-based learning
