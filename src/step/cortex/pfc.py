@@ -154,30 +154,9 @@ class PFCRegion(CorticalRegion):
 
         # Note: eligibility trace decay happens in process()
 
-        active_cols = np.nonzero(self.active_columns)[0]
-        if len(active_cols) == 0:
+        winner_indices = self._find_winners()
+        if len(winner_indices) == 0:
             return
-
-        voltage_by_col = self.voltage_l4.reshape(
-            self.n_columns, self.n_l4
-        )
-        active_by_col = self.active_l4.reshape(
-            self.n_columns, self.n_l4
-        )
-        is_burst = self.bursting_columns[active_cols]
-
-        winner_indices = np.empty(len(active_cols), dtype=np.intp)
-        if is_burst.any():
-            winner_indices[is_burst] = (
-                active_cols[is_burst] * self.n_l4
-                + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
-            )
-        precise = ~is_burst
-        if precise.any():
-            winner_indices[precise] = (
-                active_cols[precise] * self.n_l4
-                + active_by_col[active_cols[precise]].argmax(axis=1)
-            )
 
         # Record in eligibility trace using temporal signal
         self._ff_eligibility[:, winner_indices] += (
