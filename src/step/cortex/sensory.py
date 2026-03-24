@@ -108,6 +108,32 @@ class SensoryRegion(CorticalRegion):
                     l23_pool, n_syn, replace=len(l23_pool) < n_syn
                 )
 
+        # L5 lateral segments (local connectivity matching L2/3)
+        n5 = self.n_l5_total
+        self._l5_source_pool = np.arange(n5)
+        if self.n_l5_segments > 0:
+            self.l5_seg_indices = np.zeros(
+                (n5, self.n_l5_segments, n_syn), dtype=np.int32
+            )
+            self.l5_seg_perm = np.zeros((n5, self.n_l5_segments, n_syn))
+
+            self._l5_col_pools = {}
+            for col in range(self.n_columns):
+                neighbors = [c for c in range(self.n_columns) if abs(c - col) <= radius]
+                self._l5_col_pools[col] = np.concatenate(
+                    [np.arange(c * self.n_l5, (c + 1) * self.n_l5) for c in neighbors]
+                )
+            for i in range(n5):
+                col = i // self.n_l5
+                l5_pool = self._l5_col_pools[col]
+                for s in range(self.n_l5_segments):
+                    self.l5_seg_indices[i, s] = self._rng.choice(
+                        l5_pool, n_syn, replace=len(l5_pool) < n_syn
+                    )
+        else:
+            self.l5_seg_indices = np.zeros((n5, 0, n_syn), dtype=np.int32)
+            self.l5_seg_perm = np.zeros((n5, 0, n_syn))
+
     def _get_source_pool(self, neuron: int, seg_type: str) -> np.ndarray:
         """Override: return local connectivity pool for this neuron's column."""
         col = neuron // self.n_l4
