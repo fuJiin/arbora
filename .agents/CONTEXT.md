@@ -3,6 +3,9 @@
 ## Overview
 Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + three-factor RL, no backprop. Full sensory-motor hierarchy with PFC goal maintenance.
 
+## Integrations
+- **Linear Project:** PZO / STEP (Sparse Temporal Eligibility Propagation)
+
 ## Architecture (DAG-validated, finalize() enforced)
 ```
 Topo order: S1 → S2 → S3 → PFC → M2 → M1
@@ -52,9 +55,19 @@ Fix options:
 ## Uncommitted
 - `.github/workflows/ci.yml` — needs workflow OAuth scope
 
+## Architecture Decisions (from braindump review 2026-03-23)
+- **L5 must be a proper layer in all regions** — not just motor. L5 is where cerebellum connects (climbing fiber error), BG gets cortical input (corticostriatal projections), and top-down apical feedback lands (BAC firing). Do before cerebellum.
+- **Apical: linear gain now, dendritic segments on L5 later** — linear gain is adequate short-term but misses context-dependent gating. When L5 is added, apical segments on L5 apical dendrites.
+- **Connection modulators are properties, not types** — surprise/reward fold into optional properties on feedforward/apical/lateral connections. Supersedes separate "surprise" and "reward" connection kinds.
+- **fb_segments model L6→L4, not L2/3→L4** — direct L2/3→L4 isn't a major biological pathway. Current impl is a reasonable simplification of the L6→L4 feedback loop.
+- **Cerebellum = separate forward model module, BG = gating** — cerebellum predicts sensory consequence of motor command; BG evaluates and gates. Cerebellum provides per-step corrective error, BG provides go/no-go.
+- **Region types by laminar profile**: granular sensory (S1), association (S2/S3), agranular frontal (PFC), motor (M1/M2)
+- **Structural plasticity is optimization, not critical path** — defer to tuning phase
+
 ## Next Steps
-- [ ] **Fix echo reward** — partial credit creating 'h' attractor
-- [ ] **Cerebellar forward model** — per-step error correction, not reward
-- [ ] **Full staged training** with traces (sensory → babbling → echo)
-- [ ] **Recurrent PFC** — replace passive voltage decay
-- [ ] **M2 three-factor** — credit assignment gap
+See Linear project (PZO) for full backlog. Key priorities:
+- [ ] **PZO-19** Fix echo reward — partial credit creating 'h' attractor (Urgent)
+- [ ] **PZO-31** L5 as a proper layer in all regions (High, blocks cerebellum)
+- [ ] **PZO-33** Connection modulator refactor (High, cleanup)
+- [ ] **PZO-20** Cerebellar forward model (High, blocked by PZO-31)
+- [ ] **PZO-22** Recurrent PFC (Medium, blocks per-stripe gating)
