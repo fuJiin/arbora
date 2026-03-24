@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Protocol
 import numpy as np
 
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.lamina import LaminaID
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.region import CorticalRegion
@@ -105,6 +106,8 @@ class Connection:
     source: str
     target: str
     role: ConnectionRole
+    source_lamina: LaminaID = LaminaID.L23
+    target_lamina: LaminaID = LaminaID.L4
     surprise_tracker: SurpriseTracker | None = None
     reward_modulator: RewardModulator | None = None
     buffer_depth: int = 1
@@ -393,13 +396,22 @@ class Topology:
         target: str,
         role: ConnectionRole = ConnectionRole.FEEDFORWARD,
         *,
+        source_lamina: LaminaID = LaminaID.L23,
+        target_lamina: LaminaID = LaminaID.L4,
         surprise_tracker: SurpriseTracker | None = None,
         reward_modulator: RewardModulator | None = None,
         buffer_depth: int = 1,
         burst_gate: bool = False,
         thalamic_gate: ThalamicGate | None = None,
     ) -> Topology:
-        """Wire source -> target."""
+        """Wire source -> target.
+
+        Args:
+            source_lamina: Which layer's output to read from the source
+                region (default L2/3 — corticocortical projection).
+            target_lamina: Which layer receives the signal in the target
+                region (default L4 for feedforward input).
+        """
         if self._finalized:
             raise RuntimeError(
                 "Topology is finalized. Cannot add connections after finalize()."
@@ -414,6 +426,8 @@ class Topology:
             source=source,
             target=target,
             role=role,
+            source_lamina=source_lamina,
+            target_lamina=target_lamina,
             surprise_tracker=surprise_tracker,
             reward_modulator=reward_modulator,
             buffer_depth=buffer_depth,
@@ -1884,6 +1898,8 @@ class Topology:
                 "source": conn.source,
                 "target": conn.target,
                 "role": conn.role.value,
+                "source_lamina": conn.source_lamina.value,
+                "target_lamina": conn.target_lamina.value,
             }
             if conn.surprise_tracker is not None:
                 conn_data["surprise_burst_ema"] = conn.surprise_tracker._burst_ema
