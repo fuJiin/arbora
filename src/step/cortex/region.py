@@ -37,6 +37,8 @@ feedforward synapses.
 
 import numpy as np
 
+from step.cortex.lamina import Lamina, LaminaID
+
 try:
     from step.cortex._numba_kernels import (
         adapt_segments_batch as _nb_adapt,
@@ -142,37 +144,42 @@ class CorticalRegion:
 
         self.n_l5 = n_l5 if n_l5 is not None else n_l23
 
-        self.n_l4_total: int = n_columns * n_l4
-        self.n_l23_total = n_columns * n_l23
-        self.n_l5_total = n_columns * self.n_l5
+        # --- Lamina registry ---
+        self.laminae: dict[LaminaID, Lamina] = {}
+        self.register_lamina(Lamina(n_columns, n_l4, lamina_id=LaminaID.L4))
+        self.register_lamina(Lamina(n_columns, n_l23, lamina_id=LaminaID.L23))
+        self.register_lamina(Lamina(n_columns, self.n_l5, lamina_id=LaminaID.L5))
+
+        # Convenience totals (widely used in step logic and subclasses)
+        self.n_l4_total: int = self.l4.n_total
+        self.n_l23_total = self.l23.n_total
+        self.n_l5_total = self.l5.n_total
 
         # Pre-allocated source pools for segment growth (avoids per-call arange)
         self._fb_source_pool = np.arange(self.n_l23_total)
         self._lat_source_pool = np.arange(self.n_l4_total)
         self._l23_source_pool = np.arange(self.n_l23_total)
 
-        # Per-neuron state
-        self.voltage_l4 = np.zeros(self.n_l4_total)
-        self.voltage_l23 = np.zeros(self.n_l23_total)
-        self.excitability_l4 = np.zeros(self.n_l4_total)
-        self.excitability_l23 = np.zeros(self.n_l23_total)
+        # --- Backward-compat aliases (delegate to Lamina instances) ---
+        # TODO: migrate consumers to self.l4.*, self.l23.*, self.l5.*
+        self.voltage_l4 = self.l4.voltage
+        self.voltage_l23 = self.l23.voltage
+        self.excitability_l4 = self.l4.excitability
+        self.excitability_l23 = self.l23.excitability
+        self.active_l4 = self.l4.active
+        self.active_l23 = self.l23.active
+        self.active_l5 = self.l5.active
+        self.predicted_l4 = self.l4.predicted
+        self.predicted_l23 = self.l23.predicted
+        self.predicted_l5 = self.l5.predicted
+        self.trace_l4 = self.l4.trace
+        self.trace_l23 = self.l23.trace
+        self.firing_rate_l23 = self.l23.firing_rate
+        self.firing_rate_l5 = self.l5.firing_rate
 
-        # Active masks (updated each step)
-        self.active_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
-        self.active_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
-        self.active_l5 = np.zeros(self.n_l5_total, dtype=np.bool_)
+        # Column-level state (not per-lamina)
         self.active_columns = np.zeros(n_columns, dtype=np.bool_)
-
-        # Burst state (updated each step)
         self.bursting_columns = np.zeros(n_columns, dtype=np.bool_)
-        self.predicted_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
-        self.predicted_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
-        self.predicted_l5 = np.zeros(self.n_l5_total, dtype=np.bool_)
-
-        # Firing rate estimates (EMA of boolean activations).
-        # Model postsynaptic temporal integration of spike trains.
-        self.firing_rate_l23 = np.zeros(self.n_l23_total)
-        self.firing_rate_l5 = np.zeros(self.n_l5_total)
 
         # L5 output scores: per-column mean L5 firing rate.
         # Primary output signal for subcortical targets (BG, cerebellum).
@@ -180,10 +187,6 @@ class CorticalRegion:
 
         # L2/3 lateral connections use dendritic segments only (no dense matrix).
         # Segments provide sparse pattern-specific predictions, matching biology.
-
-        # Per-neuron eligibility traces
-        self.trace_l4 = np.zeros(self.n_l4_total)
-        self.trace_l23 = np.zeros(self.n_l23_total)
 
         # Prediction-time context (saved for segment learning).
         # Boolean snapshots used for prediction (threshold-based).
@@ -581,6 +584,27 @@ class CorticalRegion:
         """Backward-compatible alias for init_apical_context."""
         self.init_apical_context(source_dim, source_name)
 
+    def register_lamina(self, lam: Lamina) -> None:
+        """Register a lamina with this region."""
+        lam.region = self
+        self.laminae[lam.id] = lam
+
+    def get_lamina(self, lid: LaminaID) -> Lamina:
+        """Look up a lamina by ID."""
+        return self.laminae[lid]
+
+    @property
+    def l4(self) -> Lamina:
+        return self.laminae[LaminaID.L4]
+
+    @property
+    def l23(self) -> Lamina:
+        return self.laminae[LaminaID.L23]
+
+    @property
+    def l5(self) -> Lamina:
+        return self.laminae[LaminaID.L5]
+
     @property
     def has_apical(self) -> bool:
         """Whether any apical source has been initialized."""
@@ -834,10 +858,10 @@ class CorticalRegion:
 
     def _compute_predictions(self):
         """Determine which neurons are in predictive state via segments."""
-        self.predicted_l4 = self._predict_from_segments()
-        self.predicted_l23 = self._predict_l23_from_segments()
+        self.predicted_l4[:] = self._predict_from_segments()
+        self.predicted_l23[:] = self._predict_l23_from_segments()
         if self.use_l5_apical_segments and self._apical_sources:
-            self.predicted_l5 = self._predict_l5_from_segments()
+            self.predicted_l5[:] = self._predict_l5_from_segments()
         else:
             self.predicted_l5[:] = False
 
