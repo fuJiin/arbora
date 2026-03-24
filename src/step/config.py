@@ -1,11 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from step.cortex.motor import MotorRegion
     from step.cortex.sensory import SensoryRegion
+
+
+class PlasticityRule(Enum):
+    """Feedforward weight learning rule.
+
+    HEBBIAN: immediate LTP/LTD on ff_weights each step (two-factor).
+        Used by sensory regions (S1, S2, S3) that learn input statistics.
+
+    THREE_FACTOR: accumulate Hebbian coincidences in eligibility traces,
+        consolidate into ff_weights only when apply_reward() is called.
+        Used by motor/prefrontal regions where learning must be gated
+        by a reward signal (dopaminergic modulation).
+    """
+
+    HEBBIAN = "hebbian"
+    THREE_FACTOR = "three_factor"
 
 
 @dataclass
@@ -39,6 +56,7 @@ class CortexConfig:
     use_l5_apical_segments: bool = False
     l23_prediction_boost: float = 0.0
     pre_trace_decay: float = 0.8
+    plasticity_rule: PlasticityRule = PlasticityRule.HEBBIAN
     seed: int = 0
 
 
@@ -152,6 +170,7 @@ def _default_motor_config() -> CortexConfig:
         synapse_decay=0.999,
         learning_rate=0.15,
         ltd_rate=0.15,
+        plasticity_rule=PlasticityRule.THREE_FACTOR,
     )
 
 
@@ -171,6 +190,7 @@ def make_sensory_region(
     d = asdict(cfg)
     s = d.pop("seed")
     d.pop("ltd_rate")  # explicit kwarg on SensoryRegion
+    d.pop("plasticity_rule")  # sensory regions always use HEBBIAN (base default)
     return SensoryRegion(
         input_dim=input_dim,
         encoding_width=encoding_width,
@@ -197,6 +217,7 @@ def _default_pfc_config() -> CortexConfig:
         synapse_decay=0.999,
         learning_rate=0.02,
         ltd_rate=0.02,
+        plasticity_rule=PlasticityRule.THREE_FACTOR,
     )
 
 
@@ -214,11 +235,13 @@ def make_pfc_region(
     d.pop("ltd_rate")
     d.pop("n_columns")
     d.pop("k_columns")
+    plasticity_rule = PlasticityRule(d.pop("plasticity_rule"))
     return PFCRegion(
         input_dim=input_dim,
         n_columns=cfg.n_columns,
         k_columns=cfg.k_columns,
         ltd_rate=cfg.ltd_rate,
+        plasticity_rule=plasticity_rule,
         source_dims=source_dims,
         ff_sparsity=0.4 if source_dims else 0.0,
         seed=seed if seed is not None else s,
@@ -241,6 +264,7 @@ def _default_premotor_config() -> CortexConfig:
         synapse_decay=0.999,
         learning_rate=0.05,
         ltd_rate=0.05,
+        plasticity_rule=PlasticityRule.THREE_FACTOR,
     )
 
 
@@ -258,11 +282,13 @@ def make_premotor_region(
     d.pop("ltd_rate")
     d.pop("n_columns")
     d.pop("k_columns")
+    plasticity_rule = PlasticityRule(d.pop("plasticity_rule"))
     return PremotorRegion(
         input_dim=input_dim,
         n_columns=cfg.n_columns,
         k_columns=cfg.k_columns,
         ltd_rate=cfg.ltd_rate,
+        plasticity_rule=plasticity_rule,
         source_dims=source_dims,
         ff_sparsity=0.4 if source_dims else 0.0,
         seed=seed if seed is not None else s,
@@ -287,11 +313,13 @@ def make_motor_region(
     s = d.pop("seed")
     d.pop("ltd_rate")
     d.pop("n_columns")  # explicit kwarg on MotorRegion
+    plasticity_rule = PlasticityRule(d.pop("plasticity_rule"))
     return MotorRegion(
         input_dim=input_dim,
         n_columns=cfg.n_columns,
         output_threshold=output_threshold,
         ltd_rate=cfg.ltd_rate,
+        plasticity_rule=plasticity_rule,
         seed=seed if seed is not None else s,
         **d,
     )

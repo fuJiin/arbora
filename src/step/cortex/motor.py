@@ -2,15 +2,16 @@
 
 Subclasses SensoryRegion (encoding_width=0, full connectivity) and adds
 an L5-like output layer with confidence gating. Columns self-organize
-to represent output tokens via Hebbian learning — same cortical algorithm
+to represent output tokens via Hebbian learning -- same cortical algorithm
 as sensory regions, different wiring.
 
-The column→token mapping is learned: each column tracks which token_id
+The column->token mapping is learned: each column tracks which token_id
 most frequently activates it, forming a self-organizing motor map.
 """
 
 import numpy as np
 
+from step.config import PlasticityRule
 from step.cortex.region import CorticalRegion
 
 
@@ -19,7 +20,7 @@ class MotorRegion(CorticalRegion):
 
     Receives S1's L2/3 firing rate as input (full connectivity, no
     encoding-width structure). Adds:
-    - L5 output layer: learned weights mapping L2/3 → token scores
+    - L5 output layer: learned weights mapping L2/3 -> token scores
     - Output weights have structural sparsity (like ff_weights)
     - Three-factor learning: Hebbian + reward modulation on both
       ff_weights (input mapping) and output_weights (L5 readout)
@@ -38,18 +39,20 @@ class MotorRegion(CorticalRegion):
         output_threshold: float = 0.3,
         eligibility_clip: float = 0.05,
         reward_baseline_decay: float = 0.0,
+        plasticity_rule: PlasticityRule = PlasticityRule.THREE_FACTOR,
         seed: int = 0,
         **kwargs,
     ):
         super().__init__(
             input_dim=input_dim,
             n_columns=n_columns,
+            plasticity_rule=plasticity_rule,
             seed=seed,
             **kwargs,
         )
         self.output_threshold = output_threshold
 
-        # Vocabulary: maps L5 output index → token_id.
+        # Vocabulary: maps L5 output index -> token_id.
         # If provided, L5 only produces valid tokens.
         # If None, output index IS the token_id (raw ASCII).
         if output_vocab is not None:
@@ -63,29 +66,25 @@ class MotorRegion(CorticalRegion):
         # Models brainstem pattern generators in early infant vocalization.
         self.babbling_noise: float = 0.0
 
-        # Three-factor learning: eligibility trace on ff_weights.
-        self._ff_eligibility = np.zeros_like(self.ff_weights)
-        self._eligibility_decay = 0.95  # ~20-step window
-
         # Eligibility trace clamp: prevents unbounded accumulation over
         # multi-step episodes. 0.0 = no clamping (original behavior).
         self._eligibility_clip = eligibility_clip
 
         # Reward baseline: running average subtracted before consolidation.
-        # When performance is good, baseline rises → marginal reward → 0 →
+        # When performance is good, baseline rises -> marginal reward -> 0 ->
         # weights stop changing. 0.0 = disabled (original behavior).
         self._reward_baseline_decay = reward_baseline_decay
         self._reward_baseline = 0.0
 
         # Goal drive: additive feedforward signal from PFC.
         # Added to ff_weights drive before k-WTA competition.
-        # This is the "direct dial" — PFC→M1 feedforward shortcut
-        # for simple responses. Will be replaced by PFC→M2→M1 later.
+        # This is the "direct dial" -- PFC->M1 feedforward shortcut
+        # for simple responses. Will be replaced by PFC->M2->M1 later.
         self._goal_drive: np.ndarray | None = None
         self._goal_weights: np.ndarray | None = None
         self.goal_consolidation_scale: float = 0.3
 
-        # -- L5 output layer: L2/3 → token scores --
+        # -- L5 output layer: L2/3 -> token scores --
         # Models cortical L5 pyramidal neurons that project to motor
         # periphery. Learned weights with structural sparsity, same
         # architecture as ff_weights. Three-factor Hebbian learning:
@@ -116,7 +115,7 @@ class MotorRegion(CorticalRegion):
         self.last_reward: float = 0.0
 
     def init_goal_drive(self, source_dim: int) -> None:
-        """Initialize PFC→M1 feedforward goal weights.
+        """Initialize PFC->M1 feedforward goal weights.
 
         Called once when PFC is connected. Creates learned weights that
         map PFC's L2/3 firing rate to additive M1 neuron drive.
@@ -169,7 +168,7 @@ class MotorRegion(CorticalRegion):
 
             # Record goal eligibility (three-factor: PFC activity x M1 winners)
             if hasattr(self, "_goal_eligibility"):
-                self._goal_eligibility *= self._eligibility_decay
+                self._goal_eligibility *= self.eligibility_decay
                 # Will be populated after step() determines winners
                 self._pending_goal_signal = goal_signal
 
@@ -203,7 +202,7 @@ class MotorRegion(CorticalRegion):
 
         Randomly selects k columns (ensuring diverse exploration), then
         runs normal L2/3 activation and learning. Crucially, also trains
-        ff_weights via _learn_ff so the sensorimotor mapping develops —
+        ff_weights via _learn_ff so the sensorimotor mapping develops --
         M1 learns "when S1 pattern is X, I should activate columns Y."
 
         Args:
@@ -241,10 +240,10 @@ class MotorRegion(CorticalRegion):
         # 7b. Activate L5
         self._activate_l5(cols)
 
-        # 8. Learn — segments AND ff_weights
+        # 8. Learn -- segments AND ff_weights
         if self.learning_enabled:
             self._learn()
-            # Train ff_weights: learn to map S1 input → forced columns.
+            # Train ff_weights: learn to map S1 input -> forced columns.
             # This builds the sensorimotor forward model.
             if encoding is not None:
                 flat = encoding.flatten().astype(np.float64)
@@ -267,37 +266,15 @@ class MotorRegion(CorticalRegion):
 
         return np.nonzero(self.active_l4)[0]
 
-    def _learn_ff(self, flat_input: np.ndarray):
-        """Three-factor learning with STDP-like presynaptic traces.
-
-        Uses pre_trace (if enabled) for temporal credit in the
-        eligibility trace. Consolidated by apply_reward().
-        """
-        # Update presynaptic trace
-        if self._pre_trace is not None:
-            self._pre_trace *= self._pre_trace_decay
-            self._pre_trace += flat_input
-            ltp_signal = self._pre_trace
-        else:
-            ltp_signal = flat_input
-
-        # Decay eligibility trace
-        self._ff_eligibility *= self._eligibility_decay
-
-        winner_indices = self._find_winners()
-        if len(winner_indices) == 0:
-            return
-
-        # Record in eligibility trace using temporal signal
-        self._ff_eligibility[:, winner_indices] += (
-            self.learning_rate * ltp_signal[:, np.newaxis]
-        )
+    # _learn_ff() inherited from CorticalRegion base class.
+    # Base dispatches to _learn_ff_three_factor which handles
+    # eligibility trace decay + accumulation.
 
     def apply_reward(self, reward: float) -> None:
         """Consolidate eligibility traces into weights using reward signal.
 
         Extends base class with reward baseline subtraction, and
-        consolidation of output_weights (L5) and goal_weights (PFC→M1).
+        consolidation of output_weights (L5) and goal_weights (PFC->M1).
 
         Three-factor rule: dw = (reward - baseline) * eligibility_trace
         Positive reward strengthens recent pathways, negative weakens.
@@ -305,7 +282,7 @@ class MotorRegion(CorticalRegion):
         if not self.learning_enabled:
             return
 
-        # Subtract running baseline (adaptive: good performance → less change)
+        # Subtract running baseline (adaptive: good performance -> less change)
         effective_reward = reward
         if self._reward_baseline_decay > 0:
             self._reward_baseline += (1.0 - self._reward_baseline_decay) * (
@@ -340,8 +317,8 @@ class MotorRegion(CorticalRegion):
         self.output_weights *= self.output_mask
         np.clip(self.output_weights, 0, 1, out=self.output_weights)
 
-        # Consolidate goal_weights (PFC→M1/M2 feedforward)
-        # Scaled down (0.3x) for stability — goal mapping needs to
+        # Consolidate goal_weights (PFC->M1/M2 feedforward)
+        # Scaled down (0.3x) for stability -- goal mapping needs to
         # develop slowly to avoid oscillation during echo training.
         if self._goal_weights is not None and hasattr(self, "_goal_eligibility"):
             scale = self.goal_consolidation_scale
@@ -349,15 +326,15 @@ class MotorRegion(CorticalRegion):
             np.clip(self._goal_weights, 0, 1, out=self._goal_weights)
 
     def observe_token(self, token_id: int) -> None:
-        """Learn L5 output weights: L5 → token association.
+        """Learn L5 output weights: L5 -> token association.
 
         Three-factor Hebbian on output weights:
-        - Record L5→token coincidence in eligibility trace
+        - Record L5->token coincidence in eligibility trace
         - Consolidation happens in apply_reward()
         Also does direct Hebbian strengthening (two-factor baseline)
         so the mapping develops even without reward signal.
         """
-        # Map token_id → L5 output index
+        # Map token_id -> L5 output index
         if self._output_vocab is not None:
             matches = np.where(self._output_vocab == token_id)[0]
             if len(matches) == 0:
@@ -369,9 +346,9 @@ class MotorRegion(CorticalRegion):
             out_idx = token_id
 
         # Decay output eligibility trace
-        self._output_eligibility *= self._eligibility_decay
+        self._output_eligibility *= self.eligibility_decay
 
-        # Record coincidence: active L5 neurons → observed token
+        # Record coincidence: active L5 neurons -> observed token
         active = self.active_l5.astype(np.float64)
         if not active.any():
             return
@@ -396,7 +373,7 @@ class MotorRegion(CorticalRegion):
     def get_population_output(self) -> tuple[int, float]:
         """Return (predicted_token_id, confidence) via output weights.
 
-        L5 activations → output_weights → token scores → argmax.
+        L5 activations -> output_weights -> token scores -> argmax.
         Models L5 population coding: the motor command is encoded by
         the pattern of active L5 neurons, decoded through learned
         output weights with structural sparsity.
@@ -414,7 +391,7 @@ class MotorRegion(CorticalRegion):
             return (-1, 0.0)
 
         best_idx = int(token_scores.argmax())
-        # Map L5 output index → actual token_id
+        # Map L5 output index -> actual token_id
         if self._output_vocab is not None:
             best_token = int(self._output_vocab[best_idx])
         else:
@@ -427,7 +404,7 @@ class MotorRegion(CorticalRegion):
         """Return (predicted_token_id, confidence) using a dendritic decoder.
 
         L5 readout + BG gating decides IF M1 speaks (output_scores >= threshold).
-        The decoder decides WHAT M1 says (replaces column→token frequency map).
+        The decoder decides WHAT M1 says (replaces column->token frequency map).
         """
         above = self.output_scores >= self.output_threshold
         if not above.any():
@@ -447,5 +424,4 @@ class MotorRegion(CorticalRegion):
     def reset_working_memory(self):
         """Reset transient state, preserving learned mappings."""
         super().reset_working_memory()
-        self._ff_eligibility[:] = 0.0
         self._output_eligibility[:] = 0.0
