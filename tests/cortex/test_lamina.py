@@ -15,13 +15,13 @@ class TestLaminaID:
 
 class TestLamina:
     def test_dimensions(self):
-        lam = Lamina(8, 4)
+        lam = Lamina(8, 4, lamina_id=LaminaID.L4)
         assert lam.n_per_col == 4
         assert lam.n_columns == 8
         assert lam.n_total == 32
 
     def test_all_features_enabled(self):
-        lam = Lamina(8, 4)
+        lam = Lamina(8, 4, lamina_id=LaminaID.L4)
         assert lam.active.shape == (32,)
         assert lam.predicted.shape == (32,)
         assert lam.voltage.shape == (32,)
@@ -33,6 +33,7 @@ class TestLamina:
         lam = Lamina(
             8,
             4,
+            lamina_id=LaminaID.L4,
             has_voltage=False,
             has_excitability=False,
             has_trace=False,
@@ -47,7 +48,7 @@ class TestLamina:
 
     def test_l4_config(self):
         """L4: voltage + excitability + trace, no firing rate."""
-        lam = Lamina(8, 4, has_firing_rate=False)
+        lam = Lamina(8, 4, lamina_id=LaminaID.L4, has_firing_rate=False)
         assert lam.voltage is not None
         assert lam.excitability is not None
         assert lam.trace is not None
@@ -58,6 +59,7 @@ class TestLamina:
         lam = Lamina(
             8,
             4,
+            lamina_id=LaminaID.L5,
             has_voltage=False,
             has_excitability=False,
             has_trace=False,
@@ -67,7 +69,7 @@ class TestLamina:
         assert lam.firing_rate is not None
 
     def test_reset(self):
-        lam = Lamina(8, 4)
+        lam = Lamina(8, 4, lamina_id=LaminaID.L4)
         lam.active[0] = True
         lam.predicted[1] = True
         lam.voltage[2] = 0.5
@@ -83,7 +85,7 @@ class TestLamina:
         assert lam.firing_rate.sum() == 0.0
 
     def test_reset_with_disabled_features(self):
-        lam = Lamina(8, 4, has_voltage=False, has_trace=False)
+        lam = Lamina(8, 4, lamina_id=LaminaID.L5, has_voltage=False, has_trace=False)
         lam.active[0] = True
         lam.firing_rate[1] = 0.5
         lam.reset()  # should not crash
@@ -141,11 +143,18 @@ class TestLaminaRegionWiring:
         r.voltage_l23[1] = 0.3
         assert r.l23.voltage[1] == 0.3
 
-    def test_lamina_accessor(self):
+    def test_get_lamina(self):
         r = self._make_region()
-        assert r.lamina(LaminaID.L4) is r.l4
-        assert r.lamina(LaminaID.L23) is r.l23
-        assert r.lamina(LaminaID.L5) is r.l5
+        assert r.get_lamina(LaminaID.L4) is r.l4
+        assert r.get_lamina(LaminaID.L23) is r.l23
+        assert r.get_lamina(LaminaID.L5) is r.l5
+
+    def test_register_lamina(self):
+        r = self._make_region()
+        assert LaminaID.L4 in r.laminae
+        assert LaminaID.L23 in r.laminae
+        assert LaminaID.L5 in r.laminae
+        assert r.laminae[LaminaID.L4].region is r
 
     def test_dimensions_match(self):
         r = self._make_region()

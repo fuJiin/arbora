@@ -144,28 +144,13 @@ class CorticalRegion:
 
         self.n_l5 = n_l5 if n_l5 is not None else n_l23
 
-        # --- Lamina instances (canonical state containers) ---
-        self.l4 = Lamina(
-            n_columns,
-            n_l4,
-            lamina_id=LaminaID.L4,
-            region=self,
-            has_firing_rate=False,  # L4 uses trace, not firing rate EMA
-        )
-        self.l23 = Lamina(
-            n_columns,
-            n_l23,
-            lamina_id=LaminaID.L23,
-            region=self,
-        )
-        self.l5 = Lamina(
-            n_columns,
-            self.n_l5,
-            lamina_id=LaminaID.L5,
-            region=self,
-        )
+        # --- Lamina registry ---
+        self.laminae: dict[LaminaID, Lamina] = {}
+        self.register_lamina(Lamina(n_columns, n_l4, lamina_id=LaminaID.L4))
+        self.register_lamina(Lamina(n_columns, n_l23, lamina_id=LaminaID.L23))
+        self.register_lamina(Lamina(n_columns, self.n_l5, lamina_id=LaminaID.L5))
 
-        # Convenience totals (used extensively in step logic)
+        # Convenience totals (widely used in step logic and subclasses)
         self.n_l4_total: int = self.l4.n_total
         self.n_l23_total = self.l23.n_total
         self.n_l5_total = self.l5.n_total
@@ -176,7 +161,7 @@ class CorticalRegion:
         self._l23_source_pool = np.arange(self.n_l23_total)
 
         # --- Backward-compat aliases (delegate to Lamina instances) ---
-        # These will be removed once all consumers migrate to self.l4.* etc.
+        # TODO: migrate consumers to self.l4.*, self.l23.*, self.l5.*
         self.voltage_l4 = self.l4.voltage
         self.voltage_l23 = self.l23.voltage
         self.excitability_l4 = self.l4.excitability
@@ -599,15 +584,26 @@ class CorticalRegion:
         """Backward-compatible alias for init_apical_context."""
         self.init_apical_context(source_dim, source_name)
 
-    def lamina(self, lid: LaminaID) -> Lamina:
+    def register_lamina(self, lam: Lamina) -> None:
+        """Register a lamina with this region."""
+        lam.region = self
+        self.laminae[lam.id] = lam
+
+    def get_lamina(self, lid: LaminaID) -> Lamina:
         """Look up a lamina by ID."""
-        if lid == LaminaID.L4:
-            return self.l4
-        if lid == LaminaID.L23:
-            return self.l23
-        if lid == LaminaID.L5:
-            return self.l5
-        raise ValueError(f"Unknown lamina: {lid}")
+        return self.laminae[lid]
+
+    @property
+    def l4(self) -> Lamina:
+        return self.laminae[LaminaID.L4]
+
+    @property
+    def l23(self) -> Lamina:
+        return self.laminae[LaminaID.L23]
+
+    @property
+    def l5(self) -> Lamina:
+        return self.laminae[LaminaID.L5]
 
     @property
     def has_apical(self) -> bool:
