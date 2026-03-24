@@ -74,7 +74,7 @@ class TestL5ApicalPrediction:
         r = _make_region()
         r.init_apical_context(source_dim=32, source_name="S2")
         self._setup_predicted_neuron(r)
-        predicted = r._predict_l5_apical()
+        predicted = r._predict_l5_from_segments()
         assert predicted[0], "L5 neuron 0 should be predicted"
 
     def test_not_predicted_without_context(self):
@@ -84,7 +84,7 @@ class TestL5ApicalPrediction:
         src["seg_indices"][0, 0, :] = 0
         src["seg_perm"][0, 0, :] = 1.0
         # No context set
-        predicted = r._predict_l5_apical()
+        predicted = r._predict_l5_from_segments()
         assert not predicted.any()
 
     def test_compute_predictions_includes_l5(self):

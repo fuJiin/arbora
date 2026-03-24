@@ -638,46 +638,46 @@ class CorticalRegion:
         for src in self._apical_sources.values():
             src["context"][:] = 0.0
 
+    def _check_segments(
+        self,
+        ctx: np.ndarray,
+        seg_indices: np.ndarray,
+        seg_perm: np.ndarray,
+        out: np.ndarray,
+    ) -> None:
+        """Check which neurons have active segments given context.
+
+        Shared prediction logic for L4 (fb/lat), L2/3, and L5 segments.
+        ORs results into `out` (caller initializes to False).
+        """
+        if not ctx.any():
+            return
+        if _HAS_NUMBA:
+            out |= _nb_predict(
+                ctx,
+                seg_indices,
+                seg_perm,
+                self.perm_threshold,
+                self.seg_activation_threshold,
+            )
+        else:
+            active_at_syn = ctx[seg_indices]
+            connected = seg_perm > self.perm_threshold
+            counts = (active_at_syn & connected).sum(axis=2)
+            out |= (counts >= self.seg_activation_threshold).any(axis=1)
+
     def _predict_from_segments(self) -> np.ndarray:
         """Check which L4 neurons have active dendritic segments.
 
-        Prediction always uses CURRENT boolean state — "are enough
-        connected sources active right now?" Traces affect learning
-        (which synapses grow), not prediction (whether segment fires).
-
         Returns boolean mask of shape (n_l4_total,).
         """
-        if _HAS_NUMBA:
-            predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
-            if self.active_l23.any():
-                predicted |= _nb_predict(
-                    self.active_l23,
-                    self.fb_seg_indices,
-                    self.fb_seg_perm,
-                    self.perm_threshold,
-                    self.seg_activation_threshold,
-                )
-            if self.active_l4.any():
-                predicted |= _nb_predict(
-                    self.active_l4,
-                    self.lat_seg_indices,
-                    self.lat_seg_perm,
-                    self.perm_threshold,
-                    self.seg_activation_threshold,
-                )
-            return predicted
-
         predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
-        if self.active_l23.any():
-            active_at_syn = self.active_l23[self.fb_seg_indices]
-            connected = self.fb_seg_perm > self.perm_threshold
-            counts = (active_at_syn & connected).sum(axis=2)
-            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
-        if self.active_l4.any():
-            active_at_syn = self.active_l4[self.lat_seg_indices]
-            connected = self.lat_seg_perm > self.perm_threshold
-            counts = (active_at_syn & connected).sum(axis=2)
-            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
+        self._check_segments(
+            self.active_l23, self.fb_seg_indices, self.fb_seg_perm, predicted
+        )
+        self._check_segments(
+            self.active_l4, self.lat_seg_indices, self.lat_seg_perm, predicted
+        )
         return predicted
 
     def get_prediction(self, k: int) -> np.ndarray:
@@ -794,25 +794,12 @@ class CorticalRegion:
     def _predict_l23_from_segments(self) -> np.ndarray:
         """Check which L2/3 neurons have active lateral dendritic segments.
 
-        Prediction uses current boolean state only. Traces affect
-        learning, not prediction.
         Returns boolean mask of shape (n_l23_total,).
         """
-        if _HAS_NUMBA and self.active_l23.any():
-            return _nb_predict(
-                self.active_l23,
-                self.l23_seg_indices,
-                self.l23_seg_perm,
-                self.perm_threshold,
-                self.seg_activation_threshold,
-            )
-
         predicted = np.zeros(self.n_l23_total, dtype=np.bool_)
-        if self.active_l23.any():
-            active_at_syn = self.active_l23[self.l23_seg_indices]
-            connected = self.l23_seg_perm > self.perm_threshold
-            counts = (active_at_syn & connected).sum(axis=2)
-            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
+        self._check_segments(
+            self.active_l23, self.l23_seg_indices, self.l23_seg_perm, predicted
+        )
         return predicted
 
     def set_apical_context(self, context: np.ndarray, source_name: str = ""):
@@ -850,11 +837,11 @@ class CorticalRegion:
         self.predicted_l4 = self._predict_from_segments()
         self.predicted_l23 = self._predict_l23_from_segments()
         if self.use_l5_apical_segments and self._apical_sources:
-            self.predicted_l5 = self._predict_l5_apical()
+            self.predicted_l5 = self._predict_l5_from_segments()
         else:
             self.predicted_l5[:] = False
 
-    def _predict_l5_apical(self) -> np.ndarray:
+    def _predict_l5_from_segments(self) -> np.ndarray:
         """Check which L5 neurons have active apical dendritic segments.
 
         Each apical source contributes independently. An L5 neuron is
@@ -872,21 +859,8 @@ class CorticalRegion:
             ctx = src["context"]
             if not ctx.any():
                 continue
-            # Threshold context to boolean for segment matching
-            active_ctx = ctx > 0.01
-            if _HAS_NUMBA:
-                predicted |= _nb_predict(
-                    active_ctx,
-                    seg_idx,
-                    seg_p,
-                    self.perm_threshold,
-                    self.seg_activation_threshold,
-                )
-            else:
-                active_at_syn = active_ctx[seg_idx]
-                connected = seg_p > self.perm_threshold
-                counts = (active_at_syn & connected).sum(axis=2)
-                predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
+            # Threshold continuous firing rate to boolean for segments
+            self._check_segments(ctx > 0.01, seg_idx, seg_p, predicted)
         return predicted
 
     def _select_columns(self, scores: np.ndarray) -> np.ndarray:
