@@ -9,9 +9,15 @@ Named 'Lamina' (neuroscience term for cortical layer) to avoid collision
 with ML 'Layer'.
 """
 
+from __future__ import annotations
+
 import enum
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from step.cortex.region import CorticalRegion
 
 
 class LaminaID(enum.Enum):
@@ -39,6 +45,8 @@ class Lamina:
         n_columns: int,
         n_per_col: int,
         *,
+        lamina_id: LaminaID,
+        region: CorticalRegion | None = None,
         has_voltage: bool = True,
         has_excitability: bool = True,
         has_trace: bool = True,
@@ -47,6 +55,8 @@ class Lamina:
         self.n_per_col = n_per_col
         self.n_columns = n_columns
         self.n_total = n_columns * n_per_col
+        self.id = lamina_id
+        self.region = region  # Set by CorticalRegion.register_lamina()
 
         # All laminae have active + predicted masks
         self.active = np.zeros(self.n_total, dtype=np.bool_)
