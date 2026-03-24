@@ -13,6 +13,7 @@ class CortexConfig:
     n_columns: int = 32
     n_l4: int = 4
     n_l23: int = 4
+    n_l5: int | None = None  # defaults to n_l23 if None
     k_columns: int = 4
     voltage_decay: float = 0.5
     eligibility_decay: float = 0.95
