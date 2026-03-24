@@ -529,17 +529,24 @@ class CorticalRegion:
                 )
 
         # L5 lateral segments: L5 → L5 (output-layer sequence prediction)
+        # Only allocated when n_l5_segments > 0 (disabled by default).
         n5 = self.n_l5_total
-        self.l5_seg_indices = np.zeros((n5, self.n_l5_segments, n_syn), dtype=np.int32)
-        self.l5_seg_perm = np.zeros((n5, self.n_l5_segments, n_syn))
-
-        l5_pool = np.arange(n5)
-        self._l5_source_pool = l5_pool
-        for i in range(n5):
-            for s in range(self.n_l5_segments):
-                self.l5_seg_indices[i, s] = self._rng.choice(
-                    l5_pool, n_syn, replace=len(l5_pool) < n_syn
-                )
+        self._l5_source_pool = np.arange(n5)
+        if self.n_l5_segments > 0:
+            self.l5_seg_indices = np.zeros(
+                (n5, self.n_l5_segments, n_syn), dtype=np.int32
+            )
+            self.l5_seg_perm = np.zeros((n5, self.n_l5_segments, n_syn))
+            for i in range(n5):
+                for s in range(self.n_l5_segments):
+                    self.l5_seg_indices[i, s] = self._rng.choice(
+                        self._l5_source_pool,
+                        n_syn,
+                        replace=len(self._l5_source_pool) < n_syn,
+                    )
+        else:
+            self.l5_seg_indices = np.zeros((n5, 0, n_syn), dtype=np.int32)
+            self.l5_seg_perm = np.zeros((n5, 0, n_syn))
 
     def init_apical_context(self, source_dim: int, source_name: str = ""):
         """Initialize apical feedback from a higher region.
@@ -875,8 +882,11 @@ class CorticalRegion:
         """Determine which neurons are in predictive state via segments."""
         self.predicted_l4[:] = self._predict_from_segments()
         self.predicted_l23[:] = self._predict_l23_from_segments()
-        # L5 prediction from lateral segments (always)
-        self.predicted_l5[:] = self._predict_l5_lateral_from_segments()
+        # L5 prediction from lateral segments (if enabled)
+        if self.n_l5_segments > 0:
+            self.predicted_l5[:] = self._predict_l5_lateral_from_segments()
+        else:
+            self.predicted_l5[:] = False
         # L5 prediction from apical segments (additive, if enabled)
         if self.use_l5_apical_segments and self._apical_sources:
             self.predicted_l5 |= self._predict_l5_from_segments()
@@ -1147,7 +1157,8 @@ class CorticalRegion:
         """
         self._learn_segments()
         self._learn_l23_segments()
-        self._learn_l5_lateral_segments()
+        if self.n_l5_segments > 0:
+            self._learn_l5_lateral_segments()
 
     def _learn_segments(self):
         """Update dendritic segment permanences based on prediction outcomes.
