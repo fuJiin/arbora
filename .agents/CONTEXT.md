@@ -56,18 +56,38 @@ Fix options:
 - `.github/workflows/ci.yml` — needs workflow OAuth scope
 
 ## Architecture Decisions (from braindump review 2026-03-23)
+
+### Layers
 - **L5 must be a proper layer in all regions** — not just motor. L5 is where cerebellum connects (climbing fiber error), BG gets cortical input (corticostriatal projections), and top-down apical feedback lands (BAC firing). Do before cerebellum.
+- **Column structure in all layers** — L4 strict (receptive field bound), L2/3 looser (wider lateral), L5 output-organized (subcortical projection). Column is the fundamental unit across all three layers.
+- **Keep laminar names (l4, l23, l5)** — abstract names (input/associative/output) collide with existing concepts (input_dim, output_weights). Docstrings map the functional roles.
+
+### Connections
 - **Apical: linear gain now, dendritic segments on L5 later** — linear gain is adequate short-term but misses context-dependent gating. When L5 is added, apical segments on L5 apical dendrites.
 - **Connection modulators are properties, not types** — surprise/reward fold into optional properties on feedforward/apical/lateral connections. Supersedes separate "surprise" and "reward" connection kinds.
-- **fb_segments model L6→L4, not L2/3→L4** — direct L2/3→L4 isn't a major biological pathway. Current impl is a reasonable simplification of the L6→L4 feedback loop.
+- **fb_segments model L6→L4, not L2/3→L4** — direct L2/3→L4 isn't a major biological pathway. Current impl is a stopgap; will become L5→L4 recurrent when L5 is added.
+
+### Learning
+- **STDP pre-traces are universal, consolidation varies** — two orthogonal axes: pre_trace_decay (temporal credit, all regions) and consolidation rule (immediate for sensory, reward-gated for PFC/Motor).
+- **Structural plasticity is optimization, not critical path** — defer to tuning phase.
+
+### Subcortical
 - **Cerebellum = separate forward model module, BG = gating** — cerebellum predicts sensory consequence of motor command; BG evaluates and gates. Cerebellum provides per-step corrective error, BG provides go/no-go.
+- **Hippocampus: not yet** — park until PFC capacity limits are hit during multi-turn dialogue. PFC + cerebellum + BG is the right next set.
+
+### Regions
 - **Region types by laminar profile**: granular sensory (S1), association (S2/S3), agranular frontal (PFC), motor (M1/M2)
-- **Structural plasticity is optimization, not critical path** — defer to tuning phase
+
+### KPIs
+- **Primary: surprise rate** — most biologically grounded, directly measures prediction quality
+- **Secondary: representation stability** — critical for downstream learning; always report when evaluating new configs
+- **Tertiary: decoder BPC** — useful for literature comparison (current: 3.63, good LM target: ~1.0-1.5)
+- **Decoder approach: char-only prediction** — simplest, most direct. Charbit vector prediction adds encoding noise.
 
 ## Next Steps
 See Linear project (PZO) for full backlog. Key priorities:
-- [ ] **PZO-19** Fix echo reward — partial credit creating 'h' attractor (Urgent)
+- [ ] **PZO-19** Fix echo reward — partial credit creating 'h' attractor (Urgent, PR #3 open)
 - [ ] **PZO-31** L5 as a proper layer in all regions (High, blocks cerebellum)
 - [ ] **PZO-33** Connection modulator refactor (High, cleanup)
 - [ ] **PZO-20** Cerebellar forward model (High, blocked by PZO-31)
-- [ ] **PZO-22** Recurrent PFC (Medium, blocks per-stripe gating)
+- [ ] **PZO-34** PFC per-stripe gating (Medium)
