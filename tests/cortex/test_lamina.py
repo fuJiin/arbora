@@ -91,6 +91,69 @@ class TestLamina:
         assert lam.firing_rate.sum() == 0.0
 
 
+class TestLaminaRegionWiring:
+    """Lamina instances on CorticalRegion share arrays with aliases."""
+
+    def _make_region(self):
+        from step.cortex.region import CorticalRegion
+
+        return CorticalRegion(
+            input_dim=16,
+            n_columns=8,
+            n_l4=4,
+            n_l23=4,
+            k_columns=2,
+        )
+
+    def test_lamina_instances_exist(self):
+        r = self._make_region()
+        assert r.l4.id == LaminaID.L4
+        assert r.l23.id == LaminaID.L23
+        assert r.l5.id == LaminaID.L5
+
+    def test_back_reference(self):
+        r = self._make_region()
+        assert r.l4.region is r
+        assert r.l23.region is r
+        assert r.l5.region is r
+
+    def test_aliases_share_arrays(self):
+        r = self._make_region()
+        assert r.voltage_l4 is r.l4.voltage
+        assert r.voltage_l23 is r.l23.voltage
+        assert r.active_l4 is r.l4.active
+        assert r.active_l23 is r.l23.active
+        assert r.active_l5 is r.l5.active
+        assert r.firing_rate_l23 is r.l23.firing_rate
+        assert r.firing_rate_l5 is r.l5.firing_rate
+        assert r.excitability_l4 is r.l4.excitability
+        assert r.excitability_l23 is r.l23.excitability
+        assert r.predicted_l4 is r.l4.predicted
+        assert r.predicted_l23 is r.l23.predicted
+        assert r.predicted_l5 is r.l5.predicted
+        assert r.trace_l4 is r.l4.trace
+        assert r.trace_l23 is r.l23.trace
+
+    def test_in_place_mutation_shared(self):
+        r = self._make_region()
+        r.l4.voltage[0] = 0.5
+        assert r.voltage_l4[0] == 0.5
+        r.voltage_l23[1] = 0.3
+        assert r.l23.voltage[1] == 0.3
+
+    def test_lamina_accessor(self):
+        r = self._make_region()
+        assert r.lamina(LaminaID.L4) is r.l4
+        assert r.lamina(LaminaID.L23) is r.l23
+        assert r.lamina(LaminaID.L5) is r.l5
+
+    def test_dimensions_match(self):
+        r = self._make_region()
+        assert r.l4.n_total == r.n_l4_total
+        assert r.l23.n_total == r.n_l23_total
+        assert r.l5.n_total == r.n_l5_total
+
+
 class TestConnectionLaminaFields:
     """Verify Connection has source_lamina/target_lamina fields."""
 
