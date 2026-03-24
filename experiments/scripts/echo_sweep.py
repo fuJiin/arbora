@@ -38,7 +38,7 @@ from step.config import (
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.stages import BABBLING_STAGE, SENSORY_STAGE
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
 
@@ -200,7 +200,7 @@ def build_topology(
     cortex.connect(
         "S1",
         "S2",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=4,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
@@ -208,36 +208,36 @@ def build_topology(
     cortex.connect(
         "S2",
         "S3",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=8,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
     )
-    cortex.connect("S2", "PFC", "feedforward")
-    cortex.connect("S3", "PFC", "feedforward")
-    cortex.connect("S2", "M2", "feedforward")
-    cortex.connect("PFC", "M2", "feedforward")
-    cortex.connect("M2", "M1", "feedforward")
-    cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("S2", "PFC", ConnectionRole.FEEDFORWARD)
+    cortex.connect("S3", "PFC", ConnectionRole.FEEDFORWARD)
+    cortex.connect("S2", "M2", ConnectionRole.FEEDFORWARD)
+    cortex.connect("PFC", "M2", ConnectionRole.FEEDFORWARD)
+    cortex.connect("M2", "M1", ConnectionRole.FEEDFORWARD)
+    cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    cortex.connect("S3", "S2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
     # Motor apical — optional surprise tracker on M1↔M2 apical connections
     cortex.connect(
         "M1",
         "M2",
-        "apical",
+        ConnectionRole.APICAL,
         thalamic_gate=ThalamicGate(),
         surprise_tracker=SurpriseTracker() if m1_m2_surprise else None,
     )
-    cortex.connect("M2", "PFC", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("M2", "PFC", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
     # Cross-hierarchy apical (S1→M1 carries surprise — no S1→M1 ff path)
     cortex.connect(
         "S1",
         "M1",
-        "apical",
+        ConnectionRole.APICAL,
         thalamic_gate=ThalamicGate(),
         surprise_tracker=SurpriseTracker(),
     )
-    cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
 
     # Optional: M2→M1 surprise on the feedforward connection
     if m2_m1_surprise:
@@ -248,7 +248,7 @@ def build_topology(
             if (
                 conn.source == "M2"
                 and conn.target == "M1"
-                and conn.kind == "feedforward"
+                and conn.role == ConnectionRole.FEEDFORWARD
             ):
                 conn.surprise_tracker = SurpriseTracker()
                 break

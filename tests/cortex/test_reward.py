@@ -6,7 +6,7 @@ from step.cortex.modulators import RewardModulator
 from step.cortex.motor import MotorRegion
 from step.cortex.reward import EchoReward
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
 from step.encoders.charbit import CharbitEncoder
 
@@ -159,8 +159,10 @@ class TestRewardIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(
+            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+        )
         result = cortex.run(tokens, log_interval=1000)
         m1_metrics = result.per_region["M1"]
         assert len(m1_metrics.motor_rewards) > 0
@@ -181,8 +183,10 @@ class TestRewardIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(
+            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+        )
         result = cortex.run(tokens, log_interval=1000)
         assert len(result.per_region["M1"].motor_rewards) > 0
 
@@ -192,8 +196,10 @@ class TestRewardIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(
+            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+        )
         result = cortex.run(tokens, log_interval=1000)
         assert "M1" in result.reward_modulators
         assert len(result.reward_modulators["M1"]) > 0
@@ -204,7 +210,7 @@ class TestRewardIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward")
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
         result = cortex.run(tokens, log_interval=1000)
         assert result.reward_modulators == {}
 
@@ -301,8 +307,10 @@ class TestTurnTakingCounters:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(
+            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+        )
         result = cortex.run(tokens, log_interval=1000)
         m = result.per_region["M1"]
         # Should have counted both phases
@@ -324,8 +332,10 @@ class TestTurnTakingCounters:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(
+            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+        )
         result = cortex.run(tokens, log_interval=1000)
         m = result.per_region["M1"]
         assert m.turn_eom_steps == 0

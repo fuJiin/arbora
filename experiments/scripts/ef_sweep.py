@@ -7,7 +7,7 @@ sys.path.insert(0, "src")
 from step.config import CortexConfig, make_motor_region, make_sensory_region
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import EOM_TOKEN, prepare_tokens_personachat
 from step.encoders.positional import PositionalCharEncoder
 
@@ -58,17 +58,17 @@ def build_model(alphabet):
     cortex.connect(
         "S1",
         "S2",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=4,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
     )
-    cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("S1", "M1", "feedforward")
+    cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
     cortex.connect(
         "M1",
         "S1",
-        "apical",
+        ConnectionRole.APICAL,
         thalamic_gate=ThalamicGate(),
         reward_modulator=RewardModulator(),
     )

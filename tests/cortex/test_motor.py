@@ -4,7 +4,7 @@ import pytest
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
 
@@ -102,8 +102,10 @@ class TestMotorTopology:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward", surprise_tracker=SurpriseTracker())
-        cortex.connect("M1", "S1", "apical")
+        cortex.connect(
+            "S1", "M1", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+        )
+        cortex.connect("M1", "S1", ConnectionRole.APICAL)
         result = cortex.run(tokens, log_interval=1000)
         assert result.elapsed_seconds > 0
         # Motor metrics should be populated
@@ -116,8 +118,10 @@ class TestMotorTopology:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward", surprise_tracker=SurpriseTracker())
-        cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
+        cortex.connect(
+            "S1", "M1", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+        )
+        cortex.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
         result = cortex.run(tokens, log_interval=1000)
         assert "M1->S1" in result.thalamic_readiness
 
@@ -133,7 +137,7 @@ class TestMotorTopology:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward")
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
         result = cortex.run(tokens, log_interval=1000)
         assert result.elapsed_seconds > 0
 
@@ -143,7 +147,7 @@ class TestMotorTopology:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward")
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
         result = cortex.run(tokens, log_interval=1000)
         assert "M1" in result.per_region
 

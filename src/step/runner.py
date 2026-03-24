@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import Encoder, RunMetrics, Topology
+from step.cortex.topology import ConnectionRole, Encoder, RunMetrics, Topology
 from step.data import STORY_BOUNDARY  # noqa: F401 — re-exported for tests
 from step.probes.diagnostics import CortexDiagnostics
 
@@ -130,14 +130,14 @@ def run_hierarchy(
     cortex.connect(
         "S1",
         "S2",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=buffer_depth,
         burst_gate=burst_gate,
         surprise_tracker=surprise_tracker,
     )
     if enable_apical_feedback:
         gate = ThalamicGate() if gate_feedback else None
-        cortex.connect("S2", "S1", "apical", thalamic_gate=gate)
+        cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=gate)
 
     result = cortex.run(
         tokens,
