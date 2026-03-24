@@ -1865,6 +1865,8 @@ class Topology:
                 "lat_seg_perm": r.lat_seg_perm,
                 "l23_seg_indices": r.l23_seg_indices,
                 "l23_seg_perm": r.l23_seg_perm,
+                "l5_seg_indices": r.l5_seg_indices,
+                "l5_seg_perm": r.l5_seg_perm,
             }
             # Apical per-source state (weights or segments)
             if r._apical_sources:
@@ -1952,6 +1954,9 @@ class Topology:
             r.lat_seg_perm[:] = region_data["lat_seg_perm"]
             r.l23_seg_indices[:] = region_data["l23_seg_indices"]
             r.l23_seg_perm[:] = region_data["l23_seg_perm"]
+            if "l5_seg_indices" in region_data:
+                r.l5_seg_indices[:] = region_data["l5_seg_indices"]
+                r.l5_seg_perm[:] = region_data["l5_seg_perm"]
 
             # Load apical state (per-source weights or segments)
             if "apical_sources" in region_data:
