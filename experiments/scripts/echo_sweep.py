@@ -182,13 +182,17 @@ def build_topology(
 
     pfc_cfg = _default_pfc_config()
     pfc = make_pfc_region(
-        pfc_cfg, s2.n_l23_total + s3.n_l23_total, seed=999,
+        pfc_cfg,
+        s2.n_l23_total + s3.n_l23_total,
+        seed=999,
         source_dims=[s2.n_l23_total, s3.n_l23_total],
     )
     cortex.add_region("PFC", pfc)
 
     m2 = make_premotor_region(
-        m2_cfg, s2.n_l23_total + pfc.n_l23_total, seed=321,
+        m2_cfg,
+        s2.n_l23_total + pfc.n_l23_total,
+        seed=321,
         source_dims=[s2.n_l23_total, pfc.n_l23_total],
     )
     cortex.add_region("M2", m2)
@@ -214,15 +218,11 @@ def build_topology(
     if m1_m2_surprise:
         # Motor error: M1 burst rate modulates M2 learning.
         # High M1 surprise = output didn't match plan → M2 learns faster.
-        cortex.connect(
-            "M1", "M2", "surprise", surprise_tracker=SurpriseTracker()
-        )
+        cortex.connect("M1", "M2", "surprise", surprise_tracker=SurpriseTracker())
     if m2_m1_surprise:
         # Plan confidence: M2 burst rate modulates M1 learning.
         # High M2 surprise = uncertain plan → M1 explores more.
-        cortex.connect(
-            "M2", "M1", "surprise", surprise_tracker=SurpriseTracker()
-        )
+        cortex.connect("M2", "M1", "surprise", surprise_tracker=SurpriseTracker())
 
     return cortex
 
@@ -407,9 +407,7 @@ def main():
                 current.append(ch)
 
     # Select configs to run
-    configs_to_run = (
-        {args.config: CONFIGS[args.config]} if args.config else CONFIGS
-    )
+    configs_to_run = {args.config: CONFIGS[args.config]} if args.config else CONFIGS
 
     results = {}
 
@@ -439,9 +437,7 @@ def main():
 
         # Babbling warmup (if requested)
         if args.babbling_tokens > 0:
-            run_babbling_warmup(
-                cortex, tokens, args.babbling_tokens, vocab
-            )
+            run_babbling_warmup(cortex, tokens, args.babbling_tokens, vocab)
 
         # Run echo
         start = time.monotonic()

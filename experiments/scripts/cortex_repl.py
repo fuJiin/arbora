@@ -95,14 +95,18 @@ def build_model(alphabet: str):
     # PFC: receives S2 + S3 concatenated
     pfc_cfg = _default_pfc_config()
     pfc = make_pfc_region(
-        pfc_cfg, region2.n_l23_total + region3.n_l23_total, seed=999,
+        pfc_cfg,
+        region2.n_l23_total + region3.n_l23_total,
+        seed=999,
         source_dims=[region2.n_l23_total, region3.n_l23_total],
     )
 
     # M2: receives S2 + PFC concatenated
     m2_cfg = _default_premotor_config()
     m2 = make_premotor_region(
-        m2_cfg, region2.n_l23_total + pfc.n_l23_total, seed=321,
+        m2_cfg,
+        region2.n_l23_total + pfc.n_l23_total,
+        seed=321,
         source_dims=[region2.n_l23_total, pfc.n_l23_total],
     )
 
@@ -115,12 +119,10 @@ def build_model(alphabet: str):
     motor._output_vocab = np.array(output_vocab, dtype=np.int64)
     motor.n_output_tokens = len(output_vocab)
     n_l23 = motor.n_l23_total
-    motor.output_weights = motor._rng.uniform(
-        0, 0.01, size=(n_l23, len(output_vocab))
+    motor.output_weights = motor._rng.uniform(0, 0.01, size=(n_l23, len(output_vocab)))
+    motor.output_mask = (motor._rng.random((n_l23, len(output_vocab))) < 0.5).astype(
+        np.float64
     )
-    motor.output_mask = (
-        motor._rng.random((n_l23, len(output_vocab))) < 0.5
-    ).astype(np.float64)
     motor.output_weights *= motor.output_mask
     motor._output_eligibility = np.zeros((n_l23, len(output_vocab)))
 
@@ -561,10 +563,7 @@ def run_echo(cortex, encoder, motor, word: str):
     if pfc is not None:
         pfc.snapshot_goal()
         pfc.gate_open = False
-        print(
-            f"{DIM}  PFC goal captured "
-            f"(confidence={pfc.confidence:.3f}){RESET}"
-        )
+        print(f"{DIM}  PFC goal captured (confidence={pfc.confidence:.3f}){RESET}")
 
     # Speak phase
     print(f"  {DIM}M1 reproducing:{RESET} ", end="", flush=True)
@@ -605,12 +604,13 @@ def run_echo(cortex, encoder, motor, word: str):
 
     # Score
     n_match = sum(
-        1 for i, ch in enumerate(produced[:len(word)])
+        1
+        for i, ch in enumerate(produced[: len(word)])
         if i < len(word) and ch == word[i]
     )
     match_pct = 100 * n_match / max(len(word), 1)
     print(
-        f"\n{DIM}  Target: '{word}' → Got: '{''.join(produced[:len(word)])}' "
+        f"\n{DIM}  Target: '{word}' → Got: '{''.join(produced[: len(word)])}' "
         f"({match_pct:.0f}% match){RESET}\n"
     )
 
@@ -744,9 +744,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
 
             # S2 word decoder: step and check for word boundary
             s2_region = cortex._regions["S2"].region
-            completed_word = word_decoder.step(
-                ch, s2_region.firing_rate_l23
-            )
+            completed_word = word_decoder.step(ch, s2_region.firing_rate_l23)
 
             # Track per-char stats
             line_bursts.append(burst_frac)
@@ -776,18 +774,11 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
 
             # At word boundaries, show S2's word-level context
             if completed_word:
-                s2_preds = word_decoder.predict(
-                    s2_region.firing_rate_l23, k=3
-                )
+                s2_preds = word_decoder.predict(s2_region.firing_rate_l23, k=3)
                 if s2_preds:
                     total = max(sum(s for _, s in s2_preds), 1)
-                    wp = " ".join(
-                        f"{w}:{s / total:.0%}" for w, s in s2_preds
-                    )
-                    sys.stdout.write(
-                        f"  {MAGENTA}     S2 context: "
-                        f"{wp}{RESET}\n"
-                    )
+                    wp = " ".join(f"{w}:{s / total:.0%}" for w, s in s2_preds)
+                    sys.stdout.write(f"  {MAGENTA}     S2 context: {wp}{RESET}\n")
 
         # ── EOM INJECTION ──
         # Signal turn boundary: M1's turn to speak.
@@ -799,9 +790,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
             recent_bpc = sum(recent_bits) / len(recent_bits) if recent_bits else 0
             line_bpc = sum(line_bits) / len(line_bits) if line_bits else 0
             line_acc = line_correct / line_total if line_total > 0 else 0
-            avg_burst = (
-                sum(line_bursts) / len(line_bursts) if line_bursts else 0
-            )
+            avg_burst = sum(line_bursts) / len(line_bursts) if line_bursts else 0
             print(
                 f"\n{DIM}  {line_acc:.0%} predicted, "
                 f"{avg_burst:.0%} avg surprise"
@@ -934,9 +923,7 @@ def main():
 
     # Build model
     print(f"{DIM}Building model (S1→S2→S3→PFC→M2→M1+BG)...{RESET}")
-    cortex, encoder, region1, motor, decoder, word_decoder = build_model(
-        alphabet_str
-    )
+    cortex, encoder, region1, motor, decoder, word_decoder = build_model(alphabet_str)
 
     # Load checkpoint or warmup
     if args.checkpoint:
@@ -959,9 +946,7 @@ def main():
     print_info(cortex, encoder, region1, motor, decoder)
 
     # Enter interactive mode
-    interactive_loop(
-        cortex, encoder, region1, motor, decoder, word_decoder, load_fn
-    )
+    interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, load_fn)
     print(f"{DIM}Goodbye!{RESET}")
 
 
