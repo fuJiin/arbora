@@ -83,6 +83,7 @@ class CorticalRegion:
         seg_activation_threshold: int = 2,
         prediction_gain: float = 2.5,
         n_apical_segments: int = 4,
+        use_l5_apical_segments: bool = False,
         l23_prediction_boost: float = 0.0,
         source_dims: list[int] | None = None,
         ff_sparsity: float = 0.0,
@@ -113,6 +114,7 @@ class CorticalRegion:
         self.seg_activation_threshold = seg_activation_threshold
         self.prediction_gain = prediction_gain
         self.n_apical_segments = n_apical_segments
+        self.use_l5_apical_segments = use_l5_apical_segments
         # L2/3 segment prediction boost (0 = use fb_boost for both layers)
         self.l23_prediction_boost = l23_prediction_boost
         self._rng = np.random.default_rng(seed)
@@ -165,6 +167,7 @@ class CorticalRegion:
         self.bursting_columns = np.zeros(n_columns, dtype=np.bool_)
         self.predicted_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
         self.predicted_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
+        self.predicted_l5 = np.zeros(self.n_l5_total, dtype=np.bool_)
 
         # Firing rate estimates (EMA of boolean activations).
         # Model postsynaptic temporal integration of spike trains.
@@ -521,33 +524,57 @@ class CorticalRegion:
                 )
 
     def init_apical_context(self, source_dim: int, source_name: str = ""):
-        """Initialize apical gain modulation from a higher region.
+        """Initialize apical feedback from a higher region.
 
-        Supports multiple apical sources — each gets its own learned
-        weight matrix. Gains from all sources are summed before applying
-        to L4 voltage.
+        Two modes controlled by use_l5_apical_segments:
+        - False (default): linear gain weights on L4 voltage (fast, simple)
+        - True: dendritic segments on L5 neurons (context-specific gating)
 
         Models biological BAC (backpropagation-activated calcium) firing:
         apical input lowers firing threshold without directly causing
-        spikes. Different apical dendrite branches receive different
-        top-down inputs and their effects combine additively.
+        spikes. Segment mode adds context specificity — L5 fires only
+        when a specific top-down pattern matches.
 
         Args:
             source_dim: Dimensionality of the source region's L2/3.
             source_name: Identifier for this source (e.g., "S2", "M1").
         """
         name = source_name or f"src_{len(self._apical_sources)}"
-        self._apical_sources[name] = {
-            "dim": source_dim,
-            "context": np.zeros(source_dim, dtype=np.float64),
-            "weights": self._rng.uniform(0.0, 0.1, (source_dim, self.n_l4_total)),
-        }
+
+        if self.use_l5_apical_segments:
+            # L5 apical segments: sparse pattern-matching on top-down input
+            n_l5 = self.n_l5_total
+            n_seg = self.n_apical_segments
+            n_syn = self.n_synapses_per_segment
+            seg_indices = np.zeros((n_l5, n_seg, n_syn), dtype=np.int32)
+            seg_perm = np.zeros((n_l5, n_seg, n_syn))
+            source_pool = np.arange(source_dim)
+            for i in range(n_l5):
+                for s in range(n_seg):
+                    seg_indices[i, s] = self._rng.choice(
+                        source_pool, n_syn, replace=len(source_pool) < n_syn
+                    )
+            self._apical_sources[name] = {
+                "dim": source_dim,
+                "context": np.zeros(source_dim, dtype=np.float64),
+                "seg_indices": seg_indices,
+                "seg_perm": seg_perm,
+                "source_pool": source_pool,
+            }
+        else:
+            # Linear gain weights on L4 voltage
+            self._apical_sources[name] = {
+                "dim": source_dim,
+                "context": np.zeros(source_dim, dtype=np.float64),
+                "weights": self._rng.uniform(0.0, 0.1, (source_dim, self.n_l4_total)),
+            }
+
         # Backward-compat: set single-source aliases to first source
         if self._apical_source_dim == 0:
             self._apical_source_dim = source_dim
             src = self._apical_sources[name]
             self._apical_context = src["context"]
-            self._apical_gain_weights = src["weights"]
+            self._apical_gain_weights = src.get("weights")
 
     # Keep old name as alias for backward compat (topology.connect uses it)
     def init_apical_segments(self, source_dim: int, source_name: str = ""):
@@ -597,6 +624,7 @@ class CorticalRegion:
         self.bursting_columns[:] = False
         self.predicted_l4[:] = False
         self.predicted_l23[:] = False
+        self.predicted_l5[:] = False
         self._pred_context_l23[:] = False
         self._pred_context_l4[:] = False
         self._efference_copy = None
@@ -691,17 +719,16 @@ class CorticalRegion:
         # 4. Feedforward drive to L4 neurons
         self.voltage_l4 += drive
 
-        # 5a. Apical gating: per-neuron gain from top-down context.
-        #     Models BAC firing: apical calcium plateau lowers threshold.
-        #     Multiple apical sources contribute additively to gain.
-        #     gain = 1 + sum(context_i @ weights_i) for each source i.
-        #     Multiplicative on voltage — can't fire without basal drive.
-        if self._apical_sources:
+        # 5a. Apical gating (linear gain mode only).
+        #     When use_l5_apical_segments=True, apical acts on L5 instead
+        #     (via predicted_l5 boost in _activate_l5). L4 is ungated.
+        if self._apical_sources and not self.use_l5_apical_segments:
             raw_gain = np.zeros(self.n_l4_total)
             for src in self._apical_sources.values():
                 ctx = src["context"]
-                if ctx.any():
-                    raw_gain += ctx @ src["weights"]
+                weights = src.get("weights")
+                if ctx.any() and weights is not None:
+                    raw_gain += ctx @ weights
             if raw_gain.any():
                 np.clip(
                     raw_gain,
@@ -730,11 +757,12 @@ class CorticalRegion:
         if self.learning_enabled:
             self._learn()
 
-            # 8b. Apical gain learning: slow Hebbian on gain weights.
-            #     Strengthen connections from active context → active neurons.
-            #     10x slower than feedforward to prevent sender disruption.
-            if self.has_apical and self._apical_context.any():
-                self._learn_apical_gain()
+            # 8b. Apical learning
+            if self.has_apical:
+                if self.use_l5_apical_segments:
+                    self._learn_l5_apical()
+                elif self._apical_context.any():
+                    self._learn_apical_gain()
 
         # 9. Update eligibility traces for newly active neurons
         self._update_traces()
@@ -814,15 +842,52 @@ class CorticalRegion:
         for src in self._apical_sources.values():
             if src["context"].any():
                 self._apical_context = src["context"]
-                self._apical_gain_weights = src["weights"]
+                self._apical_gain_weights = src.get("weights")
                 break
 
     def _compute_predictions(self):
         """Determine which neurons are in predictive state via segments."""
         self.predicted_l4 = self._predict_from_segments()
         self.predicted_l23 = self._predict_l23_from_segments()
-        # Apical context is now used as continuous gain modulation in step(),
-        # not through segment-based column prediction.
+        if self.use_l5_apical_segments and self._apical_sources:
+            self.predicted_l5 = self._predict_l5_apical()
+        else:
+            self.predicted_l5[:] = False
+
+    def _predict_l5_apical(self) -> np.ndarray:
+        """Check which L5 neurons have active apical dendritic segments.
+
+        Each apical source contributes independently. An L5 neuron is
+        predicted if any of its apical segments (across all sources) has
+        enough connected synapses with active context neurons.
+
+        Returns boolean mask of shape (n_l5_total,).
+        """
+        predicted = np.zeros(self.n_l5_total, dtype=np.bool_)
+        for src in self._apical_sources.values():
+            seg_idx = src.get("seg_indices")
+            seg_p = src.get("seg_perm")
+            if seg_idx is None:
+                continue
+            ctx = src["context"]
+            if not ctx.any():
+                continue
+            # Threshold context to boolean for segment matching
+            active_ctx = ctx > 0.01
+            if _HAS_NUMBA:
+                predicted |= _nb_predict(
+                    active_ctx,
+                    seg_idx,
+                    seg_p,
+                    self.perm_threshold,
+                    self.seg_activation_threshold,
+                )
+            else:
+                active_at_syn = active_ctx[seg_idx]
+                connected = seg_p > self.perm_threshold
+                counts = (active_at_syn & connected).sum(axis=2)
+                predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
+        return predicted
 
     def _select_columns(self, scores: np.ndarray) -> np.ndarray:
         """Select top-k columns by max neuron score."""
@@ -923,11 +988,12 @@ class CorticalRegion:
         """Activate L5 output neurons in active columns.
 
         L5 receives intra-columnar drive from L2/3 activity. One winner
-        per active column, selected by L2/3 firing rate (the L2/3 neuron
-        with highest recent activity drives the corresponding L5 neuron).
+        per active column, selected by L2/3 firing rate plus optional
+        apical segment boost (BAC firing: predicted L5 neurons get a
+        voltage advantage in the competition).
 
         Burst columns: all L5 neurons fire (mirrors L2/3 burst behavior).
-        Precise columns: single L5 winner (highest L2/3 firing rate in column).
+        Precise columns: single L5 winner (highest score in column).
         """
         self.active_l5[:] = False
         if len(top_cols) == 0:
@@ -939,13 +1005,21 @@ class CorticalRegion:
             active_l5_by_col = self.active_l5.reshape(self.n_columns, self.n_l5)
             active_l5_by_col[burst_cols] = True
 
-        # Precise columns: single L5 winner driven by L2/3 firing rate
+        # Precise columns: L5 winner from L2/3 firing rate + apical boost
         precise_cols = top_cols[~self.bursting_columns[top_cols]]
         if len(precise_cols) > 0:
             fr_by_col = self.firing_rate_l23.reshape(self.n_columns, self.n_l23)
-            # Map L2/3 winner to L5 index (clamp if n_l5 != n_l23)
-            l23_winners = fr_by_col[precise_cols].argmax(axis=1)
-            l5_winners = np.minimum(l23_winners, self.n_l5 - 1)
+            n_map = min(self.n_l23, self.n_l5)
+            # Build L5 scores from L2/3 firing rates
+            l5_scores = np.zeros((len(precise_cols), self.n_l5))
+            l5_scores[:, :n_map] = fr_by_col[precise_cols, :n_map]
+
+            # BAC firing: apical-predicted L5 neurons get boost
+            if self.use_l5_apical_segments and self.predicted_l5.any():
+                pred_by_col = self.predicted_l5.reshape(self.n_columns, self.n_l5)
+                l5_scores += pred_by_col[precise_cols] * self.fb_boost
+
+            l5_winners = l5_scores.argmax(axis=1)
             self.active_l5[precise_cols * self.n_l5 + l5_winners] = True
 
     def _learn_apical_gain(self):
@@ -973,6 +1047,66 @@ class CorticalRegion:
             # Passive decay per source
             weights *= 0.9999
             np.clip(weights, 0.0, 1.0, out=weights)
+
+    def _learn_l5_apical(self):
+        """Update L5 apical segment permanences based on prediction outcomes.
+
+        Same grow/reinforce/punish pattern as L4 and L2/3 segments:
+        - Active column, L5 predicted → reinforce matching segments
+        - Active column, L5 NOT predicted → grow segment on L5 winner
+        - L5 predicted but column not active → punish false positives
+        """
+        active_cols = np.nonzero(self.active_columns)[0]
+
+        for src in self._apical_sources.values():
+            seg_idx = src.get("seg_indices")
+            seg_perm = src.get("seg_perm")
+            pool = src.get("source_pool")
+            if seg_idx is None:
+                continue
+            ctx = src["context"]
+            if not ctx.any():
+                continue
+            # Boolean context for segment ops
+            ctx_bool = ctx > 0.01
+
+            l5_by_col = self.active_l5.reshape(self.n_columns, self.n_l5)
+            pred_by_col = self.predicted_l5.reshape(self.n_columns, self.n_l5)
+
+            # Per active column: reinforce or grow
+            reinforce_neurons = []
+            grow_neurons = []
+            for col in active_cols if len(active_cols) > 0 else []:
+                active_in_col = np.nonzero(l5_by_col[col])[0]
+                if len(active_in_col) == 0:
+                    continue
+                predicted_in_col = l5_by_col[col] & pred_by_col[col]
+                if predicted_in_col.any():
+                    # Reinforce predicted + active L5 neurons
+                    for local_idx in np.nonzero(predicted_in_col)[0]:
+                        reinforce_neurons.append(col * self.n_l5 + local_idx)
+                else:
+                    # Grow segment on L5 winner (first active)
+                    winner = active_in_col[0]
+                    grow_neurons.append(col * self.n_l5 + winner)
+
+            if reinforce_neurons:
+                self._adapt_segments_batch(
+                    np.array(reinforce_neurons, dtype=np.intp),
+                    seg_idx,
+                    seg_perm,
+                    ctx_bool,
+                    reinforce=True,
+                )
+            for neuron in grow_neurons:
+                self._grow_segment(neuron, seg_idx, seg_perm, ctx_bool, pool)
+
+            # Punish false positives: predicted but not active
+            false_pred = np.nonzero(self.predicted_l5 & ~self.active_l5)[0]
+            if len(false_pred) > 0:
+                self._adapt_segments_batch(
+                    false_pred, seg_idx, seg_perm, ctx_bool, reinforce=False
+                )
 
     def _learn(self):
         """Dendritic segment updates for L4 and L2/3 prediction.
