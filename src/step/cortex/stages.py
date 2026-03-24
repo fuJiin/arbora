@@ -54,7 +54,7 @@ class TrainingStage:
     # Force M1 active every step (not just EOM phase)
     force_motor_active: bool = False
 
-    # Reward source: "turn_taking" (default) or "word" (S2 recognition)
+    # Reward source: "turn_taking" (default), "curiosity", or "caregiver"
     reward_source: str = "turn_taking"
 
     def configure(self, topology) -> None:
@@ -82,15 +82,6 @@ class TrainingStage:
             from step.cortex.reward import CuriosityReward
 
             topology.set_reward_source(CuriosityReward())
-        elif self.reward_source == "word":
-            s2_cols = 32
-            for name, state in topology._regions.items():
-                if name == "S2":
-                    s2_cols = state.region.n_columns
-                    break
-            from step.cortex.reward import WordReward
-
-            topology.set_reward_source(WordReward(s2_cols))
         else:
             topology.set_reward_source(None)  # default turn-taking
 
