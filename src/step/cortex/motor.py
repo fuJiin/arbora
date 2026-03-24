@@ -313,7 +313,7 @@ class MotorRegion(CorticalRegion):
             )
             effective_reward = reward - self._reward_baseline
 
-        if abs(effective_reward) < 1e-6:
+        if abs(effective_reward) < self.REWARD_DEAD_ZONE:
             return
 
         # Clip motor-specific eligibility traces before consolidation
