@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from step.cortex.modulators import ThalamicGate
+from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
 
@@ -78,8 +78,9 @@ class TestHierarchy:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward")
-        cortex.connect("S1", "S2", "surprise")
+        cortex.connect(
+            "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+        )
         result = cortex.run(tokens, log_interval=1000)
         assert result.elapsed_seconds > 0
         assert "S2" in result.surprise_modulators
@@ -90,8 +91,9 @@ class TestHierarchy:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward")
-        cortex.connect("S1", "S2", "surprise")
+        cortex.connect(
+            "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+        )
         cortex.run(tokens, log_interval=1000)
         assert region2.active_columns.sum() > 0
 
@@ -112,8 +114,13 @@ class TestHierarchy:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward", buffer_depth=buf_depth)
-        cortex.connect("S1", "S2", "surprise")
+        cortex.connect(
+            "S1",
+            "S2",
+            ConnectionRole.FEEDFORWARD,
+            buffer_depth=buf_depth,
+            surprise_tracker=SurpriseTracker(),
+        )
         result = cortex.run(tokens, log_interval=1000)
         assert result.elapsed_seconds > 0
         assert region2.active_columns.sum() > 0
@@ -126,7 +133,7 @@ class TestTopoOrder:
         # Add S2 first, but S1 is entry and feeds S2
         cortex.add_region("S2", region2)
         cortex.add_region("S1", region1, entry=True)
-        cortex.connect("S1", "S2", "feedforward")
+        cortex.connect("S1", "S2", ConnectionRole.FEEDFORWARD)
         order = cortex._topo_order()
         assert order.index("S1") < order.index("S2")
 
@@ -148,13 +155,13 @@ class TestValidation:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         with pytest.raises(ValueError, match="Unknown region"):
-            cortex.connect("S1", "S99", "feedforward")
+            cortex.connect("S1", "S99", ConnectionRole.FEEDFORWARD)
 
-    def test_unknown_kind_raises(self, region1, region2, encoder):
+    def test_unknown_role_raises(self, region1, region2, encoder):
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        with pytest.raises(ValueError, match="Unknown connection kind"):
+        with pytest.raises(ValueError, match="Unknown connection role"):
             cortex.connect("S1", "S2", "bogus")
 
 
@@ -165,7 +172,7 @@ class TestApical:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S2", "S1", "apical")
+        cortex.connect("S2", "S1", ConnectionRole.APICAL)
         assert region1.has_apical
 
 
@@ -196,8 +203,13 @@ class TestTemporalBuffer:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward", buffer_depth=1)
-        cortex.connect("S1", "S2", "surprise")
+        cortex.connect(
+            "S1",
+            "S2",
+            ConnectionRole.FEEDFORWARD,
+            buffer_depth=1,
+            surprise_tracker=SurpriseTracker(),
+        )
         result = cortex.run(tokens, log_interval=1000)
         assert result.elapsed_seconds > 0
 
@@ -218,7 +230,7 @@ class TestTemporalBuffer:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward", buffer_depth=buf_depth)
+        cortex.connect("S1", "S2", ConnectionRole.FEEDFORWARD, buffer_depth=buf_depth)
 
         # Find the connection object
         ff_conn = cortex._connections[0]
@@ -226,7 +238,6 @@ class TestTemporalBuffer:
         assert ff_conn._buffer.shape == (buf_depth, region1.n_l23_total)
 
         # Run and verify S2 gets a signal of the right length
-        cortex.connect("S1", "S2", "surprise")
         cortex.run(tokens, log_interval=1000)
         assert region2.active_columns.sum() >= 0  # ran without error
 
@@ -245,7 +256,7 @@ class TestTemporalBuffer:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward", buffer_depth=buf_depth)
+        cortex.connect("S1", "S2", ConnectionRole.FEEDFORWARD, buffer_depth=buf_depth)
 
         ff_conn = cortex._connections[0]
 
@@ -281,8 +292,13 @@ class TestTemporalBuffer:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward", buffer_depth=buf_depth)
-        cortex.connect("S1", "S2", "surprise")
+        cortex.connect(
+            "S1",
+            "S2",
+            ConnectionRole.FEEDFORWARD,
+            buffer_depth=buf_depth,
+            surprise_tracker=SurpriseTracker(),
+        )
         cortex.run(tokens, log_interval=1000)
 
         ff_conn = cortex._connections[0]
@@ -296,7 +312,7 @@ class TestTemporalBuffer:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)  # region2 has input_dim = n_l23_total * 1
         with pytest.raises(ValueError, match="input_dim"):
-            cortex.connect("S1", "S2", "feedforward", buffer_depth=3)
+            cortex.connect("S1", "S2", ConnectionRole.FEEDFORWARD, buffer_depth=3)
 
 
 class TestBurstGating:
@@ -314,7 +330,7 @@ class TestBurstGating:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward", burst_gate=True)
+        cortex.connect("S1", "S2", ConnectionRole.FEEDFORWARD, burst_gate=True)
 
         # Process a token so S1 has some state
         enc = encoder.encode("a")
@@ -349,11 +365,11 @@ class TestBurstGating:
         cortex.connect(
             "S1",
             "S2",
-            "feedforward",
+            ConnectionRole.FEEDFORWARD,
             buffer_depth=buf_depth,
             burst_gate=True,
+            surprise_tracker=SurpriseTracker(),
         )
-        cortex.connect("S1", "S2", "surprise")
         result = cortex.run(tokens, log_interval=1000)
         assert result.elapsed_seconds > 0
 
@@ -436,9 +452,10 @@ class TestThalamicGateIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward")
-        cortex.connect("S1", "S2", "surprise")
-        cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
+        cortex.connect(
+            "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+        )
+        cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
         result = cortex.run(tokens, log_interval=1000)
         assert "S2->S1" in result.thalamic_readiness
         assert len(result.thalamic_readiness["S2->S1"]) > 0
@@ -454,9 +471,10 @@ class TestThalamicGateIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward")
-        cortex.connect("S1", "S2", "surprise")
-        cortex.connect("S2", "S1", "apical", thalamic_gate=gate)
+        cortex.connect(
+            "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+        )
+        cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=gate)
         cortex.run(tokens, log_interval=1000)
         # After boundary + 5 tokens, gate should be partially open but not fully
         # (it was reset at the boundary, so readiness should be modest)
@@ -468,8 +486,9 @@ class TestThalamicGateIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("S2", region2)
-        cortex.connect("S1", "S2", "feedforward")
-        cortex.connect("S1", "S2", "surprise")
-        cortex.connect("S2", "S1", "apical")
+        cortex.connect(
+            "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+        )
+        cortex.connect("S2", "S1", ConnectionRole.APICAL)
         result = cortex.run(tokens, log_interval=1000)
         assert result.thalamic_readiness == {}

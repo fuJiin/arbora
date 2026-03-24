@@ -25,7 +25,7 @@ from step.config import (
 )
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import prepare_tokens_tinydialogues
 from step.encoders.positional import PositionalCharEncoder
 
@@ -63,14 +63,21 @@ def run_decay(synapse_decay, tokens, encoder):
     cortex = Topology(encoder, diagnostics_interval=10000)
     cortex.add_region("S1", region1, entry=True)
     cortex.add_region("S2", region2)
-    cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect(
+        "S1",
+        "S2",
+        ConnectionRole.FEEDFORWARD,
+        buffer_depth=4,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
+    cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
     cortex.add_region("M1", motor, basal_ganglia=bg)
-    cortex.connect("S1", "M1", "feedforward")
-    cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
+    cortex.connect(
+        "S1", "M1", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+    )
     if motor.n_l23_total == region2.n_l23_total:
-        cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
+        cortex.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
 
     t0 = time.time()
     result = cortex.run(tokens, log_interval=100000)
