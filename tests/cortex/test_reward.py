@@ -1,9 +1,10 @@
-"""Tests for RewardModulator and Stage 1 turn-taking reward."""
+"""Tests for RewardModulator, EchoReward, and Stage 1 turn-taking reward."""
 
 import pytest
 
 from step.cortex.modulators import RewardModulator
 from step.cortex.motor import MotorRegion
+from step.cortex.reward import EchoReward
 from step.cortex.sensory import SensoryRegion
 from step.cortex.topology import Topology
 from step.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
@@ -332,3 +333,89 @@ class TestTurnTakingCounters:
         assert m.turn_unresponsive == 0
         assert m.turn_correct_speak == 0
         assert m.turn_rambles == 0
+
+
+class TestEchoReward:
+    def _make_echo(self, heard: str, **kwargs) -> EchoReward:
+        er = EchoReward(**kwargs)
+        for ch in heard:
+            er.hear(ch)
+        er.start_speak()
+        return er
+
+    def test_exact_match_positive(self):
+        """Exact position match gives positive RPE."""
+        er = self._make_echo("abc")
+        r = er.step("a", 0.5)
+        # match_score=1.0 minus small baseline (~0.03) → positive RPE
+        assert r > 0
+
+    def test_wrong_char_negative(self):
+        """Wrong char at a position with no nearby match gives negative RPE."""
+        er = self._make_echo("abc")
+        r = er.step("z", 0.5)
+        # match_score=0.0 minus baseline → negative RPE
+        assert r < 0
+
+    def test_no_anywhere_in_word_credit(self):
+        """Char present in word but far from position gets zero match score.
+
+        This is the 'h' attractor fix: 'h' in "the" should NOT get credit
+        at position 2 (target 'e') because 'h' at position 1 is within
+        tolerance — but if we're checking position 0 (target 't'), 'h'
+        at position 1 is within tolerance so it DOES get credit there.
+
+        The key test: for a long word, a char far from echo_pos should
+        get zero credit.
+        """
+        er = self._make_echo("abcdef")
+        # Advance past first 4 positions
+        for ch in "abcd":
+            er.step(ch, 0.5)
+        # Now at echo_pos=4 (target 'e'). 'a' is at position 0, dist=4.
+        # With tolerance=1, near-position checks [3,6), 'a' not there.
+        # Without anywhere-in-word, match_score should be 0.
+        r = er.step("a", 0.5)
+        # match_score=0 → RPE is negative (0 - baseline), so total echo
+        # contribution is negative. The curiosity base may offset slightly,
+        # but the match RPE component should drag it down.
+        # Verify by checking match_score would have been non-zero before fix:
+        # 'a' IS in the heard word (pos 0), but dist=4 > tolerance=1.
+        assert r < 0
+
+    def test_h_no_free_riding_at_distant_positions(self):
+        """'h' should not get credit at positions far from where it appears.
+
+        Regression test for the 'h' attractor bug: in words like "the",
+        'h' was getting partial credit at every position via the
+        anywhere-in-word fallback.
+        """
+        # "beautiful" — 'h' is not in this word at all
+        er = self._make_echo("beautiful")
+        r = er.step("h", 0.5)
+        # 'h' not anywhere near position 0 → zero match → negative RPE
+        assert r < 0
+
+    def test_near_position_gets_partial_credit(self):
+        """Char at position ±1 from target gets partial credit (not full)."""
+        er = self._make_echo("ab")
+        # echo_pos=0, target='a', produce 'b' (which is at position 1, dist=1)
+        r = er.step("b", 0.5)
+        # match_score = 1.0/(1+1) = 0.5, baseline ~0.03 → positive RPE
+        assert r > 0
+
+    def test_stats_tracking(self):
+        er = self._make_echo("abc")
+        er.step("a", 0.5)  # exact match
+        er.step("x", 0.5)  # miss
+        er.step("c", 0.5)  # exact match
+        assert er.exact_matches == 2
+        assert er.chars_echoed == 3
+
+    def test_reset_clears_state(self):
+        er = self._make_echo("abc")
+        er.step("a", 0.5)
+        er.reset()
+        assert not er._in_speak_phase
+        assert len(er._heard) == 0
+        assert er._echo_pos == 0
