@@ -55,6 +55,13 @@ unresolved-attribute = "ignore"
 invalid-argument-type = "ignore"
 
 [[tool.ty.overrides]]
+include = ["src/step/viz/**"]
+
+[tool.ty.overrides.rules]
+# plotly is an optional dependency (viz extra), not installed in CI
+unresolved-import = "ignore"
+
+[[tool.ty.overrides]]
 include = ["experiments/scripts/**"]
 
 [tool.ty.overrides.rules]
