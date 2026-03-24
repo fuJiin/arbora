@@ -1881,10 +1881,13 @@ class Topology:
                         }
                 region_data["apical_sources"] = apical_data
 
+            # Save ff_eligibility for any region that uses three-factor learning
+            if r._ff_eligibility is not None:
+                region_data["ff_eligibility"] = r._ff_eligibility
+
             if isinstance(r, MotorRegion):
                 region_data["output_weights"] = r.output_weights
                 region_data["output_mask"] = r.output_mask
-                region_data["ff_eligibility"] = r._ff_eligibility
                 region_data["output_eligibility"] = r._output_eligibility
 
             if s.basal_ganglia is not None:
@@ -1982,12 +1985,14 @@ class Topology:
                 # Legacy: single-source checkpoint
                 r._apical_gain_weights[:] = region_data["apical_gain_weights"]
 
+            # Restore ff_eligibility for any region that uses three-factor learning
+            if "ff_eligibility" in region_data and r._ff_eligibility is not None:
+                r._ff_eligibility[:] = region_data["ff_eligibility"]
+
             if isinstance(r, MotorRegion):
                 if "output_weights" in region_data:
                     r.output_weights[:] = region_data["output_weights"]
                     r.output_mask[:] = region_data["output_mask"]
-                if "ff_eligibility" in region_data:
-                    r._ff_eligibility[:] = region_data["ff_eligibility"]
                 if "output_eligibility" in region_data:
                     r._output_eligibility[:] = region_data["output_eligibility"]
 
