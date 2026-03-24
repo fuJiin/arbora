@@ -1,10 +1,9 @@
 """Tests for L5 output layer on CorticalRegion base class."""
 
 import numpy as np
-import pytest
 
-from step.cortex.region import CorticalRegion
 from step.cortex.motor import MotorRegion
+from step.cortex.region import CorticalRegion
 
 
 class TestL5BaseLayer:
@@ -90,14 +89,16 @@ class TestL5BaseLayer:
         r = self._make_region()
         # First step with strong drive to get some columns active
         drive = np.zeros(r.n_l4_total)
-        drive[:r.n_l4] = 1.0  # Strong drive to column 0
+        drive[: r.n_l4] = 1.0  # Strong drive to column 0
         drive[r.n_l4 : 2 * r.n_l4] = 0.8  # Strong drive to column 1
         r.step(drive)
         # Check burst columns have all L5 neurons active
         l5_by_col = r.active_l5.reshape(r.n_columns, r.n_l5)
         for col in range(r.n_columns):
             if r.bursting_columns[col] and r.active_columns[col]:
-                assert l5_by_col[col].all(), f"Burst column {col} should have all L5 active"
+                assert l5_by_col[col].all(), (
+                    f"Burst column {col} should have all L5 active"
+                )
 
 
 class TestMotorL5:
@@ -145,12 +146,12 @@ class TestMotorL5:
             encoding = rng.random(m.input_dim)
             m.process(encoding)
             m.observe_token(rng.integers(0, m.n_output_tokens))
-        token_id, confidence = m.get_population_output()
+        token_id, _confidence = m.get_population_output()
         # Should produce some output
         assert token_id >= 0 or not m.active_l5.any()
 
     def test_output_scores_inherited_from_base(self):
-        """Motor output_scores comes from base CorticalRegion L5, not manual computation."""
+        """Motor output_scores from base CorticalRegion L5."""
         m = self._make_motor()
         rng = np.random.default_rng(0)
         for _ in range(5):
