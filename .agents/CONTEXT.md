@@ -19,15 +19,29 @@ Apical: S3→S2, S2→S1, M1→M2, M2→PFC, S1→M1, M1→S1
 Connections: ConnectionRole enum (FEEDFORWARD, APICAL), modulators as properties
 ```
 
-## Apical feedback: two modes
-- **Linear gain** (default): per-neuron gain weights on L4 voltage. Fast, simple.
-- **L5 apical segments** (`use_l5_apical_segments=True`): dendritic segments on L5 neurons. Context-specific gating (BAC firing). +18% PFC ctx_disc, -4% surprise, -0.68 BPC vs baseline at 50k.
+## Inter-region pathways: current vs biological
 
-## Prediction pathways
-- **L4 fb_segments**: currently sourced from L2/3. Biologically should be L5→thalamus→L4 (cross-region). Current impl is a stopgap.
-- **L2/3 lateral segments**: L2/3→L2/3 same-region pattern prediction.
-- **L5 apical segments**: top-down from higher region's L2/3 (when enabled).
-- **L5 lateral segments**: not yet implemented (STEP-43). Would enable output-layer sequence prediction.
+Connections implicitly hardcode source_lamina=L2/3, target_lamina=L4. STEP-44 will make these explicit.
+
+| Pathway | Current impl | Biological target | Status |
+|---------|-------------|-------------------|--------|
+| FF: src.L2/3 → tgt.L4 | `firing_rate_l23` → `ff_weights` | Correct (corticocortical) | Done |
+| FF: src.L5 → tgt.L4 | — | Parallel ascending pathway | Missing |
+| Apical: src.L2/3 → tgt.L4 | Linear gain on L4 voltage | Wrong target — should be tgt.L5 apical | Stopgap (default) |
+| Apical: src.L2/3 → tgt.L5 | L5 apical segments | Correct (BAC firing) | STEP-32 |
+| Feedback: src.L5 → tgt.L4 via thal | fb_segments sourced from L2/3 | Wrong source — should be L5 | Deferred |
+| L5→L5 lateral | — | Output-layer sequence prediction | STEP-43 |
+
+## Apical feedback: two modes
+- **Linear gain** (default): src.L2/3 → tgt.L4 voltage. Fast, simple, wrong lamina target.
+- **L5 apical segments** (`use_l5_apical_segments=True`): src.L2/3 → tgt.L5 segments. Context-specific BAC firing. +18% PFC ctx_disc, -4% surprise at 50k.
+
+## Intra-region segments
+- **L4 fb_segments**: L2/3→L4 (should be L5→thal→L4 eventually)
+- **L4 lat_segments**: L4→L4 temporal patterns
+- **L2/3 lateral segments**: L2/3→L2/3 pattern prediction
+- **L5 apical segments**: cross-region top-down (STEP-32)
+- **L5 lateral segments**: missing (STEP-43)
 
 ## Learning
 - STDP pre-traces default on (`pre_trace_decay=0.8`)
@@ -57,14 +71,14 @@ Connections: ConnectionRole enum (FEEDFORWARD, APICAL), modulators as properties
 
 ### Key Decisions
 - L5→L4 feedback (replacing L2/3→L4 fb_segments) is cross-region, deferred
-- L5→L5 lateral segments needed (STEP-43)
-- `Lamina` abstraction to DRY up per-layer code (ticket pending, Linear API down)
+- Connections need explicit source_lamina/target_lamina (STEP-44)
+- `Lamina` class to DRY per-layer code, paired with connection lamina routing (STEP-44)
 - Apical reward-gated learning deferred to STEP-42
 
 ## Next Steps
 - [ ] **STEP-32** Merge L5 apical segments PR (in review)
+- [ ] **STEP-44** Lamina abstraction + connection lamina routing (XL, High)
 - [ ] **STEP-43** L5→L5 lateral segments (S, backlog)
-- [ ] Lamina abstraction (L, ticket pending)
 - [ ] **STEP-28** Split topology.py builder/runner (L, after STEP-32 merges)
 - [ ] **STEP-42** Reward-gated apical learning in frontal regions (M, backlog)
 - [ ] **STEP-20** Cerebellar forward model (XL, blocked by L5 work)
