@@ -51,7 +51,11 @@ Connections: ConnectionRole enum (FEEDFORWARD, APICAL)
 ### Completed
 - STEP-19, 24, 25, 26, 33, 31, 29, 32 (PRs #3-11)
 - STEP-45 (Lamina Phase 1, PR #12), STEP-46 (Lamina Phase 2, PR #13)
+- STEP-47 (Lamina Phase 3 — connection routing, PR #14)
 - Lint/typecheck CI (#7), REPL checkpoint fix
+
+### In Review
+- STEP-43 L5 lateral segments (PR #15) — disabled by default after regression
 
 ### Key Decisions
 - `Lamina` as state container, not self-running unit. register_lamina() pattern.
@@ -59,12 +63,22 @@ Connections: ConnectionRole enum (FEEDFORWARD, APICAL)
 - L5→L4 feedback is cross-region, deferred until thalamic relay exists
 - L5 should have all features (voltage, excitability, trace, firing_rate)
 - REPL delegates to cortex_staged.build_topology() for dimension consistency
+- L5 lateral segments default off (`n_l5_segments=0`): immature segments regress ctx_disc at 50k. Enable post-refactor during tuning phase.
+- Param tuning (neurons per column per lamina, segment counts) deferred until after refactors
+
+### Technical debt (captured in STEP-49)
+- Inconsistent lateral segment naming (lat_seg, l23_seg, l5_seg)
+- Duplicated segment learning code (_learn_segments, _learn_l23_segments, _learn_l5_lateral_segments)
+- SensoryRegion overrides _init_segments entirely instead of extending base
+- Backward-compat aliases on CorticalRegion (voltage_l4 etc.)
 
 ## Next Steps
-- [ ] **STEP-44 Phase 3** Connection routing via lamina fields (STEP-44)
-- [ ] **STEP-43** L5→L5 lateral segments (S)
+- [ ] **STEP-43** Merge L5 lateral PR (in review)
 - [ ] **STEP-28** Split topology.py builder/runner (L)
-- [ ] **STEP-42** Reward-gated apical learning in frontal regions (M)
+- [ ] **STEP-49** Phase 4: alias cleanup, segment naming, DRY learning (M)
+- [ ] **STEP-35** PlasticityRule enum (M)
+- [ ] **STEP-30** Region Protocol typing (M)
+- [ ] **STEP-42** Reward-gated apical learning (M)
 - [ ] **STEP-20** Cerebellar forward model (XL)
-- [ ] **STEP-40** Better echo partial credit (M)
-- [ ] Re-run full pipeline to get clean checkpoint with encoder alphabet
+- [ ] **STEP-50** Generate clean baseline checkpoint
+- [ ] Param tuning sweep (n_l5, n_l5_segments, neurons per column per lamina)
