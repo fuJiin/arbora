@@ -296,14 +296,11 @@ class MotorRegion(CorticalRegion):
     def apply_reward(self, reward: float) -> None:
         """Consolidate eligibility traces into weights using reward signal.
 
-        Three-factor rule: dw = (reward - baseline) * eligibility_trace
-        Positive reward → strengthen recent pathways
-        Negative reward → weaken them
+        Extends base class with reward baseline subtraction, and
+        consolidation of output_weights (L5) and goal_weights (PFC→M1).
 
-        Applies to:
-        - ff_weights (input → column mapping)
-        - output_weights (L2/3 → token mapping, L5)
-        - goal_weights (PFC→M1 feedforward, scaled down 0.3x)
+        Three-factor rule: dw = (reward - baseline) * eligibility_trace
+        Positive reward strengthens recent pathways, negative weakens.
         """
         if not self.learning_enabled:
             return
@@ -319,14 +316,8 @@ class MotorRegion(CorticalRegion):
         if abs(effective_reward) < 1e-6:
             return
 
-        # Clamp eligibility traces before consolidation
+        # Clip motor-specific eligibility traces before consolidation
         if self._eligibility_clip > 0:
-            np.clip(
-                self._ff_eligibility,
-                -self._eligibility_clip,
-                self._eligibility_clip,
-                out=self._ff_eligibility,
-            )
             np.clip(
                 self._output_eligibility,
                 -self._eligibility_clip,
@@ -341,10 +332,8 @@ class MotorRegion(CorticalRegion):
                     out=self._goal_eligibility,
                 )
 
-        # Consolidate ff_weights (input mapping)
-        self.ff_weights += effective_reward * self._ff_eligibility
-        self.ff_weights *= self.ff_mask
-        np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
+        # Base: clip ff_eligibility + consolidate ff_weights
+        super().apply_reward(effective_reward)
 
         # Consolidate output_weights (L5 readout)
         self.output_weights += effective_reward * self._output_eligibility

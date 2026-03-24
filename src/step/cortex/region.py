@@ -221,6 +221,11 @@ class CorticalRegion:
         else:
             self._pre_trace = None
 
+        # Three-factor learning: eligibility clip threshold.
+        # Subclasses (PFC, Motor) set this > 0 and create _ff_eligibility.
+        # Base default: 0 = no clipping, no eligibility trace.
+        self._eligibility_clip: float = 0.0
+
         # Efference copy: predicted sensory consequence of motor output.
         # Set by set_efference_copy(), consumed (cleared) in process().
         # Gain controls suppression strength: 1.0 = full cancellation,
@@ -433,6 +438,40 @@ class CorticalRegion:
                 1,
                 out=self.ff_weights[active_dims],
             )
+
+    # ------------------------------------------------------------------
+    # Three-factor reward consolidation
+    # ------------------------------------------------------------------
+
+    def apply_reward(self, reward: float) -> None:
+        """Consolidate eligibility traces into ff_weights using reward.
+
+        Three-factor rule: dw = reward * eligibility_trace
+        Positive reward strengthens recent pathways, negative weakens.
+
+        Subclasses with additional eligibility traces (output_weights,
+        goal_weights) should override and call super() first.
+
+        No-op for regions without _ff_eligibility (sensory regions use
+        two-factor Hebbian, not reward-gated learning).
+        """
+        if not self.learning_enabled:
+            return
+        if abs(reward) < 1e-6:
+            return
+
+        ff_elig = getattr(self, "_ff_eligibility", None)
+        if ff_elig is None:
+            return
+
+        # Clamp eligibility traces before consolidation
+        if self._eligibility_clip > 0:
+            clip = self._eligibility_clip
+            np.clip(ff_elig, -clip, clip, out=ff_elig)
+
+        self.ff_weights += reward * ff_elig
+        self.ff_weights *= self.ff_mask
+        np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
 
     # ------------------------------------------------------------------
     # Dendritic segments

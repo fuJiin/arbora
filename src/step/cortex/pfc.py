@@ -163,34 +163,8 @@ class PFCRegion(CorticalRegion):
             self.learning_rate * ltp_signal[:, np.newaxis]
         )
 
-    def apply_reward(self, reward: float) -> None:
-        """Consolidate eligibility traces into weights using reward.
-
-        Three-factor rule: dw = reward * eligibility_trace
-        Positive reward → strengthen mappings that led to good output
-        Negative reward → weaken mappings that led to bad output
-
-        Biologically: dopamine from VTA gates synaptic consolidation
-        in PFC via D1/D5 receptors. High DA = strengthen recent
-        synaptic changes. Low DA = let them decay.
-        """
-        if not self.learning_enabled:
-            return
-        if abs(reward) < 1e-6:
-            return
-
-        # Clamp eligibility traces before consolidation
-        if self._eligibility_clip > 0:
-            np.clip(
-                self._ff_eligibility,
-                -self._eligibility_clip,
-                self._eligibility_clip,
-                out=self._ff_eligibility,
-            )
-
-        self.ff_weights += reward * self._ff_eligibility
-        self.ff_weights *= self.ff_mask
-        np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
+    # apply_reward() inherited from CorticalRegion — handles
+    # ff_eligibility clip + consolidation into ff_weights.
 
     def snapshot_goal(self) -> None:
         """Capture current L2/3 state as the active goal.
