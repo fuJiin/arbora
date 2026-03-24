@@ -51,13 +51,16 @@ def save_run(
         meta.update(meta_extra)
 
     # Extract summary stats for index display
+    summary: dict[str, dict[str, object]] = {}
     for region_name, metrics in result.per_region.items():
         rep = metrics.representation
         if rep:
-            meta.setdefault("summary", {})[region_name] = {
+            summary[region_name] = {
                 "ctx_disc": rep.get("context_discrimination", 0),
                 "selectivity": rep.get("column_selectivity_mean", 0),
             }
+    if summary:
+        meta["summary"] = summary
 
     with open(run_dir / "meta.json", "w") as f:
         json.dump(meta, f, indent=2)

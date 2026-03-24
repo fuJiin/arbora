@@ -240,9 +240,8 @@ class CorticalRegion:
             pos = 0
             for sdim in source_dims:
                 # Each column connects to (1 - ff_sparsity) of this source
-                src_mask = (
-                    self._rng.random((sdim, self.n_columns))
-                    < (1.0 - ff_sparsity)
+                src_mask = self._rng.random((sdim, self.n_columns)) < (
+                    1.0 - ff_sparsity
                 )
                 mask[pos : pos + sdim] = src_mask
                 pos += sdim
@@ -330,16 +329,14 @@ class CorticalRegion:
 
         winner_indices = np.empty(len(active_cols), dtype=np.intp)
         if is_burst.any():
-            winner_indices[is_burst] = (
-                active_cols[is_burst] * self.n_l4
-                + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
-            )
+            winner_indices[is_burst] = active_cols[
+                is_burst
+            ] * self.n_l4 + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
         precise = ~is_burst
         if precise.any():
-            winner_indices[precise] = (
-                active_cols[precise] * self.n_l4
-                + active_by_col[active_cols[precise]].argmax(axis=1)
-            )
+            winner_indices[precise] = active_cols[precise] * self.n_l4 + active_by_col[
+                active_cols[precise]
+            ].argmax(axis=1)
         return winner_indices
 
     def _learn_ff(self, flat_input: np.ndarray):
@@ -382,9 +379,7 @@ class CorticalRegion:
 
         # LTP: strengthen synapses from recently-active inputs → winners
         if len(winner_indices) > 0:
-            self.ff_weights[:, winner_indices] += (
-                ltp_rate * ltp_signal[:, np.newaxis]
-            )
+            self.ff_weights[:, winner_indices] += ltp_rate * ltp_signal[:, np.newaxis]
 
         # LTD: weaken synapses from NOT-recently-active inputs → winners
         # Uses flat_input (not trace) for LTD — only current step's
@@ -491,9 +486,7 @@ class CorticalRegion:
         self._apical_sources[name] = {
             "dim": source_dim,
             "context": np.zeros(source_dim, dtype=np.float64),
-            "weights": self._rng.uniform(
-                0.0, 0.1, (source_dim, self.n_l4_total)
-            ),
+            "weights": self._rng.uniform(0.0, 0.1, (source_dim, self.n_l4_total)),
         }
         # Backward-compat: set single-source aliases to first source
         if self._apical_source_dim == 0:
@@ -594,16 +587,12 @@ class CorticalRegion:
             active_at_syn = self.active_l23[self.fb_seg_indices]
             connected = self.fb_seg_perm > self.perm_threshold
             counts = (active_at_syn & connected).sum(axis=2)
-            predicted |= (counts >= self.seg_activation_threshold).any(
-                axis=1
-            )
+            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
         if self.active_l4.any():
             active_at_syn = self.active_l4[self.lat_seg_indices]
             connected = self.lat_seg_perm > self.perm_threshold
             counts = (active_at_syn & connected).sum(axis=2)
-            predicted |= (counts >= self.seg_activation_threshold).any(
-                axis=1
-            )
+            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
         return predicted
 
     def get_prediction(self, k: int) -> np.ndarray:
@@ -658,7 +647,9 @@ class CorticalRegion:
                     raw_gain += ctx @ src["weights"]
             if raw_gain.any():
                 np.clip(
-                    raw_gain, 0.0, self.prediction_gain - 1.0,
+                    raw_gain,
+                    0.0,
+                    self.prediction_gain - 1.0,
                     out=raw_gain,
                 )
                 raw_gain += 1.0
@@ -726,14 +717,10 @@ class CorticalRegion:
             active_at_syn = self.active_l23[self.l23_seg_indices]
             connected = self.l23_seg_perm > self.perm_threshold
             counts = (active_at_syn & connected).sum(axis=2)
-            predicted |= (
-                counts >= self.seg_activation_threshold
-            ).any(axis=1)
+            predicted |= (counts >= self.seg_activation_threshold).any(axis=1)
         return predicted
 
-    def set_apical_context(
-        self, context: np.ndarray, source_name: str = ""
-    ):
+    def set_apical_context(self, context: np.ndarray, source_name: str = ""):
         """Set apical feedback signal from a specific source.
 
         Called each step by the runner before this region's step().
@@ -884,9 +871,7 @@ class CorticalRegion:
             ctx_nz = np.flatnonzero(ctx)
             if len(ctx_nz) > 0:
                 delta = (
-                    apical_lr
-                    * ctx[ctx_nz, np.newaxis]
-                    * active[np.newaxis, active_nz]
+                    apical_lr * ctx[ctx_nz, np.newaxis] * active[np.newaxis, active_nz]
                 )
                 weights[np.ix_(ctx_nz, active_nz)] += delta
             # Passive decay per source
@@ -940,9 +925,7 @@ class CorticalRegion:
         reinforce_neurons = np.nonzero(
             self.active_l4
             & self.predicted_l4
-            & np.repeat(
-                self.active_columns & ~self.bursting_columns, self.n_l4
-            )
+            & np.repeat(self.active_columns & ~self.bursting_columns, self.n_l4)
         )[0]
         if len(reinforce_neurons) > 0:
             self._adapt_segments_batch(
@@ -961,9 +944,7 @@ class CorticalRegion:
             )
 
         # Punish false predictions (predicted but didn't fire)
-        false_predicted = np.nonzero(
-            self.predicted_l4 & ~self.active_l4
-        )[0]
+        false_predicted = np.nonzero(self.predicted_l4 & ~self.active_l4)[0]
         if len(false_predicted) > 0:
             self._adapt_segments_batch(
                 false_predicted,
@@ -1217,9 +1198,7 @@ class CorticalRegion:
         Adapt uses thresholded traces or boolean context.
         """
         active_cols = np.nonzero(self.active_columns)[0]
-        voltage_l23_by_col = self.voltage_l23.reshape(
-            self.n_columns, self.n_l23
-        )
+        voltage_l23_by_col = self.voltage_l23.reshape(self.n_columns, self.n_l23)
 
         # Context for growth: use trace if available
         grow_ctx = self._pred_context_l23
@@ -1274,9 +1253,7 @@ class CorticalRegion:
             )
 
         # Punish false predictions
-        false_predicted = np.nonzero(
-            self.predicted_l23 & ~self.active_l23
-        )[0]
+        false_predicted = np.nonzero(self.predicted_l23 & ~self.active_l23)[0]
         if len(false_predicted) > 0:
             self._adapt_segments_batch(
                 false_predicted,

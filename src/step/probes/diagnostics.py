@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from step.cortex.sensory import SensoryRegion
+from step.cortex.region import CorticalRegion
 
 
 @dataclass
@@ -85,7 +85,7 @@ class CortexDiagnostics:
     _prediction_correct_column: int = 0
     _prediction_total: int = 0
 
-    def step(self, t: int, region: SensoryRegion) -> None:
+    def step(self, t: int, region: CorticalRegion) -> None:
         """Call after each region.process(). Cheap per-step bookkeeping."""
         # Track which columns activated
         active_cols = np.nonzero(region.active_columns)[0]
@@ -141,7 +141,7 @@ class CortexDiagnostics:
         if t % self.snapshot_interval == 0:
             self.snapshots.append(self._take_snapshot(t, region))
 
-    def _take_snapshot(self, t: int, region: SensoryRegion) -> Snapshot:
+    def _take_snapshot(self, t: int, region: CorticalRegion) -> Snapshot:
         snap = Snapshot(t=t)
 
         # Weight health
