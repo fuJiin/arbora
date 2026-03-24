@@ -18,6 +18,7 @@ Usage:
 import argparse
 import contextlib
 import io
+from dataclasses import replace
 import math
 import sys
 
@@ -71,7 +72,7 @@ def surprise_color(burst_frac: float) -> str:
     return RED  # Very surprising
 
 
-def build_model(alphabet: str):
+def build_model(alphabet: str, *, use_l5_apical: bool = False):
     """Build full hierarchy matching staged topology.
 
     S1→S2→S3 (sensory), PFC (goals), M2 (sequencing), M1 (output).
@@ -80,6 +81,8 @@ def build_model(alphabet: str):
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
 
     s1_cfg = _default_s1_config()
+    if use_l5_apical:
+        s1_cfg = replace(s1_cfg, use_l5_apical_segments=True)
     region1 = make_sensory_region(
         s1_cfg,
         encoder.input_dim,
@@ -87,9 +90,13 @@ def build_model(alphabet: str):
     )
 
     r2_cfg = _default_region2_config()
+    if use_l5_apical:
+        r2_cfg = replace(r2_cfg, use_l5_apical_segments=True)
     region2 = make_sensory_region(r2_cfg, region1.n_l23_total * 4, seed=123)
 
     r3_cfg = _default_region3_config()
+    if use_l5_apical:
+        r3_cfg = replace(r3_cfg, use_l5_apical_segments=True)
     region3 = make_sensory_region(r3_cfg, region2.n_l23_total * 8, seed=789)
 
     # PFC: receives S2 + S3 concatenated
@@ -909,6 +916,11 @@ def main():
         choices=["personachat", "tinydialogues", "babylm"],
         help="Dataset for vocab and warmup (default: babylm)",
     )
+    parser.add_argument(
+        "--l5-apical",
+        action="store_true",
+        help="Enable L5 apical segments on sensory regions (needed for l5apical checkpoints)",
+    )
     args = parser.parse_args()
 
     # Load tokens for vocab (and warmup)
@@ -941,7 +953,9 @@ def main():
 
     # Build model
     print(f"{DIM}Building model (S1→S2→S3→PFC→M2→M1+BG)...{RESET}")
-    cortex, encoder, region1, motor, decoder, word_decoder = build_model(alphabet_str)
+    cortex, encoder, region1, motor, decoder, word_decoder = build_model(
+        alphabet_str, use_l5_apical=args.l5_apical
+    )
 
     # Load checkpoint or warmup
     if args.checkpoint:
