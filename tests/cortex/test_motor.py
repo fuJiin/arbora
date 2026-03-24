@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from step.cortex.modulators import ThalamicGate
@@ -147,3 +148,82 @@ class TestMotorTopology:
         cortex.connect("S1", "M1", "feedforward")
         result = cortex.run(tokens, log_interval=1000)
         assert "M1" in result.per_region
+
+
+class TestBabbleDirect:
+    """Tests for _babble_direct() — random column forcing for motor exploration."""
+
+    def test_babble_activates_k_columns(self, motor, region1, encoder):
+        """_babble_direct should activate exactly k_columns columns."""
+        enc = encoder.encode("a")
+        region1.process(enc)
+        motor._babble_direct(region1.firing_rate_l23)
+        active_cols = np.nonzero(motor.active_columns)[0]
+        assert len(active_cols) == motor.k_columns
+
+    def test_babble_returns_active_l4_indices(self, motor, region1, encoder):
+        """_babble_direct should return nonzero array of active L4 indices."""
+        enc = encoder.encode("a")
+        region1.process(enc)
+        active = motor._babble_direct(region1.firing_rate_l23)
+        assert len(active) > 0
+        # Active indices should be valid L4 neuron indices
+        assert active.max() < motor.n_l4_total
+
+    def test_babble_trains_ff_weights(self, motor, region1, encoder):
+        """_babble_direct should populate ff eligibility trace for learning."""
+        enc = encoder.encode("a")
+        region1.process(enc)
+        assert motor._ff_eligibility.sum() == 0.0
+        motor._babble_direct(region1.firing_rate_l23)
+        # Eligibility trace should be nonzero after babbling with input
+        assert motor._ff_eligibility.sum() != 0.0
+
+    def test_babble_diverse_across_steps(self, motor, region1, encoder):
+        """Repeated babbling should explore different columns over time."""
+        enc = encoder.encode("a")
+        region1.process(enc)
+        activated_sets = set()
+        for _ in range(20):
+            motor._babble_direct(region1.firing_rate_l23)
+            cols = tuple(sorted(np.nonzero(motor.active_columns)[0]))
+            activated_sets.add(cols)
+        # With 4 columns and k=1, should see multiple different selections
+        assert len(activated_sets) > 1
+
+    def test_process_uses_babble_when_noise_full(self, motor, region1, encoder):
+        """process() with babbling_noise=1.0 always uses _babble_direct path."""
+        motor.babbling_noise = 1.0
+        enc = encoder.encode("a")
+        region1.process(enc)
+        # Run multiple steps — all should activate exactly k columns
+        for _ in range(10):
+            motor.process(region1.firing_rate_l23)
+            active_cols = np.nonzero(motor.active_columns)[0]
+            assert len(active_cols) == motor.k_columns
+
+    def test_process_uses_babble_probabilistically(self, motor, region1, encoder):
+        """process() with 0 < babbling_noise < 1 mixes babble and normal."""
+        motor.babbling_noise = 0.5
+        enc = encoder.encode("b")
+        region1.process(enc)
+        # Run enough steps that both paths should be taken
+        for _ in range(20):
+            motor.process(region1.firing_rate_l23)
+            active_cols = np.nonzero(motor.active_columns)[0]
+            # Both paths produce valid activations
+            assert len(active_cols) == motor.k_columns
+
+    def test_babble_without_encoding(self, motor):
+        """_babble_direct with None encoding should still activate columns."""
+        active = motor._babble_direct(None)
+        assert len(active) > 0
+        active_cols = np.nonzero(motor.active_columns)[0]
+        assert len(active_cols) == motor.k_columns
+
+    def test_babble_without_encoding_skips_ff_learning(self, motor):
+        """_babble_direct with None encoding should not update ff eligibility."""
+        assert motor._ff_eligibility.sum() == 0.0
+        motor._babble_direct(None)
+        # ff_weights learning requires encoding input
+        assert motor._ff_eligibility.sum() == 0.0
