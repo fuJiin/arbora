@@ -8,8 +8,6 @@ Two biological reward pathways modeled:
   Extrinsic (caregiver): social reward when M1 produces a recognized word
 """
 
-import numpy as np
-
 
 class CuriosityReward:
     """Reward for prediction improvement (dopamine RPE model).

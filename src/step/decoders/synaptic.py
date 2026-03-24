@@ -12,7 +12,7 @@ to tokens via inverted index, avoiding burst-inflated neuron sets.
 
 import numpy as np
 
-from step.cortex.sensory import SensoryRegion
+from step.cortex.region import CorticalRegion
 
 
 class SynapticDecoder:
@@ -53,7 +53,7 @@ class SynapticDecoder:
     def decode_synaptic(
         self,
         predicted_neurons: np.ndarray,
-        region: SensoryRegion,
+        region: CorticalRegion,
     ) -> tuple[int, str]:
         """Decode via ff_weight reconstruction + nearest-neighbor.
 

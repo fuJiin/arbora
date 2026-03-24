@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from step.cortex.sensory import SensoryRegion
+from step.cortex.region import CorticalRegion
 
 
 @dataclass
@@ -34,7 +34,7 @@ class Timeline:
 
     frames: list[TimelineFrame] = field(default_factory=list)
 
-    def capture(self, t: int, region: SensoryRegion, column_drive: np.ndarray):
+    def capture(self, t: int, region: CorticalRegion, column_drive: np.ndarray):
         """Call after region.step() to capture current state."""
         active_cols = np.nonzero(region.active_columns)[0].tolist()
         active_l4 = np.nonzero(region.active_l4)[0].tolist()
