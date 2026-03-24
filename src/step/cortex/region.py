@@ -311,6 +311,37 @@ class CorticalRegion:
             neuron_indices.extend(range(col * self.n_l4, (col + 1) * self.n_l4))
         return self.ff_weights[:, neuron_indices].sum(axis=1)
 
+    def _find_winners(self) -> np.ndarray:
+        """Find winning neurons (one per active column).
+
+        For bursting columns: winner is the neuron with highest voltage.
+        For precise columns: winner is the neuron with highest activation.
+
+        Returns flat indices into the L4 neuron array (shape: n_active_cols).
+        Returns empty array if no columns are active.
+        """
+        active_cols = np.nonzero(self.active_columns)[0]
+        if len(active_cols) == 0:
+            return np.empty(0, dtype=np.intp)
+
+        voltage_by_col = self.voltage_l4.reshape(self.n_columns, self.n_l4)
+        active_by_col = self.active_l4.reshape(self.n_columns, self.n_l4)
+        is_burst = self.bursting_columns[active_cols]
+
+        winner_indices = np.empty(len(active_cols), dtype=np.intp)
+        if is_burst.any():
+            winner_indices[is_burst] = (
+                active_cols[is_burst] * self.n_l4
+                + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
+            )
+        precise = ~is_burst
+        if precise.any():
+            winner_indices[precise] = (
+                active_cols[precise] * self.n_l4
+                + active_by_col[active_cols[precise]].argmax(axis=1)
+            )
+        return winner_indices
+
     def _learn_ff(self, flat_input: np.ndarray):
         """Per-neuron Hebbian ff learning with optional STDP-like pre traces.
 
@@ -344,22 +375,7 @@ class CorticalRegion:
             ltp_signal = flat_input
 
         # Find winning neurons (one per active column) — vectorized
-        active_cols = np.nonzero(self.active_columns)[0]
-        winner_indices = np.empty(len(active_cols), dtype=np.intp)
-
-        if len(active_cols) > 0:
-            voltage_by_col = self.voltage_l4.reshape(self.n_columns, self.n_l4)
-            active_by_col = self.active_l4.reshape(self.n_columns, self.n_l4)
-            is_burst = self.bursting_columns[active_cols]
-            if is_burst.any():
-                winner_indices[is_burst] = active_cols[
-                    is_burst
-                ] * self.n_l4 + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
-            precise = ~is_burst
-            if precise.any():
-                winner_indices[precise] = active_cols[
-                    precise
-                ] * self.n_l4 + active_by_col[active_cols[precise]].argmax(axis=1)
+        winner_indices = self._find_winners()
 
         neuromod = self.surprise_modulator * self.reward_modulator
         ltp_rate = self.learning_rate * neuromod
