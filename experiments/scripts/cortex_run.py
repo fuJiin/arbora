@@ -24,7 +24,7 @@ from step.config import (
 )
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import (
     inject_eom_tokens,
     prepare_tokens,
@@ -328,14 +328,14 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
     cortex.connect(
         "S1",
         "S2",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=args.buffer_depth,
         burst_gate=args.burst_gate,
+        surprise_tracker=surprise,
     )
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=surprise)
     if args.apical:
         gate = ThalamicGate() if args.gate_feedback else None
-        cortex.connect("S2", "S1", "apical", thalamic_gate=gate)
+        cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=gate)
 
     if args.s3:
         r3_cfg = _default_region3_config()
@@ -345,14 +345,14 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
         cortex.connect(
             "S2",
             "S3",
-            "feedforward",
+            ConnectionRole.FEEDFORWARD,
             buffer_depth=args.s3_buffer_depth,
             burst_gate=args.burst_gate,
+            surprise_tracker=SurpriseTracker(),
         )
-        cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
         if args.apical and not args.no_s3_feedback:
             s3_gate = ThalamicGate() if args.gate_feedback else None
-            cortex.connect("S3", "S2", "apical", thalamic_gate=s3_gate)
+            cortex.connect("S3", "S2", ConnectionRole.APICAL, thalamic_gate=s3_gate)
 
     if args.motor:
         m1_cfg = _default_motor_config()
@@ -366,12 +366,13 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
             else None
         )
         cortex.add_region("M1", motor, basal_ganglia=bg)
-        cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
+        cortex.connect(
+            "S1", "M1", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+        )
         # M1→S1 apical only if dimensions match S2→S1 (both send to same target)
         if not args.apical or motor.n_l23_total == region2.n_l23_total:
             m1_gate = ThalamicGate() if args.gate_feedback else None
-            cortex.connect("M1", "S1", "apical", thalamic_gate=m1_gate)
+            cortex.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=m1_gate)
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
     result = cortex.run(tokens, log_interval=args.log_interval)
@@ -407,7 +408,7 @@ def _build_region_configs(cortex_cfg, args):
             "voltage_decay": r2_cfg.voltage_decay,
             "buffer_depth": args.buffer_depth,
             "burst_gate": args.burst_gate,
-            "apical": args.apical,
+            ConnectionRole.APICAL: args.apical,
         }
     if args.motor:
         m1_cfg = _default_motor_config()

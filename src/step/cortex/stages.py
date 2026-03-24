@@ -14,6 +14,8 @@ Stages model infant development:
 
 from dataclasses import dataclass, field
 
+from step.cortex.topology import ConnectionRole
+
 
 @dataclass
 class StageConnection:
@@ -21,7 +23,7 @@ class StageConnection:
 
     source: str
     target: str
-    kind: str
+    role: ConnectionRole
     enabled: bool = True
 
 
@@ -89,9 +91,9 @@ class TrainingStage:
         for sc in self.connections:
             try:
                 if sc.enabled:
-                    topology.enable_connection(sc.source, sc.target, sc.kind)
+                    topology.enable_connection(sc.source, sc.target, sc.role)
                 else:
-                    topology.disable_connection(sc.source, sc.target, sc.kind)
+                    topology.disable_connection(sc.source, sc.target, sc.role)
             except ValueError:
                 pass  # Connection doesn't exist in this topology — skip
 
@@ -102,29 +104,31 @@ class TrainingStage:
 
 
 def _sensory_connections():
-    """Sensory stage: full hierarchy + M1/M2/PFC listening."""
+    """Sensory stage: full hierarchy + M1/M2/PFC listening.
+
+    Surprise modulation is tonic (always active when configured on
+    a connection), so it is not stage-controlled here.
+    """
     return [
-        # Sensory feedforward + surprise: on
-        StageConnection("S1", "S2", "feedforward", enabled=True),
-        StageConnection("S1", "S2", "surprise", enabled=True),
-        StageConnection("S2", "S3", "feedforward", enabled=True),
-        StageConnection("S2", "S3", "surprise", enabled=True),
+        # Sensory feedforward: on
+        StageConnection("S1", "S2", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("S2", "S3", ConnectionRole.FEEDFORWARD, enabled=True),
         # Apical feedback: on
-        StageConnection("S2", "S1", "apical", enabled=True),
-        StageConnection("S3", "S2", "apical", enabled=True),
+        StageConnection("S2", "S1", ConnectionRole.APICAL, enabled=True),
+        StageConnection("S3", "S2", ConnectionRole.APICAL, enabled=True),
         # Motor pathway listening: S2→M2→M1 (learns sequence patterns)
-        StageConnection("S2", "M2", "feedforward", enabled=True),
-        StageConnection("M2", "M1", "feedforward", enabled=True),
+        StageConnection("S2", "M2", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("M2", "M1", ConnectionRole.FEEDFORWARD, enabled=True),
         # Cross-hierarchy apical
-        StageConnection("S1", "M1", "apical", enabled=True),
-        StageConnection("M1", "S1", "apical", enabled=False),
+        StageConnection("S1", "M1", ConnectionRole.APICAL, enabled=True),
+        StageConnection("M1", "S1", ConnectionRole.APICAL, enabled=False),
         # Motor monitoring apical: off during listening
-        StageConnection("M1", "M2", "apical", enabled=False),
-        StageConnection("M2", "PFC", "apical", enabled=False),
+        StageConnection("M1", "M2", ConnectionRole.APICAL, enabled=False),
+        StageConnection("M2", "PFC", ConnectionRole.APICAL, enabled=False),
         # PFC listening
-        StageConnection("S2", "PFC", "feedforward", enabled=True),
-        StageConnection("S3", "PFC", "feedforward", enabled=True),
-        StageConnection("PFC", "M2", "feedforward", enabled=True),
+        StageConnection("S2", "PFC", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("S3", "PFC", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("PFC", "M2", ConnectionRole.FEEDFORWARD, enabled=True),
     ]
 
 
@@ -132,24 +136,22 @@ def _babbling_connections():
     """Babbling: full hierarchy + motor monitoring (M1→M2→PFC apical)."""
     return [
         # Sensory hierarchy
-        StageConnection("S1", "S2", "feedforward", enabled=True),
-        StageConnection("S1", "S2", "surprise", enabled=True),
-        StageConnection("S2", "S3", "feedforward", enabled=True),
-        StageConnection("S2", "S3", "surprise", enabled=True),
-        StageConnection("S2", "S1", "apical", enabled=True),
-        StageConnection("S3", "S2", "apical", enabled=True),
+        StageConnection("S1", "S2", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("S2", "S3", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("S2", "S1", ConnectionRole.APICAL, enabled=True),
+        StageConnection("S3", "S2", ConnectionRole.APICAL, enabled=True),
         # Motor feedforward: PFC→M2→M1
-        StageConnection("S2", "M2", "feedforward", enabled=True),
-        StageConnection("M2", "M1", "feedforward", enabled=True),
-        StageConnection("S2", "PFC", "feedforward", enabled=True),
-        StageConnection("S3", "PFC", "feedforward", enabled=True),
-        StageConnection("PFC", "M2", "feedforward", enabled=True),
+        StageConnection("S2", "M2", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("M2", "M1", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("S2", "PFC", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("S3", "PFC", ConnectionRole.FEEDFORWARD, enabled=True),
+        StageConnection("PFC", "M2", ConnectionRole.FEEDFORWARD, enabled=True),
         # Motor monitoring apical: M1→M2→PFC
-        StageConnection("M1", "M2", "apical", enabled=True),
-        StageConnection("M2", "PFC", "apical", enabled=True),
+        StageConnection("M1", "M2", ConnectionRole.APICAL, enabled=True),
+        StageConnection("M2", "PFC", ConnectionRole.APICAL, enabled=True),
         # Cross-hierarchy apical
-        StageConnection("S1", "M1", "apical", enabled=True),
-        StageConnection("M1", "S1", "apical", enabled=False),
+        StageConnection("S1", "M1", ConnectionRole.APICAL, enabled=True),
+        StageConnection("M1", "S1", ConnectionRole.APICAL, enabled=False),
     ]
 
 
@@ -157,19 +159,16 @@ def _guided_connections():
     """Guided babbling: S1→M1 + S1→S2 (for word reward), apical on."""
     return [
         # S1→M1: on
-        StageConnection("S1", "M1", "feedforward", enabled=True),
-        StageConnection("S1", "M1", "surprise", enabled=True),
+        StageConnection("S1", "M1", ConnectionRole.FEEDFORWARD, enabled=True),
         # S1→S2: on (S2 provides reward signal)
-        StageConnection("S1", "S2", "feedforward", enabled=True),
-        StageConnection("S1", "S2", "surprise", enabled=True),
+        StageConnection("S1", "S2", ConnectionRole.FEEDFORWARD, enabled=True),
         # S2→S1 apical: on (word context helps)
-        StageConnection("S2", "S1", "apical", enabled=True),
+        StageConnection("S2", "S1", ConnectionRole.APICAL, enabled=True),
         # S3: off
-        StageConnection("S2", "S3", "feedforward", enabled=False),
-        StageConnection("S2", "S3", "surprise", enabled=False),
-        StageConnection("S3", "S2", "apical", enabled=False),
+        StageConnection("S2", "S3", ConnectionRole.FEEDFORWARD, enabled=False),
+        StageConnection("S3", "S2", ConnectionRole.APICAL, enabled=False),
         # M1→S1 apical: off
-        StageConnection("M1", "S1", "apical", enabled=False),
+        StageConnection("M1", "S1", ConnectionRole.APICAL, enabled=False),
     ]
 
 

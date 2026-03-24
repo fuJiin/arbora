@@ -6,7 +6,7 @@ import pytest
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import EOM_TOKEN, STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
 
@@ -112,7 +112,7 @@ class TestBasalGangliaIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
-        cortex.connect("S1", "M1", "feedforward")
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
         result = cortex.run(tokens, log_interval=1000)
         m = result.per_region["M1"]
         assert len(m.bg_gate_values) > 0
@@ -135,7 +135,7 @@ class TestBasalGangliaIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
-        cortex.connect("S1", "M1", "feedforward")
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
         result = cortex.run(tokens, log_interval=1000)
         assert len(result.per_region["M1"].bg_gate_values) > 0
 
@@ -151,7 +151,7 @@ class TestBasalGangliaIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
-        cortex.connect("S1", "M1", "feedforward")
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
         cortex.run(tokens, log_interval=1000)
         # After run, BG should have been reset at boundary
         # (we can't directly observe mid-run, but no crash = good)
@@ -162,6 +162,6 @@ class TestBasalGangliaIntegration:
         cortex = Topology(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", "feedforward")
+        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
         result = cortex.run(tokens, log_interval=1000)
         assert result.per_region["M1"].bg_gate_values == []
