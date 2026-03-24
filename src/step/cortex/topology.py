@@ -1841,6 +1841,12 @@ class Topology:
 
         state: dict = {"regions": {}, "connections": []}
 
+        # Save encoder alphabet for reconstruction
+        if hasattr(self._encoder, "_alphabet"):
+            state["encoder_alphabet"] = self._encoder._alphabet
+        elif hasattr(self._encoder, "_char_to_idx"):
+            state["encoder_alphabet"] = "".join(self._encoder._char_to_idx)
+
         for name, s in self._regions.items():
             r = s.region
             region_data: dict = {

@@ -18,28 +18,13 @@ Usage:
 import argparse
 import contextlib
 import io
-from dataclasses import replace
 import math
 import sys
+from dataclasses import replace
 
 import numpy as np
 
 import step.env  # noqa: F401
-from step.config import (
-    _default_motor_config,
-    _default_pfc_config,
-    _default_premotor_config,
-    _default_region2_config,
-    _default_region3_config,
-    _default_s1_config,
-    make_motor_region,
-    make_pfc_region,
-    make_premotor_region,
-    make_sensory_region,
-)
-from step.cortex.basal_ganglia import BasalGanglia
-from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import (
     EOM_TOKEN,
     prepare_tokens_personachat,
@@ -73,121 +58,47 @@ def surprise_color(burst_frac: float) -> str:
 
 
 def build_model(alphabet: str, *, use_l5_apical: bool = False):
-    """Build full hierarchy matching staged topology.
+    """Build full hierarchy using the staged topology builder.
 
-    S1→S2→S3 (sensory), PFC (goals), M2 (sequencing), M1 (output).
-    Same architecture as cortex_staged.py build_topology().
+    Delegates to cortex_staged.build_topology() to ensure dimensions
+    always match checkpoints saved by the staged pipeline.
     """
+    import os
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+    if use_l5_apical:
+        import step.config as cfg
+
+        _orig_s1 = cfg._default_s1_config
+        _orig_r2 = cfg._default_region2_config
+        _orig_r3 = cfg._default_region3_config
+        cfg._default_s1_config = lambda: replace(
+            _orig_s1(), use_l5_apical_segments=True
+        )
+        cfg._default_region2_config = lambda: replace(
+            _orig_r2(), use_l5_apical_segments=True
+        )
+        cfg._default_region3_config = lambda: replace(
+            _orig_r3(), use_l5_apical_segments=True
+        )
+
+    from scripts.cortex_staged import build_topology
+
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
+    cortex = build_topology(encoder, log_interval=999999)
+    cortex.finalize()
 
-    s1_cfg = _default_s1_config()
+    # Restore config defaults if patched
     if use_l5_apical:
-        s1_cfg = replace(s1_cfg, use_l5_apical_segments=True)
-    region1 = make_sensory_region(
-        s1_cfg,
-        encoder.input_dim,
-        encoder.encoding_width,
-    )
+        cfg._default_s1_config = _orig_s1
+        cfg._default_region2_config = _orig_r2
+        cfg._default_region3_config = _orig_r3
 
-    r2_cfg = _default_region2_config()
-    if use_l5_apical:
-        r2_cfg = replace(r2_cfg, use_l5_apical_segments=True)
-    region2 = make_sensory_region(r2_cfg, region1.n_l23_total * 4, seed=123)
-
-    r3_cfg = _default_region3_config()
-    if use_l5_apical:
-        r3_cfg = replace(r3_cfg, use_l5_apical_segments=True)
-    region3 = make_sensory_region(r3_cfg, region2.n_l23_total * 8, seed=789)
-
-    # PFC: receives S2 + S3 concatenated
-    pfc_cfg = _default_pfc_config()
-    pfc = make_pfc_region(
-        pfc_cfg,
-        region2.n_l23_total + region3.n_l23_total,
-        seed=999,
-        source_dims=[region2.n_l23_total, region3.n_l23_total],
-    )
-
-    # M2: receives S2 + PFC concatenated
-    m2_cfg = _default_premotor_config()
-    m2 = make_premotor_region(
-        m2_cfg,
-        region2.n_l23_total + pfc.n_l23_total,
-        seed=321,
-        source_dims=[region2.n_l23_total, pfc.n_l23_total],
-    )
-
-    # M1: receives M2 feedforward
-    m1_cfg = _default_motor_config()
-    m2_n_l23 = m2_cfg.n_columns * m2_cfg.n_l23
-    motor = make_motor_region(m1_cfg, m2_n_l23, seed=456)
-    # Vocabulary-constrained L5
-    output_vocab = [ord(ch) for ch in encoder._char_to_idx]
-    motor._output_vocab = np.array(output_vocab, dtype=np.int64)
-    motor.n_output_tokens = len(output_vocab)
-    n_l23 = motor.n_l23_total
-    motor.output_weights = motor._rng.uniform(0, 0.01, size=(n_l23, len(output_vocab)))
-    motor.output_mask = (motor._rng.random((n_l23, len(output_vocab))) < 0.5).astype(
-        np.float64
-    )
-    motor.output_weights *= motor.output_mask
-    motor._output_eligibility = np.zeros((n_l23, len(output_vocab)))
-
-    bg = BasalGanglia(
-        context_dim=region1.n_columns + 1,
-        learning_rate=0.05,
-        seed=789,
-    )
-
-    cortex = Topology(encoder, diagnostics_interval=999999)
-    cortex.add_region("S1", region1, entry=True)
-    cortex.add_region("S2", region2)
-    cortex.add_region("S3", region3)
-    cortex.add_region("PFC", pfc)
-    cortex.add_region("M2", m2)
-    cortex.add_region("M1", motor, basal_ganglia=bg)
-
-    # Feedforward (surprise_tracker is an optional modulator on any connection)
-    cortex.connect(
-        "S1",
-        "S2",
-        ConnectionRole.FEEDFORWARD,
-        buffer_depth=4,
-        burst_gate=True,
-        surprise_tracker=SurpriseTracker(),
-    )
-    cortex.connect(
-        "S2",
-        "S3",
-        ConnectionRole.FEEDFORWARD,
-        buffer_depth=8,
-        burst_gate=True,
-        surprise_tracker=SurpriseTracker(),
-    )
-    cortex.connect("S2", "PFC", ConnectionRole.FEEDFORWARD)
-    cortex.connect("S3", "PFC", ConnectionRole.FEEDFORWARD)
-    cortex.connect("S2", "M2", ConnectionRole.FEEDFORWARD)
-    cortex.connect("PFC", "M2", ConnectionRole.FEEDFORWARD)
-    cortex.connect("M2", "M1", ConnectionRole.FEEDFORWARD)
-    # Apical — sensory top-down
-    cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    cortex.connect("S3", "S2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    # Apical — motor monitoring
-    cortex.connect("M1", "M2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    cortex.connect("M2", "PFC", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    # Apical — cross-hierarchy (S1→M1 carries surprise tracker since no S1→M1 ff)
-    cortex.connect(
-        "S1",
-        "M1",
-        ConnectionRole.APICAL,
-        thalamic_gate=ThalamicGate(),
-        surprise_tracker=SurpriseTracker(),
-    )
-    cortex.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-
+    region1 = cortex._regions["S1"].region
+    motor = cortex._regions["M1"].region
     decoder = cortex._regions["S1"].dendritic_decoder
-
-    # S2 word-level decoder (created by topology in add_region)
     word_decoder = cortex._regions["S2"].word_decoder
 
     return cortex, encoder, region1, motor, decoder, word_decoder
@@ -919,7 +830,7 @@ def main():
     parser.add_argument(
         "--l5-apical",
         action="store_true",
-        help="Enable L5 apical segments on sensory regions (needed for l5apical checkpoints)",
+        help="Enable L5 apical segments on sensory regions",
     )
     args = parser.parse_args()
 
@@ -939,17 +850,31 @@ def main():
             tokens = prepare_tokens_charlevel(n, dataset="babylm")
             return inject_eom_tokens(tokens, segment_length=200)
 
-    # Need enough chars to discover full alphabet (rare chars like digits
-    # only appear after many dialogues). 100k when loading checkpoint,
-    # smaller sample otherwise since warmup will cover it.
-    # Need enough chars to discover full alphabet (rare chars only
-    # appear after many documents). Use 1M to match staged training.
-    vocab_size = 1_000_000 if args.checkpoint else 10000
-    print(f"{DIM}Loading vocabulary from {args.dataset}...{RESET}")
-    sample = load_fn(vocab_size, speak_window=5)
-    alphabet = sorted({ch for _, ch in sample if _ >= 0})
-    alphabet_str = "".join(alphabet)
-    print(f"{DIM}Vocab: {len(alphabet)} chars{RESET}")
+    # Try to load alphabet from checkpoint first (guarantees dimension match)
+    alphabet_str = None
+    if args.checkpoint:
+        import os
+        import pickle
+
+        ckpt_path = args.checkpoint
+        if not os.path.exists(ckpt_path):
+            ckpt_path = os.path.join(CHECKPOINT_DIR, f"{args.checkpoint}.ckpt")
+        if os.path.exists(ckpt_path):
+            with open(ckpt_path, "rb") as f:
+                ckpt = pickle.load(f)
+            if "encoder_alphabet" in ckpt:
+                alphabet_str = ckpt["encoder_alphabet"]
+                n = len(alphabet_str)
+                print(f"{DIM}Loaded alphabet from checkpoint: {n} chars{RESET}")
+
+    if alphabet_str is None:
+        # Discover alphabet from corpus
+        vocab_size = 1_000_000 if args.checkpoint else 10000
+        print(f"{DIM}Loading vocabulary from {args.dataset}...{RESET}")
+        sample = load_fn(vocab_size, speak_window=5)
+        alphabet = sorted({ch for _, ch in sample if _ >= 0})
+        alphabet_str = "".join(alphabet)
+        print(f"{DIM}Vocab: {len(alphabet)} chars{RESET}")
 
     # Build model
     print(f"{DIM}Building model (S1→S2→S3→PFC→M2→M1+BG)...{RESET}")
