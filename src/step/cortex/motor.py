@@ -2,10 +2,10 @@
 
 Subclasses SensoryRegion (encoding_width=0, full connectivity) and adds
 an L5-like output layer with confidence gating. Columns self-organize
-to represent output tokens via Hebbian learning -- same cortical algorithm
+to represent output tokens via Hebbian learning — same cortical algorithm
 as sensory regions, different wiring.
 
-The column->token mapping is learned: each column tracks which token_id
+The column→token mapping is learned: each column tracks which token_id
 most frequently activates it, forming a self-organizing motor map.
 """
 
