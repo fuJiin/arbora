@@ -17,9 +17,9 @@ import numpy as np
 class LaminaID(enum.Enum):
     """Identifies a cortical layer for connection routing."""
 
-    L4 = "L4"
-    L23 = "L2/3"
-    L5 = "L5"
+    L4 = "L4"  # Input layer — receives feedforward drive
+    L23 = "L2/3"  # Associative layer — lateral context, corticocortical output
+    L5 = "L5"  # Output layer — subcortical projections (BG, cerebellum, thalamus)
 
 
 class Lamina:
