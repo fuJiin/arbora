@@ -160,7 +160,7 @@ class TestRewardIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "reward", reward_modulator=RewardModulator())
+        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
         result = cortex.run(tokens, log_interval=1000)
         m1_metrics = result.per_region["M1"]
         assert len(m1_metrics.motor_rewards) > 0
@@ -182,7 +182,7 @@ class TestRewardIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "reward", reward_modulator=RewardModulator())
+        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
         result = cortex.run(tokens, log_interval=1000)
         assert len(result.per_region["M1"].motor_rewards) > 0
 
@@ -193,7 +193,7 @@ class TestRewardIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "reward", reward_modulator=RewardModulator())
+        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
         result = cortex.run(tokens, log_interval=1000)
         assert "M1" in result.reward_modulators
         assert len(result.reward_modulators["M1"]) > 0
@@ -302,7 +302,7 @@ class TestTurnTakingCounters:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "reward")
+        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
         result = cortex.run(tokens, log_interval=1000)
         m = result.per_region["M1"]
         # Should have counted both phases
@@ -325,7 +325,7 @@ class TestTurnTakingCounters:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("M1", "M1", "reward")
+        cortex.connect("M1", "M1", "feedforward", reward_modulator=RewardModulator())
         result = cortex.run(tokens, log_interval=1000)
         m = result.per_region["M1"]
         assert m.turn_eom_steps == 0

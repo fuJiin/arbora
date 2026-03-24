@@ -55,12 +55,23 @@ def build_model(alphabet):
     cortex.add_region("S2", s2)
     cortex.add_region("M1", m1, basal_ganglia=BasalGanglia(cfg_s1.n_columns + 1))
 
-    cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
+    cortex.connect(
+        "S1",
+        "S2",
+        "feedforward",
+        buffer_depth=4,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S1", "M1", "feedforward")
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("M1", "S1", "reward", reward_modulator=RewardModulator())
+    cortex.connect(
+        "M1",
+        "S1",
+        "apical",
+        thalamic_gate=ThalamicGate(),
+        reward_modulator=RewardModulator(),
+    )
 
     return cortex, encoder, s1, m1
 

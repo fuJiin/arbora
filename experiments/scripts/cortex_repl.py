@@ -140,26 +140,42 @@ def build_model(alphabet: str):
     cortex.add_region("M2", m2)
     cortex.add_region("M1", motor, basal_ganglia=bg)
 
-    # Feedforward
-    cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
-    cortex.connect("S2", "S3", "feedforward", buffer_depth=8, burst_gate=True)
+    # Feedforward (surprise_tracker is an optional modulator on any connection)
+    cortex.connect(
+        "S1",
+        "S2",
+        "feedforward",
+        buffer_depth=4,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
+    cortex.connect(
+        "S2",
+        "S3",
+        "feedforward",
+        buffer_depth=8,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
     cortex.connect("S2", "PFC", "feedforward")
     cortex.connect("S3", "PFC", "feedforward")
     cortex.connect("S2", "M2", "feedforward")
     cortex.connect("PFC", "M2", "feedforward")
     cortex.connect("M2", "M1", "feedforward")
-    # Surprise
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
     # Apical — sensory top-down
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
     # Apical — motor monitoring
     cortex.connect("M1", "M2", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("M2", "PFC", "apical", thalamic_gate=ThalamicGate())
-    # Apical — cross-hierarchy
-    cortex.connect("S1", "M1", "apical", thalamic_gate=ThalamicGate())
+    # Apical — cross-hierarchy (S1→M1 carries surprise tracker since no S1→M1 ff)
+    cortex.connect(
+        "S1",
+        "M1",
+        "apical",
+        thalamic_gate=ThalamicGate(),
+        surprise_tracker=SurpriseTracker(),
+    )
     cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
 
     decoder = cortex._regions["S1"].dendritic_decoder

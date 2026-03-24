@@ -63,12 +63,17 @@ def run_decay(synapse_decay, tokens, encoder):
     cortex = Topology(encoder, diagnostics_interval=10000)
     cortex.add_region("S1", region1, entry=True)
     cortex.add_region("S2", region2)
-    cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
+    cortex.connect(
+        "S1",
+        "S2",
+        "feedforward",
+        buffer_depth=4,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
     cortex.add_region("M1", motor, basal_ganglia=bg)
-    cortex.connect("S1", "M1", "feedforward")
-    cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
+    cortex.connect("S1", "M1", "feedforward", surprise_tracker=SurpriseTracker())
     if motor.n_l23_total == region2.n_l23_total:
         cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
 

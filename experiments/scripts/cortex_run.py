@@ -331,8 +331,8 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
         "feedforward",
         buffer_depth=args.buffer_depth,
         burst_gate=args.burst_gate,
+        surprise_tracker=surprise,
     )
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=surprise)
     if args.apical:
         gate = ThalamicGate() if args.gate_feedback else None
         cortex.connect("S2", "S1", "apical", thalamic_gate=gate)
@@ -348,8 +348,8 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
             "feedforward",
             buffer_depth=args.s3_buffer_depth,
             burst_gate=args.burst_gate,
+            surprise_tracker=SurpriseTracker(),
         )
-        cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
         if args.apical and not args.no_s3_feedback:
             s3_gate = ThalamicGate() if args.gate_feedback else None
             cortex.connect("S3", "S2", "apical", thalamic_gate=s3_gate)
@@ -366,8 +366,7 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
             else None
         )
         cortex.add_region("M1", motor, basal_ganglia=bg)
-        cortex.connect("S1", "M1", "feedforward")
-        cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
+        cortex.connect("S1", "M1", "feedforward", surprise_tracker=SurpriseTracker())
         # M1→S1 apical only if dimensions match S2→S1 (both send to same target)
         if not args.apical or motor.n_l23_total == region2.n_l23_total:
             m1_gate = ThalamicGate() if args.gate_feedback else None

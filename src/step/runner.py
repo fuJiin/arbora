@@ -106,6 +106,9 @@ def run_hierarchy(
     S2 receives S1's L2/3 firing rate as its encoding.
     Surprise (S1 burst rate) modulates S2 learning rate.
     """
+    # Default: always create a surprise tracker (matches pre-refactor behavior)
+    if surprise_tracker is None:
+        surprise_tracker = SurpriseTracker()
     diag_interval = 100
     if diagnostics1 is not None:
         diag_interval = diagnostics1.snapshot_interval
@@ -130,11 +133,6 @@ def run_hierarchy(
         "feedforward",
         buffer_depth=buffer_depth,
         burst_gate=burst_gate,
-    )
-    cortex.connect(
-        "S1",
-        "S2",
-        "surprise",
         surprise_tracker=surprise_tracker,
     )
     if enable_apical_feedback:

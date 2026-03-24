@@ -746,8 +746,8 @@ def _legacy_run_hierarchy(
         "feedforward",
         buffer_depth=args.buffer_depth,
         burst_gate=args.burst_gate,
+        surprise_tracker=surprise,
     )
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=surprise)
     if args.apical:
         gate = ThalamicGate() if args.gate_feedback else None
         cortex.connect("S2", "S1", "apical", thalamic_gate=gate)

@@ -55,16 +55,32 @@ def build_model(alphabet):
     cortex.add_region("S3", s3)
     cortex.add_region("M1", m1, basal_ganglia=bg)
 
-    cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
+    cortex.connect(
+        "S1",
+        "S2",
+        "feedforward",
+        buffer_depth=4,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("S2", "S3", "feedforward", buffer_depth=8, burst_gate=True)
-    cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
+    cortex.connect(
+        "S2",
+        "S3",
+        "feedforward",
+        buffer_depth=8,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
     cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("S1", "M1", "feedforward")
-    if m1.n_l23_total == s2.n_l23_total:
-        cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("M1", "S1", "reward", reward_modulator=RewardModulator())
+    cortex.connect(
+        "M1",
+        "S1",
+        "apical",
+        thalamic_gate=ThalamicGate(),
+        reward_modulator=RewardModulator(),
+    )
 
     return cortex, encoder, s1, s2, s3
 

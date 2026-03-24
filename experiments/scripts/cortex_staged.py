@@ -141,8 +141,22 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     cortex.add_region("M2", m2)
 
     # Feedforward chain (multiple ff to same target = summed/concatenated)
-    cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
-    cortex.connect("S2", "S3", "feedforward", buffer_depth=8, burst_gate=True)
+    cortex.connect(
+        "S1",
+        "S2",
+        "feedforward",
+        buffer_depth=4,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
+    cortex.connect(
+        "S2",
+        "S3",
+        "feedforward",
+        buffer_depth=8,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
     # PFC gets S2 + S3 (word + topic context for goal formation)
     cortex.connect("S2", "PFC", "feedforward")
     cortex.connect("S3", "PFC", "feedforward")
@@ -151,10 +165,6 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     cortex.connect("PFC", "M2", "feedforward")
     # M2 → M1 (sequence step drives motor execution)
     cortex.connect("M2", "M1", "feedforward")
-    # Surprise
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("S2", "S3", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
 
     # Apical feedback — sensory hierarchy (top-down context)
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
@@ -162,8 +172,14 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     # Apical feedback — motor hierarchy (bottom-up monitoring)
     cortex.connect("M1", "M2", "apical", thalamic_gate=ThalamicGate())
     cortex.connect("M2", "PFC", "apical", thalamic_gate=ThalamicGate())
-    # Cross-hierarchy apical
-    cortex.connect("S1", "M1", "apical", thalamic_gate=ThalamicGate())
+    # Cross-hierarchy apical (S1→M1 carries surprise — no S1→M1 ff path)
+    cortex.connect(
+        "S1",
+        "M1",
+        "apical",
+        thalamic_gate=ThalamicGate(),
+        surprise_tracker=SurpriseTracker(),
+    )
     cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
 
     return cortex

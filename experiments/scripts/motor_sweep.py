@@ -82,11 +82,16 @@ def run_one(tokens, encoder, cortex_cfg, motor_params):
     cortex.add_region("S1", r1, entry=True)
     cortex.add_region("S2", r2)
     cortex.add_region("M1", m1)
-    cortex.connect("S1", "S2", "feedforward", buffer_depth=4, burst_gate=True)
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
+    cortex.connect(
+        "S1",
+        "S2",
+        "feedforward",
+        buffer_depth=4,
+        burst_gate=True,
+        surprise_tracker=SurpriseTracker(),
+    )
     cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("S1", "M1", "feedforward")
-    cortex.connect("S1", "M1", "surprise", surprise_tracker=SurpriseTracker())
+    cortex.connect("S1", "M1", "feedforward", surprise_tracker=SurpriseTracker())
     cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
 
     import contextlib
