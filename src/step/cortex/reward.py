@@ -316,13 +316,13 @@ class EchoReward:
         if not self._heard:
             return reward  # Nothing to echo
 
-        # Score: exact position match (1.0) > near position (0.5-0.7)
-        # > anywhere in word (0.1-0.3) > not in word (0.0).
-        # Continuous scoring gives RPE a smooth gradient instead of
-        # binary hit/miss, reducing the asymmetry problem.
+        # Score: exact position match (1.0) > near position (0.5-1.0) > miss (0.0).
+        # Only positions within ±tolerance get credit. No anywhere-in-word
+        # partial credit — common chars like 'h' (in "the","that","what",...)
+        # get free positive signal at almost every position, creating
+        # attractors that kill exploration.
         match_score = 0.0
 
-        # Check near current position first (strongest signal)
         start = max(0, self._echo_pos - self.position_tolerance)
         end = min(
             len(self._heard),
@@ -335,19 +335,6 @@ class EchoReward:
                 if distance == 0:
                     self.exact_matches += 1
                 break
-
-        # Partial credit: char exists elsewhere in word (weaker signal).
-        # Only counts if the char is at a non-nearby position — avoids
-        # rewarding common chars ('e', 'o') that appear in most words.
-        if match_score == 0.0:
-            for i in range(len(self._heard)):
-                if abs(i - self._echo_pos) <= self.position_tolerance:
-                    continue  # Already checked nearby
-                if self._heard[i] == char:
-                    # Distance-weighted: further = less credit
-                    dist = abs(i - self._echo_pos)
-                    match_score = 0.2 / dist
-                    break
 
         # RPE: actual match - expected match rate
         rpe = match_score - self._expected_match
