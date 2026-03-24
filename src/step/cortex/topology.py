@@ -1839,12 +1839,18 @@ class Topology:
                 "l23_seg_indices": r.l23_seg_indices,
                 "l23_seg_perm": r.l23_seg_perm,
             }
-            # Apical per-source gain weights
+            # Apical per-source state (weights or segments)
             if r._apical_sources:
-                region_data["apical_sources"] = {
-                    name: src["weights"].copy()
-                    for name, src in r._apical_sources.items()
-                }
+                apical_data = {}
+                for name, src in r._apical_sources.items():
+                    if "weights" in src:
+                        apical_data[name] = {"weights": src["weights"].copy()}
+                    elif "seg_indices" in src:
+                        apical_data[name] = {
+                            "seg_indices": src["seg_indices"].copy(),
+                            "seg_perm": src["seg_perm"].copy(),
+                        }
+                region_data["apical_sources"] = apical_data
 
             if isinstance(r, MotorRegion):
                 region_data["output_weights"] = r.output_weights
@@ -1918,11 +1924,23 @@ class Topology:
             r.l23_seg_indices[:] = region_data["l23_seg_indices"]
             r.l23_seg_perm[:] = region_data["l23_seg_perm"]
 
-            # Load apical gain weights (per-source or legacy single)
+            # Load apical state (per-source weights or segments)
             if "apical_sources" in region_data:
-                for src_name, weights in region_data["apical_sources"].items():
-                    if src_name in r._apical_sources:
-                        r._apical_sources[src_name]["weights"][:] = weights
+                for src_name, saved in region_data["apical_sources"].items():
+                    if src_name not in r._apical_sources:
+                        continue
+                    src = r._apical_sources[src_name]
+                    if isinstance(saved, dict):
+                        # New format: dict with weights or seg_indices/seg_perm
+                        if "weights" in saved and "weights" in src:
+                            src["weights"][:] = saved["weights"]
+                        if "seg_indices" in saved and "seg_indices" in src:
+                            src["seg_indices"][:] = saved["seg_indices"]
+                            src["seg_perm"][:] = saved["seg_perm"]
+                    else:
+                        # Legacy format: bare weight array
+                        if "weights" in src:
+                            src["weights"][:] = saved
             elif (
                 "apical_gain_weights" in region_data
                 and r._apical_gain_weights is not None
