@@ -221,6 +221,12 @@ class CorticalRegion:
         else:
             self._pre_trace = None
 
+        # Three-factor learning: eligibility clip threshold and trace.
+        # Subclasses (PFC, Motor) override _ff_eligibility with an array.
+        # Base default: None = no eligibility trace (two-factor Hebbian).
+        self._eligibility_clip: float = 0.0
+        self._ff_eligibility: np.ndarray | None = None
+
         # Efference copy: predicted sensory consequence of motor output.
         # Set by set_efference_copy(), consumed (cleared) in process().
         # Gain controls suppression strength: 1.0 = full cancellation,
@@ -433,6 +439,42 @@ class CorticalRegion:
                 1,
                 out=self.ff_weights[active_dims],
             )
+
+    # ------------------------------------------------------------------
+    # Three-factor reward consolidation
+    # ------------------------------------------------------------------
+
+    # Minimum reward magnitude to trigger consolidation.
+    # Rewards below this are treated as zero (avoids noise accumulation).
+    REWARD_DEAD_ZONE: float = 1e-6
+
+    def apply_reward(self, reward: float) -> None:
+        """Consolidate eligibility traces into ff_weights using reward.
+
+        Three-factor rule: dw = reward * eligibility_trace
+        Positive reward strengthens recent pathways, negative weakens.
+
+        Subclasses with additional eligibility traces (output_weights,
+        goal_weights) should override and call super() first.
+
+        No-op for regions without _ff_eligibility (sensory regions use
+        two-factor Hebbian, not reward-gated learning).
+        """
+        if not self.learning_enabled:
+            return
+        if abs(reward) < self.REWARD_DEAD_ZONE:
+            return
+        if self._ff_eligibility is None:
+            return
+
+        # Clamp eligibility traces before consolidation
+        if self._eligibility_clip > 0:
+            clip = self._eligibility_clip
+            np.clip(self._ff_eligibility, -clip, clip, out=self._ff_eligibility)
+
+        self.ff_weights += reward * self._ff_eligibility
+        self.ff_weights *= self.ff_mask
+        np.clip(self.ff_weights, 0, 1, out=self.ff_weights)
 
     # ------------------------------------------------------------------
     # Dendritic segments
