@@ -13,7 +13,7 @@ from step.config import CortexConfig, _default_region2_config
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
 
@@ -85,14 +85,16 @@ def run_one(tokens, encoder, cortex_cfg, motor_params):
     cortex.connect(
         "S1",
         "S2",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=4,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
     )
-    cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("S1", "M1", "feedforward", surprise_tracker=SurpriseTracker())
-    cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    cortex.connect(
+        "S1", "M1", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+    )
+    cortex.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
 
     import contextlib
     import io

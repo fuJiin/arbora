@@ -38,7 +38,7 @@ from step.config import (
 )
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import (
     EOM_TOKEN,
     prepare_tokens_personachat,
@@ -144,7 +144,7 @@ def build_model(alphabet: str):
     cortex.connect(
         "S1",
         "S2",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=4,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
@@ -152,31 +152,31 @@ def build_model(alphabet: str):
     cortex.connect(
         "S2",
         "S3",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=8,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
     )
-    cortex.connect("S2", "PFC", "feedforward")
-    cortex.connect("S3", "PFC", "feedforward")
-    cortex.connect("S2", "M2", "feedforward")
-    cortex.connect("PFC", "M2", "feedforward")
-    cortex.connect("M2", "M1", "feedforward")
+    cortex.connect("S2", "PFC", ConnectionRole.FEEDFORWARD)
+    cortex.connect("S3", "PFC", ConnectionRole.FEEDFORWARD)
+    cortex.connect("S2", "M2", ConnectionRole.FEEDFORWARD)
+    cortex.connect("PFC", "M2", ConnectionRole.FEEDFORWARD)
+    cortex.connect("M2", "M1", ConnectionRole.FEEDFORWARD)
     # Apical — sensory top-down
-    cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    cortex.connect("S3", "S2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
     # Apical — motor monitoring
-    cortex.connect("M1", "M2", "apical", thalamic_gate=ThalamicGate())
-    cortex.connect("M2", "PFC", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("M1", "M2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    cortex.connect("M2", "PFC", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
     # Apical — cross-hierarchy (S1→M1 carries surprise tracker since no S1→M1 ff)
     cortex.connect(
         "S1",
         "M1",
-        "apical",
+        ConnectionRole.APICAL,
         thalamic_gate=ThalamicGate(),
         surprise_tracker=SurpriseTracker(),
     )
-    cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
+    cortex.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
 
     decoder = cortex._regions["S1"].dendritic_decoder
 
@@ -314,7 +314,9 @@ def print_info(cortex, encoder, region1, motor, decoder):
     regions = list(cortex._regions.keys())
     frozen = [n for n, s in cortex._regions.items() if not s.region.learning_enabled]
     active_conns = [
-        f"{c.source}→{c.target}({c.kind})" for c in cortex._connections if c.enabled
+        f"{c.source}→{c.target}({c.role.value})"
+        for c in cortex._connections
+        if c.enabled
     ]
     print(f"  {DIM}Regions:{RESET} {', '.join(regions)}")
     if frozen:

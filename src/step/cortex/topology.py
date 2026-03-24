@@ -6,6 +6,7 @@ Supports single-region, two-region hierarchy, and arbitrary DAGs.
 
 from __future__ import annotations
 
+import enum
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -92,11 +93,18 @@ class _RegionState:
     word_decoder: WordDecoder | None = None
 
 
+class ConnectionRole(enum.Enum):
+    """Structural role of a connection between cortical regions."""
+
+    FEEDFORWARD = "feedforward"
+    APICAL = "apical"
+
+
 @dataclass
 class Connection:
     source: str
     target: str
-    kind: str  # "feedforward" | "apical"
+    role: ConnectionRole
     surprise_tracker: SurpriseTracker | None = None
     reward_modulator: RewardModulator | None = None
     buffer_depth: int = 1
@@ -176,7 +184,7 @@ class Topology:
         # Skip self-loops (e.g. M1→M1 modulator-only connections)
         adj: dict[str, list[str]] = {name: [] for name in self._regions}
         for conn in self._connections:
-            if conn.kind == "feedforward" and conn.source != conn.target:
+            if conn.role == ConnectionRole.FEEDFORWARD and conn.source != conn.target:
                 adj[conn.source].append(conn.target)
 
         # Kahn's algorithm for topological sort (detects cycles)
@@ -213,7 +221,7 @@ class Topology:
             for conn in self._connections:
                 if (
                     conn.target == name
-                    and conn.kind == "feedforward"
+                    and conn.role == ConnectionRole.FEEDFORWARD
                     and conn.source != conn.target  # skip self-loops
                 ):
                     src = self._regions[conn.source].region
@@ -229,7 +237,7 @@ class Topology:
                         else c.source
                         for c in self._connections
                         if c.target == name
-                        and c.kind == "feedforward"
+                        and c.role == ConnectionRole.FEEDFORWARD
                         and c.source != c.target
                     ]
                     raise ValueError(
@@ -251,7 +259,9 @@ class Topology:
             conns = [
                 c
                 for c in self._connections
-                if c.target == name and c.kind == "feedforward" and c.source != c.target
+                if c.target == name
+                and c.role == ConnectionRole.FEEDFORWARD
+                and c.source != c.target
             ]
             if conns:
                 self._ff_conns[name] = conns
@@ -278,21 +288,23 @@ class Topology:
         """Re-enable learning in a region."""
         self._regions[name].region.learning_enabled = True
 
-    def disable_connection(self, source: str, target: str, kind: str) -> None:
+    def disable_connection(
+        self, source: str, target: str, role: ConnectionRole
+    ) -> None:
         """Disable a specific connection (signal stops flowing)."""
         for conn in self._connections:
-            if conn.source == source and conn.target == target and conn.kind == kind:
+            if conn.source == source and conn.target == target and conn.role == role:
                 conn.enabled = False
                 return
-        raise ValueError(f"No {kind} connection {source}->{target}")
+        raise ValueError(f"No {role.value} connection {source}->{target}")
 
-    def enable_connection(self, source: str, target: str, kind: str) -> None:
+    def enable_connection(self, source: str, target: str, role: ConnectionRole) -> None:
         """Re-enable a specific connection."""
         for conn in self._connections:
-            if conn.source == source and conn.target == target and conn.kind == kind:
+            if conn.source == source and conn.target == target and conn.role == role:
                 conn.enabled = True
                 return
-        raise ValueError(f"No {kind} connection {source}->{target}")
+        raise ValueError(f"No {role.value} connection {source}->{target}")
 
     def set_reward_source(self, source) -> None:
         """Set a pluggable reward source for BG learning.
@@ -379,7 +391,7 @@ class Topology:
         self,
         source: str,
         target: str,
-        kind: str = "feedforward",
+        role: ConnectionRole = ConnectionRole.FEEDFORWARD,
         *,
         surprise_tracker: SurpriseTracker | None = None,
         reward_modulator: RewardModulator | None = None,
@@ -395,20 +407,20 @@ class Topology:
         for name in (source, target):
             if name not in self._regions:
                 raise ValueError(f"Unknown region: {name!r}")
-        if kind not in ("feedforward", "apical"):
-            raise ValueError(f"Unknown connection kind: {kind!r}")
+        if not isinstance(role, ConnectionRole):
+            raise ValueError(f"Unknown connection role: {role!r}")
 
         conn = Connection(
             source=source,
             target=target,
-            kind=kind,
+            role=role,
             surprise_tracker=surprise_tracker,
             reward_modulator=reward_modulator,
             buffer_depth=buffer_depth,
             burst_gate=burst_gate,
             thalamic_gate=thalamic_gate,
         )
-        if kind == "apical":
+        if role == ConnectionRole.APICAL:
             src_region = self._regions[source].region
             tgt_region = self._regions[target].region
             # Each apical source gets its own gain weights (keyed by name)
@@ -418,7 +430,7 @@ class Topology:
             )
 
         # Allocate temporal buffer for feedforward connections (skip self-loops)
-        if kind == "feedforward" and buffer_depth > 1 and source != target:
+        if role == ConnectionRole.FEEDFORWARD and buffer_depth > 1 and source != target:
             src_region = self._regions[source].region
             tgt_region = self._regions[target].region
             expected_dim = buffer_depth * src_region.n_l23_total
@@ -559,7 +571,7 @@ class Topology:
                 modulator = conn.surprise_tracker.update(burst_rate)
                 tgt.surprise_modulator = modulator
 
-            if conn.kind == "apical" and tgt.has_apical:
+            if conn.role == ConnectionRole.APICAL and tgt.has_apical:
                 r_active = int(src.active_columns.sum())
                 r_bursting = int(src.bursting_columns.sum())
                 confidence = 1.0 - (r_bursting / max(r_active, 1))
@@ -775,7 +787,7 @@ class Topology:
                     tgt.surprise_modulator = modulator
                     surprise_modulators[conn.target].append(modulator)
 
-                if conn.kind == "apical" and tgt.has_apical:
+                if conn.role == ConnectionRole.APICAL and tgt.has_apical:
                     r_active = int(src.active_columns.sum())
                     r_bursting = int(src.bursting_columns.sum())
                     confidence = 1.0 - (r_bursting / max(r_active, 1))
@@ -1865,7 +1877,7 @@ class Topology:
             conn_data: dict = {
                 "source": conn.source,
                 "target": conn.target,
-                "kind": conn.kind,
+                "role": conn.role.value,
             }
             if conn.surprise_tracker is not None:
                 conn_data["surprise_burst_ema"] = conn.surprise_tracker._burst_ema
@@ -1945,26 +1957,27 @@ class Topology:
                 s.word_decoder._next_id = wd["next_id"]
 
         # Restore connection modulator state.
-        # Handles old checkpoints where kind was "surprise" or "reward" —
+        # Handles old checkpoints where role was "surprise" or "reward" —
         # match by (source, target) and modulator presence instead.
         for conn_data in state.get("connections", []):
-            saved_kind = conn_data.get("kind", "")
+            # Support both old ("kind") and new ("role") checkpoint keys
+            saved_role = conn_data.get("role", conn_data.get("kind", ""))
             for conn in self._connections:
                 if (
                     conn.source != conn_data["source"]
                     or conn.target != conn_data["target"]
                 ):
                     continue
-                # Match: same kind, or old "surprise"/"reward" mapped to
+                # Match: same role, or old "surprise"/"reward" mapped to
                 # the connection that now carries the modulator.
-                kind_match = conn.kind == saved_kind
+                role_match = conn.role.value == saved_role
                 surprise_match = (
-                    saved_kind == "surprise" and conn.surprise_tracker is not None
+                    saved_role == "surprise" and conn.surprise_tracker is not None
                 )
                 reward_match = (
-                    saved_kind == "reward" and conn.reward_modulator is not None
+                    saved_role == "reward" and conn.reward_modulator is not None
                 )
-                if kind_match or surprise_match or reward_match:
+                if role_match or surprise_match or reward_match:
                     if (
                         conn.surprise_tracker is not None
                         and "surprise_burst_ema" in conn_data
@@ -2048,7 +2061,7 @@ class Topology:
                 # step in _learn_ff (additive, not gated by surprise).
                 # Surprise modulator still scales the base learning rate.
 
-            if conn.kind == "apical" and tgt.has_apical:
+            if conn.role == ConnectionRole.APICAL and tgt.has_apical:
                 r_active = max(int(src.active_columns.sum()), 1)
                 r_bursting = int(src.bursting_columns.sum())
                 confidence = 1.0 - (r_bursting / r_active)

@@ -29,7 +29,7 @@ from step.config import (
 )
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.decoders.dendritic import DendriticDecoder
 from step.encoders.positional import PositionalCharEncoder
@@ -61,7 +61,7 @@ def build_model(alphabet, s2_to_s1=True, s3_to_s2=True):
     cortex.connect(
         "S1",
         "S2",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=4,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
@@ -69,24 +69,24 @@ def build_model(alphabet, s2_to_s1=True, s3_to_s2=True):
     cortex.connect(
         "S2",
         "S3",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=8,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
     )
-    cortex.connect("S1", "M1", "feedforward")
+    cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
     cortex.connect(
         "M1",
         "S1",
-        "apical",
+        ConnectionRole.APICAL,
         thalamic_gate=ThalamicGate(),
         reward_modulator=RewardModulator(),
     )
 
     if s2_to_s1:
-        cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
+        cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
     if s3_to_s2:
-        cortex.connect("S3", "S2", "apical", thalamic_gate=ThalamicGate())
+        cortex.connect("S3", "S2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
 
     return cortex, encoder, s1, s2, s3
 

@@ -26,7 +26,7 @@ from pathlib import Path
 import step.env  # noqa: F401
 from step.config import CortexConfig, _default_region2_config, make_sensory_region
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.topology import Topology
+from step.cortex.topology import ConnectionRole, Topology
 from step.data import prepare_tokens, prepare_tokens_charlevel
 from step.encoders.charbit import CharbitEncoder
 from step.encoders.positional import PositionalCharEncoder
@@ -743,14 +743,14 @@ def _legacy_run_hierarchy(
     cortex.connect(
         "S1",
         "S2",
-        "feedforward",
+        ConnectionRole.FEEDFORWARD,
         buffer_depth=args.buffer_depth,
         burst_gate=args.burst_gate,
         surprise_tracker=surprise,
     )
     if args.apical:
         gate = ThalamicGate() if args.gate_feedback else None
-        cortex.connect("S2", "S1", "apical", thalamic_gate=gate)
+        cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=gate)
 
     print(f"\nRunning hierarchy on {len(tokens):,} tokens...")
     result = cortex.run(tokens, log_interval=args.log_interval)
