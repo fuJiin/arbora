@@ -228,7 +228,8 @@ class Topology:
                     and conn.source != conn.target  # skip self-loops
                 ):
                     src = self._regions[conn.source].region
-                    dim = src.n_l23_total * max(conn.buffer_depth, 1)
+                    src_lamina = src.get_lamina(conn.source_lamina)
+                    dim = src_lamina.n_total * max(conn.buffer_depth, 1)
                     ff_dims.append(dim)
             if ff_dims:
                 total_dim = sum(ff_dims)
@@ -271,7 +272,9 @@ class Topology:
                 if len(conns) > 1:
                     # Pre-allocate concatenation buffer
                     total = sum(
-                        self._regions[c.source].region.n_l23_total
+                        self._regions[c.source]
+                        .region.get_lamina(c.source_lamina)
+                        .n_total
                         * max(c.buffer_depth, 1)
                         for c in conns
                     )
@@ -437,9 +440,9 @@ class Topology:
         if role == ConnectionRole.APICAL:
             src_region = self._regions[source].region
             tgt_region = self._regions[target].region
-            # Each apical source gets its own gain weights (keyed by name)
+            src_lamina = src_region.get_lamina(source_lamina)
             tgt_region.init_apical_segments(
-                source_dim=src_region.n_l23_total,
+                source_dim=src_lamina.n_total,
                 source_name=source,
             )
 
@@ -447,14 +450,16 @@ class Topology:
         if role == ConnectionRole.FEEDFORWARD and buffer_depth > 1 and source != target:
             src_region = self._regions[source].region
             tgt_region = self._regions[target].region
-            expected_dim = buffer_depth * src_region.n_l23_total
+            src_lamina = src_region.get_lamina(source_lamina)
+            expected_dim = buffer_depth * src_lamina.n_total
             if tgt_region.input_dim != expected_dim:
                 raise ValueError(
                     f"Target {target!r} input_dim={tgt_region.input_dim} "
                     f"but buffer_depth={buffer_depth} * "
-                    f"source n_l23_total={src_region.n_l23_total} = {expected_dim}"
+                    f"source {source_lamina.value} n_total="
+                    f"{src_lamina.n_total} = {expected_dim}"
                 )
-            conn._buffer = np.zeros((buffer_depth, src_region.n_l23_total))
+            conn._buffer = np.zeros((buffer_depth, src_lamina.n_total))
 
         self._connections.append(conn)
         return self
@@ -586,10 +591,11 @@ class Topology:
                 tgt.surprise_modulator = modulator
 
             if conn.role == ConnectionRole.APICAL and tgt.has_apical:
+                src_lamina = src.get_lamina(conn.source_lamina)
                 r_active = int(src.active_columns.sum())
                 r_bursting = int(src.bursting_columns.sum())
                 confidence = 1.0 - (r_bursting / max(r_active, 1))
-                signal = src.firing_rate_l23 * confidence
+                signal = src_lamina.firing_rate * confidence
                 if conn.thalamic_gate is not None:
                     tgt_active = int(tgt.active_columns.sum())
                     tgt_bursting = int(tgt.bursting_columns.sum())
@@ -802,10 +808,11 @@ class Topology:
                     surprise_modulators[conn.target].append(modulator)
 
                 if conn.role == ConnectionRole.APICAL and tgt.has_apical:
+                    src_lamina = src.get_lamina(conn.source_lamina)
                     r_active = int(src.active_columns.sum())
                     r_bursting = int(src.bursting_columns.sum())
                     confidence = 1.0 - (r_bursting / max(r_active, 1))
-                    signal = src.firing_rate_l23 * confidence
+                    signal = src_lamina.firing_rate * confidence
                     if conn.thalamic_gate is not None:
                         tgt_active = int(tgt.active_columns.sum())
                         tgt_bursting = int(tgt.bursting_columns.sum())
@@ -2102,10 +2109,11 @@ class Topology:
                 # Surprise modulator still scales the base learning rate.
 
             if conn.role == ConnectionRole.APICAL and tgt.has_apical:
+                src_lamina = src.get_lamina(conn.source_lamina)
                 r_active = max(int(src.active_columns.sum()), 1)
                 r_bursting = int(src.bursting_columns.sum())
                 confidence = 1.0 - (r_bursting / r_active)
-                signal = src.firing_rate_l23 * confidence
+                signal = src_lamina.firing_rate * confidence
                 if conn.thalamic_gate is not None:
                     tgt_active = max(int(tgt.active_columns.sum()), 1)
                     tgt_bursting = int(tgt.bursting_columns.sum())
@@ -2273,11 +2281,12 @@ class Topology:
         window.
         """
         src = self._regions[conn.source].region
-        signal = src.firing_rate_l23.copy()
+        lamina = src.get_lamina(conn.source_lamina)
+        signal = lamina.firing_rate.copy()
 
         # Burst gate: zero precisely-predicted columns
         if conn.burst_gate:
-            burst_mask = np.repeat(src.bursting_columns, src.n_l23)
+            burst_mask = np.repeat(src.bursting_columns, lamina.n_per_col)
             signal *= burst_mask
 
         # No buffer: direct pass-through
