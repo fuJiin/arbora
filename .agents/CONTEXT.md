@@ -6,77 +6,80 @@ Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + thr
 ## Integrations
 - **Linear Project:** STEP (Sparse Temporal Eligibility Propagation)
 
-## Architecture (DAG-validated, finalize() enforced)
+## Architecture
 ```
 Topo order: S1 → S2 → S3 → PFC → M2 → M1
 
-Feedforward (source-aware sparsity on PFC/M2):
-  S1→S2 (buf=4), S2→S3 (buf=8)
-  S2+S3→PFC (40% sparse), S2+PFC→M2 (40% sparse)
-  M2→M1
+Layers per region: L4 (input) → L2/3 (associative) → L5 (output)
+  - L5 projects subcortically (BG, cerebellum, thalamus)
+  - n_l5 defaults to n_l23, configurable per region
 
-Apical (multi-source, per-source gain weights):
-  S3→S2, S2→S1, M1→M2, M2→PFC, S1→M1, M1→S1
-
-Surprise: modulator property on feedforward/apical connections (ConnectionRole enum)
+Feedforward: S1→S2 (buf=4), S2→S3 (buf=8), S2+S3→PFC, S2+PFC→M2, M2→M1
+Apical: S3→S2, S2→S1, M1→M2, M2→PFC, S1→M1, M1→S1
+Connections: ConnectionRole enum (FEEDFORWARD, APICAL), modulators as properties
 ```
 
-## Layers: L4 → L2/3 → L5 (all regions)
-- **L4** (input): feedforward drive, dendritic segment predictions
-- **L2/3** (associative): lateral context, firing rate EMA
-- **L5** (output): intra-columnar drive from L2/3, projects subcortically (BG, cerebellum, thalamus)
-- L5 added to CorticalRegion base class (PR #9). Motor output_weights now map L5→tokens.
-- `n_l5` config parameter (defaults to n_l23)
+## Inter-region pathways: current vs biological
 
-## Connection System (refactored 2026-03-24)
-- ConnectionRole enum: FEEDFORWARD, APICAL (was string "kind")
-- SurpriseTracker/RewardModulator are optional properties on any connection
-- No more separate "surprise"/"reward" connection kinds
+Connections implicitly hardcode source_lamina=L2/3, target_lamina=L4. STEP-44 will make these explicit.
 
-## Learning: STDP Presynaptic Traces (DEFAULT ON)
-`pre_trace_decay=0.8` in CortexConfig, all regions from construction.
-- Three-factor (PFC, M1): pre_trace feeds eligibility → reward
+| Pathway | Current impl | Biological target | Status |
+|---------|-------------|-------------------|--------|
+| FF: src.L2/3 → tgt.L4 | `firing_rate_l23` → `ff_weights` | Correct (corticocortical) | Done |
+| FF: src.L5 → tgt.L4 | — | Parallel ascending pathway | Missing |
+| Apical: src.L2/3 → tgt.L4 | Linear gain on L4 voltage | Wrong target — should be tgt.L5 apical | Stopgap (default) |
+| Apical: src.L2/3 → tgt.L5 | L5 apical segments | Correct (BAC firing) | STEP-32 |
+| Feedback: src.L5 → tgt.L4 via thal | fb_segments sourced from L2/3 | Wrong source — should be L5 | Deferred |
+| L5→L5 lateral | — | Output-layer sequence prediction | STEP-43 |
 
-## CI
-- GitHub Actions: lint (ruff check + format), typecheck (ty), test (pytest)
-- ty overrides: viz/ ignores unresolved-import (plotly optional), experiments/ relaxed
-- Pre-commit hooks: ruff, ty, pytest
+## Apical feedback: two modes
+- **Linear gain** (default): src.L2/3 → tgt.L4 voltage. Fast, simple, wrong lamina target.
+- **L5 apical segments** (`use_l5_apical_segments=True`): src.L2/3 → tgt.L5 segments. Context-specific BAC firing. +18% PFC ctx_disc, -4% surprise at 50k.
+
+## Intra-region segments
+- **L4 fb_segments**: L2/3→L4 (should be L5→thal→L4 eventually)
+- **L4 lat_segments**: L4→L4 temporal patterns
+- **L2/3 lateral segments**: L2/3→L2/3 pattern prediction
+- **L5 apical segments**: cross-region top-down (STEP-32)
+- **L5 lateral segments**: missing (STEP-43)
+
+## Learning
+- STDP pre-traces default on (`pre_trace_decay=0.8`)
+- Three-factor (PFC, M1): eligibility traces consolidated by reward (`apply_reward` on base class)
+- Segment learning: grow/reinforce/punish via shared `_check_segments` helper
 
 ## Validated Results
-- STDP traces from construction: 7.3% echo (best config)
+- STDP traces: 7.3% echo (best config)
 - Structural sparsity: 38% echo improvement
-- PFC three-factor: 3.1% → 8.2% echo
-- 300k trace sensory: decoder BPC 3.63
-- 50k staged sensory (with L5, 2026-03-24): S2 ctx_disc=0.913, S3=0.935, M1=0.842
+- 300k sensory: decoder BPC 3.63
+- L5 apical segments (50k): PFC +18.4%, burst 58.8%→54.8%, BPC 12.60→11.92
 
 ## Session: 2026-03-24
 
 ### Completed (merged)
-- **STEP-19** Fix echo reward 'h' attractor (PR #3)
-- **STEP-24** Extract _find_winners() helper (PR #4)
-- **STEP-25** Remove unused WordReward (PR #5)
-- **STEP-26** Add tests for _babble_direct (PR #6)
-- **STEP-33** Connection kind→role refactor + ConnectionRole enum (PR #8)
-- Lint/typecheck fix — 0 warnings (PR #7)
+- STEP-19 Echo reward fix (#3), STEP-24 _find_winners (#4), STEP-25 WordReward (#5), STEP-26 _babble_direct (#6)
+- STEP-33 Connection kind→role + ConnectionRole enum (#8)
+- STEP-31 L5 output layer in all regions (#9)
+- STEP-29 Unify apply_reward base implementation (#10)
+- Lint/typecheck fix (#7)
 
 ### In Review
-- **STEP-31** L5 output layer in all regions (PR #9) — rebased on PZO-33
-- **STEP-29** Unify apply_reward() base implementation — in progress
+- **STEP-32** L5 apical dendritic segments (PR #11) — training results positive, PR feedback addressed
 
-### Key decisions
-- Echo reward: removed broken partial credit, created STEP-40 for redesign
-- _babble_direct is NOT dead code (used at noise=0.5 by stages) — kept + tested
-- ConnectionRole enum replaces string kinds; "role" replaces "kind"
-- L5 activation: one winner per column from L2/3 firing rate, all-fire on burst
-- Reward sparsity acknowledged as unsolved (STEP-40 backlogged)
+### In Progress
+- Full pipeline run (300k sensory + 100k babbling) with L5 apical segments
+
+### Key Decisions
+- L5→L4 feedback (replacing L2/3→L4 fb_segments) is cross-region, deferred
+- Connections need explicit source_lamina/target_lamina (STEP-44)
+- `Lamina` class to DRY per-layer code, paired with connection lamina routing (STEP-44)
+- Apical reward-gated learning deferred to STEP-42
 
 ## Next Steps
-See Linear project (STEP) for full backlog. Key priorities:
-- [ ] **STEP-31** Merge L5 layer PR (pending review)
-- [ ] **STEP-29** Merge apply_reward unification (in progress)
-- [ ] **STEP-40** Design better echo partial credit (backlog)
-- [ ] **STEP-20** Cerebellar forward model (blocked by STEP-31)
-- [ ] **STEP-28** Split topology.py into builder + runner (cleanup, L)
-- [ ] **STEP-35** PlasticityRule enum (cleanup, M)
-- [ ] Run L5 training comparison (in progress, results pending)
-- [ ] Sweep L5 n_l5 configs per region
+- [ ] **STEP-32** Merge L5 apical segments PR (in review)
+- [ ] **STEP-44** Lamina abstraction + connection lamina routing (XL, High)
+- [ ] **STEP-43** L5→L5 lateral segments (S, backlog)
+- [ ] **STEP-28** Split topology.py builder/runner (L, after STEP-32 merges)
+- [ ] **STEP-42** Reward-gated apical learning in frontal regions (M, backlog)
+- [ ] **STEP-20** Cerebellar forward model (XL, blocked by L5 work)
+- [ ] **STEP-40** Better echo partial credit (M, backlog)
