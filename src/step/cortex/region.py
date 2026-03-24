@@ -85,6 +85,7 @@ class CorticalRegion:
         seg_activation_threshold: int = 2,
         prediction_gain: float = 2.5,
         n_apical_segments: int = 4,
+        n_l5_segments: int = 4,
         use_l5_apical_segments: bool = False,
         l23_prediction_boost: float = 0.0,
         source_dims: list[int] | None = None,
@@ -116,6 +117,7 @@ class CorticalRegion:
         self.seg_activation_threshold = seg_activation_threshold
         self.prediction_gain = prediction_gain
         self.n_apical_segments = n_apical_segments
+        self.n_l5_segments = n_l5_segments
         self.use_l5_apical_segments = use_l5_apical_segments
         # L2/3 segment prediction boost (0 = use fb_boost for both layers)
         self.l23_prediction_boost = l23_prediction_boost
@@ -526,6 +528,19 @@ class CorticalRegion:
                     l23_pool, n_syn, replace=len(l23_pool) < n_syn
                 )
 
+        # L5 lateral segments: L5 → L5 (output-layer sequence prediction)
+        n5 = self.n_l5_total
+        self.l5_seg_indices = np.zeros((n5, self.n_l5_segments, n_syn), dtype=np.int32)
+        self.l5_seg_perm = np.zeros((n5, self.n_l5_segments, n_syn))
+
+        l5_pool = np.arange(n5)
+        self._l5_source_pool = l5_pool
+        for i in range(n5):
+            for s in range(self.n_l5_segments):
+                self.l5_seg_indices[i, s] = self._rng.choice(
+                    l5_pool, n_syn, replace=len(l5_pool) < n_syn
+                )
+
     def init_apical_context(self, source_dim: int, source_name: str = ""):
         """Initialize apical feedback from a higher region.
 
@@ -860,10 +875,26 @@ class CorticalRegion:
         """Determine which neurons are in predictive state via segments."""
         self.predicted_l4[:] = self._predict_from_segments()
         self.predicted_l23[:] = self._predict_l23_from_segments()
+        # L5 prediction from lateral segments (always)
+        self.predicted_l5[:] = self._predict_l5_lateral_from_segments()
+        # L5 prediction from apical segments (additive, if enabled)
         if self.use_l5_apical_segments and self._apical_sources:
-            self.predicted_l5[:] = self._predict_l5_from_segments()
-        else:
-            self.predicted_l5[:] = False
+            self.predicted_l5 |= self._predict_l5_from_segments()
+
+    def _predict_l5_lateral_from_segments(self) -> np.ndarray:
+        """Check which L5 neurons have active lateral dendritic segments.
+
+        L5→L5 lateral prediction: which L5 neurons are expected given
+        the current L5 activation pattern? Enables output-layer sequence
+        prediction.
+
+        Returns boolean mask of shape (n_l5_total,).
+        """
+        predicted = np.zeros(self.n_l5_total, dtype=np.bool_)
+        self._check_segments(
+            self.active_l5, self.l5_seg_indices, self.l5_seg_perm, predicted
+        )
+        return predicted
 
     def _predict_l5_from_segments(self) -> np.ndarray:
         """Check which L5 neurons have active apical dendritic segments.
@@ -1012,8 +1043,8 @@ class CorticalRegion:
             l5_scores = np.zeros((len(precise_cols), self.n_l5))
             l5_scores[:, :n_map] = fr_by_col[precise_cols, :n_map]
 
-            # BAC firing: apical-predicted L5 neurons get boost
-            if self.use_l5_apical_segments and self.predicted_l5.any():
+            # Predicted L5 neurons get boost (lateral + apical predictions)
+            if self.predicted_l5.any():
                 pred_by_col = self.predicted_l5.reshape(self.n_columns, self.n_l5)
                 l5_scores += pred_by_col[precise_cols] * self.fb_boost
 
@@ -1107,14 +1138,16 @@ class CorticalRegion:
                 )
 
     def _learn(self):
-        """Dendritic segment updates for L4 and L2/3 prediction.
+        """Dendritic segment updates for all layers.
 
-        L4 segments: feedback (L2/3→L4) and lateral (L4→L4) prediction.
-        L2/3 segments: lateral (L2/3→L2/3) pattern-specific prediction.
+        L4 segments: feedback (L2/3→L4) and lateral (L4→L4).
+        L2/3 segments: lateral (L2/3→L2/3).
+        L5 segments: lateral (L5→L5) output-layer sequence prediction.
         All use sparse dendritic segment learning (grow/reinforce/punish).
         """
         self._learn_segments()
         self._learn_l23_segments()
+        self._learn_l5_lateral_segments()
 
     def _learn_segments(self):
         """Update dendritic segment permanences based on prediction outcomes.
@@ -1488,6 +1521,67 @@ class CorticalRegion:
                 self.l23_seg_indices,
                 self.l23_seg_perm,
                 adapt_ctx,
+                reinforce=False,
+            )
+
+    def _learn_l5_lateral_segments(self):
+        """Update L5 lateral segment permanences.
+
+        Same grow/reinforce/punish pattern as L2/3 lateral segments.
+        L5 lateral prediction enables output-layer sequence prediction:
+        which L5 pattern follows the current one?
+        """
+        active_cols = np.nonzero(self.active_columns)[0]
+        if len(active_cols) == 0:
+            return
+
+        # Context: current L5 activation (boolean, from previous step
+        # — saved in predicted_l5 by _compute_predictions before step)
+        ctx = self.active_l5
+
+        # Burst columns: grow L5 lateral segment on best L5 neuron
+        burst_cols = active_cols[self.bursting_columns[active_cols]]
+        if len(burst_cols) > 0:
+            # L5 burst = all active, pick by L2/3 firing rate as proxy
+            fr_by_col = self.firing_rate_l23.reshape(self.n_columns, self.n_l23)
+            l23_winners = fr_by_col[burst_cols].argmax(axis=1)
+            l5_best = np.minimum(l23_winners, self.n_l5 - 1)
+            for i, col in enumerate(burst_cols):
+                neuron = col * self.n_l5 + l5_best[i]
+                self._grow_segment(
+                    neuron,
+                    self.l5_seg_indices,
+                    self.l5_seg_perm,
+                    ctx,
+                    self._l5_source_pool,
+                )
+
+        # Precise + predicted: reinforce
+        reinforce_neurons = np.nonzero(
+            self.active_l5
+            & self.predicted_l5
+            & np.repeat(
+                self.active_columns & ~self.bursting_columns,
+                self.n_l5,
+            )
+        )[0]
+        if len(reinforce_neurons) > 0:
+            self._adapt_segments_batch(
+                reinforce_neurons,
+                self.l5_seg_indices,
+                self.l5_seg_perm,
+                ctx,
+                reinforce=True,
+            )
+
+        # Punish false predictions
+        false_predicted = np.nonzero(self.predicted_l5 & ~self.active_l5)[0]
+        if len(false_predicted) > 0:
+            self._adapt_segments_batch(
+                false_predicted,
+                self.l5_seg_indices,
+                self.l5_seg_perm,
+                ctx,
                 reinforce=False,
             )
 
