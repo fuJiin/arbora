@@ -77,9 +77,6 @@ class MotorRegion(CorticalRegion):
         self._reward_baseline_decay = reward_baseline_decay
         self._reward_baseline = 0.0
 
-        # L5 output state (updated each step in process())
-        self.output_scores = np.zeros(n_columns)
-
         # Goal drive: additive feedforward signal from PFC.
         # Added to ff_weights drive before k-WTA competition.
         # This is the "direct dial" — PFC→M1 feedforward shortcut
@@ -95,22 +92,23 @@ class MotorRegion(CorticalRegion):
         # pre=L2/3 activity, post=token, modulated by reward.
         self.n_output_tokens = n_output_tokens
         self.output_lr = output_lr
-        n_l23 = self.n_l23_total
+        n_l5 = self.n_l5_total
 
-        # L5 weights: (n_l23_total, n_output_tokens)
+        # L5 output weights: (n_l5_total, n_output_tokens)
+        # Maps L5 neuron activity to token scores for motor output.
         self.output_weights = self._rng.uniform(
             0,
             0.01,
-            size=(n_l23, n_output_tokens),
+            size=(n_l5, n_output_tokens),
         )
-        # Structural sparsity: each L2/3 neuron connects to ~50% of tokens
+        # Structural sparsity: each L5 neuron connects to ~50% of tokens
         self.output_mask = (
-            self._rng.random((n_l23, n_output_tokens)) < output_sparsity
+            self._rng.random((n_l5, n_output_tokens)) < output_sparsity
         ).astype(np.float64)
         self.output_weights *= self.output_mask
 
         # L5 eligibility trace (three-factor learning)
-        self._output_eligibility = np.zeros((n_l23, n_output_tokens))
+        self._output_eligibility = np.zeros((n_l5, n_output_tokens))
 
         # Last step output (set by topology run loop after BG gating)
         self.last_output: tuple[int, float] = (-1, 0.0)
@@ -155,10 +153,7 @@ class MotorRegion(CorticalRegion):
         else:
             active = self._process_with_goal(encoding)
 
-        # L5 readout: per-column mean L2/3 firing rate
-        rates = self.firing_rate_l23.reshape(self.n_columns, self.n_l23)
-        self.output_scores = rates.mean(axis=1)
-
+        # output_scores updated in base step() via L5 firing rate
         return active
 
     def _process_with_goal(self, encoding: np.ndarray) -> np.ndarray:
@@ -243,6 +238,9 @@ class MotorRegion(CorticalRegion):
         # 7. Activate L2/3
         self._activate_l23(cols)
 
+        # 7b. Activate L5
+        self._activate_l5(cols)
+
         # 8. Learn — segments AND ff_weights
         if self.learning_enabled:
             self._learn()
@@ -261,6 +259,11 @@ class MotorRegion(CorticalRegion):
         np.clip(self.voltage_l23, 0.0, 1.0, out=self.voltage_l23)
         self.firing_rate_l23 *= self.voltage_decay
         self.firing_rate_l23[self.active_l23] += 1.0 - self.voltage_decay
+        self.firing_rate_l5 *= self.voltage_decay
+        self.firing_rate_l5[self.active_l5] += 1.0 - self.voltage_decay
+        self.output_scores[:] = self.firing_rate_l5.reshape(
+            self.n_columns, self.n_l5
+        ).mean(axis=1)
 
         return np.nonzero(self.active_l4)[0]
 
@@ -357,10 +360,10 @@ class MotorRegion(CorticalRegion):
             np.clip(self._goal_weights, 0, 1, out=self._goal_weights)
 
     def observe_token(self, token_id: int) -> None:
-        """Learn L5 output weights: L2/3 → token association.
+        """Learn L5 output weights: L5 → token association.
 
         Three-factor Hebbian on output weights:
-        - Record L2/3→token coincidence in eligibility trace
+        - Record L5→token coincidence in eligibility trace
         - Consolidation happens in apply_reward()
         Also does direct Hebbian strengthening (two-factor baseline)
         so the mapping develops even without reward signal.
@@ -379,8 +382,8 @@ class MotorRegion(CorticalRegion):
         # Decay output eligibility trace
         self._output_eligibility *= self._eligibility_decay
 
-        # Record coincidence: active L2/3 neurons → observed token
-        active = self.active_l23.astype(np.float64)
+        # Record coincidence: active L5 neurons → observed token
+        active = self.active_l5.astype(np.float64)
         if not active.any():
             return
 
@@ -404,18 +407,18 @@ class MotorRegion(CorticalRegion):
     def get_population_output(self) -> tuple[int, float]:
         """Return (predicted_token_id, confidence) via output weights.
 
-        L2/3 activations → output_weights → token scores → argmax.
+        L5 activations → output_weights → token scores → argmax.
         Models L5 population coding: the motor command is encoded by
-        the pattern of active L2/3 neurons, decoded through learned
+        the pattern of active L5 neurons, decoded through learned
         output weights with structural sparsity.
 
-        Returns (-1, 0.0) if no L2/3 neurons are active or all scores zero.
+        Returns (-1, 0.0) if no L5 neurons are active or all scores zero.
         """
-        active = self.active_l23.astype(np.float64)
+        active = self.active_l5.astype(np.float64)
         if not active.any():
             return (-1, 0.0)
 
-        # Token scores: sum of output weights from active L2/3 neurons
+        # Token scores: sum of output weights from active L5 neurons
         token_scores = active @ self.output_weights  # (n_output_tokens,)
 
         if token_scores.max() <= 0:
@@ -455,6 +458,5 @@ class MotorRegion(CorticalRegion):
     def reset_working_memory(self):
         """Reset transient state, preserving learned mappings."""
         super().reset_working_memory()
-        self.output_scores[:] = 0.0
         self._ff_eligibility[:] = 0.0
         self._output_eligibility[:] = 0.0

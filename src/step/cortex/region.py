@@ -1,9 +1,11 @@
-"""Cortical region with L4 (input) and L2/3 (associative) layers.
+"""Cortical region with L4 (input), L2/3 (associative), and L5 (output) layers.
 
-Two-layer architecture modeled on neocortical minicolumns:
+Three-layer architecture modeled on neocortical minicolumns:
 - L4 (input): receives feedforward drive, modulated by feedback context
 - L2/3 (associative): receives L4 feedforward + lateral context from
   other L2/3 neurons, enabling associative binding and pattern completion
+- L5 (output): receives intra-columnar L2/3 drive, projects subcortically
+  to BG (corticostriatal), thalamus, brainstem, and cerebellum
 
 Prediction uses dendritic segments — each neuron has multiple short
 dendritic branches that recognize specific patterns of source activity.
@@ -59,6 +61,7 @@ class CorticalRegion:
         n_l4: int,
         n_l23: int,
         k_columns: int,
+        n_l5: int | None = None,
         *,
         ltd_rate: float = 0.01,
         voltage_decay: float = 0.5,
@@ -135,8 +138,11 @@ class CorticalRegion:
         # Forward pass still runs — region processes input but doesn't learn.
         self.learning_enabled: bool = True
 
+        self.n_l5 = n_l5 if n_l5 is not None else n_l23
+
         self.n_l4_total: int = n_columns * n_l4
         self.n_l23_total = n_columns * n_l23
+        self.n_l5_total = n_columns * self.n_l5
 
         # Pre-allocated source pools for segment growth (avoids per-call arange)
         self._fb_source_pool = np.arange(self.n_l23_total)
@@ -152,6 +158,7 @@ class CorticalRegion:
         # Active masks (updated each step)
         self.active_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
         self.active_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
+        self.active_l5 = np.zeros(self.n_l5_total, dtype=np.bool_)
         self.active_columns = np.zeros(n_columns, dtype=np.bool_)
 
         # Burst state (updated each step)
@@ -159,9 +166,14 @@ class CorticalRegion:
         self.predicted_l4 = np.zeros(self.n_l4_total, dtype=np.bool_)
         self.predicted_l23 = np.zeros(self.n_l23_total, dtype=np.bool_)
 
-        # L2/3 firing rate estimate (EMA of boolean activations).
-        # Models postsynaptic temporal integration of spike trains.
+        # Firing rate estimates (EMA of boolean activations).
+        # Model postsynaptic temporal integration of spike trains.
         self.firing_rate_l23 = np.zeros(self.n_l23_total)
+        self.firing_rate_l5 = np.zeros(self.n_l5_total)
+
+        # L5 output scores: per-column mean L5 firing rate.
+        # Primary output signal for subcortical targets (BG, cerebellum).
+        self.output_scores = np.zeros(n_columns)
 
         # L2/3 lateral connections use dendritic segments only (no dense matrix).
         # Segments provide sparse pattern-specific predictions, matching biology.
@@ -530,6 +542,9 @@ class CorticalRegion:
         self.voltage_l4[:] = 0.0
         self.voltage_l23[:] = 0.0
         self.firing_rate_l23[:] = 0.0
+        self.firing_rate_l5[:] = 0.0
+        self.active_l5[:] = False
+        self.output_scores[:] = 0.0
         self.trace_l4[:] = 0.0
         self.trace_l23[:] = 0.0
         self.excitability_l4[:] = 0.0
@@ -666,6 +681,9 @@ class CorticalRegion:
         # 7. Activate L2/3: L4 feedforward + lateral context
         self._activate_l23(top_cols)
 
+        # 7b. Activate L5: intra-columnar drive from L2/3
+        self._activate_l5(top_cols)
+
         # 8. Learn (dendritic segment permanence updates)
         if self.learning_enabled:
             self._learn()
@@ -690,9 +708,16 @@ class CorticalRegion:
         np.clip(self.voltage_l4, 0.0, 1.0, out=self.voltage_l4)
         np.clip(self.voltage_l23, 0.0, 1.0, out=self.voltage_l23)
 
-        # 13. Update L2/3 firing rate estimate (EMA of spike train)
+        # 13. Update firing rate estimates (EMA of spike train)
         self.firing_rate_l23 *= self.voltage_decay
         self.firing_rate_l23[self.active_l23] += 1.0 - self.voltage_decay
+        self.firing_rate_l5 *= self.voltage_decay
+        self.firing_rate_l5[self.active_l5] += 1.0 - self.voltage_decay
+
+        # 14. Update L5 output scores (per-column mean L5 firing rate)
+        self.output_scores[:] = self.firing_rate_l5.reshape(
+            self.n_columns, self.n_l5
+        ).mean(axis=1)
 
         return np.nonzero(self.active_l4)[0]
 
@@ -851,6 +876,35 @@ class CorticalRegion:
         if len(precise_cols) > 0:
             winners = by_col[precise_cols].argmax(axis=1)
             self.active_l23[precise_cols * self.n_l23 + winners] = True
+
+    def _activate_l5(self, top_cols: np.ndarray):
+        """Activate L5 output neurons in active columns.
+
+        L5 receives intra-columnar drive from L2/3 activity. One winner
+        per active column, selected by L2/3 firing rate (the L2/3 neuron
+        with highest recent activity drives the corresponding L5 neuron).
+
+        Burst columns: all L5 neurons fire (mirrors L2/3 burst behavior).
+        Precise columns: single L5 winner (highest L2/3 firing rate in column).
+        """
+        self.active_l5[:] = False
+        if len(top_cols) == 0:
+            return
+
+        # Burst columns: all L5 neurons fire
+        burst_cols = top_cols[self.bursting_columns[top_cols]]
+        if len(burst_cols) > 0:
+            active_l5_by_col = self.active_l5.reshape(self.n_columns, self.n_l5)
+            active_l5_by_col[burst_cols] = True
+
+        # Precise columns: single L5 winner driven by L2/3 firing rate
+        precise_cols = top_cols[~self.bursting_columns[top_cols]]
+        if len(precise_cols) > 0:
+            fr_by_col = self.firing_rate_l23.reshape(self.n_columns, self.n_l23)
+            # Map L2/3 winner to L5 index (clamp if n_l5 != n_l23)
+            l23_winners = fr_by_col[precise_cols].argmax(axis=1)
+            l5_winners = np.minimum(l23_winners, self.n_l5 - 1)
+            self.active_l5[precise_cols * self.n_l5 + l5_winners] = True
 
     def _learn_apical_gain(self):
         """Slow Hebbian learning on apical gain weights (all sources).
