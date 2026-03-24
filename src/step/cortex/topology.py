@@ -4,10 +4,12 @@ Build a topology by adding regions and connections, then call run() once.
 Supports single-region, two-region hierarchy, and arbitrary DAGs.
 """
 
+from __future__ import annotations
+
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
@@ -15,18 +17,22 @@ from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.region import CorticalRegion
-from step.cortex.sensory import SensoryRegion
 from step.data import EOM_TOKEN, STORY_BOUNDARY
 from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
 from step.probes.timeline import Timeline
 
+if TYPE_CHECKING:
+    from step.decoders.word import WordDecoder
+    from step.probes.bpc import BPCProbe
+    from step.probes.centroid_bpc import CentroidBPCProbe
+
 
 class Encoder(Protocol):
     """Minimal encoder interface for the runner."""
 
-    def encode(self, token: str) -> "np.ndarray": ...
+    def encode(self, token: str) -> np.ndarray: ...
 
 
 @dataclass
@@ -83,7 +89,7 @@ class _RegionState:
     # Motor region decoder (maps M1 L2/3 → token predictions):
     motor_decoder: DendriticDecoder | None = None
     # Word-level decoder (maps L2/3 → word predictions):
-    word_decoder: object | None = None
+    word_decoder: WordDecoder | None = None
 
 
 @dataclass
@@ -301,7 +307,7 @@ class Topology:
         entry: bool = False,
         diagnostics: bool = True,
         basal_ganglia: BasalGanglia | None = None,
-    ) -> "Topology":
+    ) -> Topology:
         """Register a region. Exactly one must have entry=True."""
         if self._finalized:
             raise RuntimeError(
@@ -372,7 +378,7 @@ class Topology:
         buffer_depth: int = 1,
         burst_gate: bool = False,
         thalamic_gate: ThalamicGate | None = None,
-    ) -> "Topology":
+    ) -> Topology:
         """Wire source -> target."""
         if self._finalized:
             raise RuntimeError(
@@ -477,8 +483,9 @@ class Topology:
                     conn.thalamic_gate.reset()
                 if conn.kind == "reward" and conn.reward_modulator is not None:
                     conn.reward_modulator.reset()
-            if hasattr(self._encoder, "reset"):
-                self._encoder.reset()
+            _reset = getattr(self._encoder, "reset", None)
+            if _reset is not None:
+                _reset()
             self._in_eom = False
             self._eom_steps = 0
             return
@@ -540,6 +547,7 @@ class Topology:
             tgt = self._regions[conn.target].region
 
             if conn.kind == "surprise":
+                assert conn.surprise_tracker is not None
                 n_active = int(src.active_columns.sum())
                 n_bursting = int(src.bursting_columns.sum())
                 burst_rate = n_bursting / max(n_active, 1)
@@ -563,6 +571,7 @@ class Topology:
         # -- Motor processing --
         for _name, s in self._regions.items():
             if s.motor:
+                assert isinstance(s.region, MotorRegion)
                 motor_region = s.region
                 if m1_active:
                     motor_region.observe_token(token_id)
@@ -678,7 +687,7 @@ class Topology:
         # Use persistent instance state so EOM carries across run() calls.
         _max_speak_steps = 20  # Anti-rambling: penalize after this many steps
 
-        prediction_log: list[tuple[str, str, str, str]] = []
+        prediction_log: list[tuple[str, str, str, str, str]] = []
         start = time.monotonic()
 
         for t, (token_id, token_str) in enumerate(tokens):
@@ -698,17 +707,18 @@ class Topology:
                         conn._buffer_pos = 0
                     if conn.thalamic_gate is not None:
                         conn.thalamic_gate.reset()
-                if hasattr(self._encoder, "reset"):
-                    self._encoder.reset()
+                _reset = getattr(self._encoder, "reset", None)
+                if _reset is not None:
+                    _reset()
                 self._in_eom = False
                 self._eom_steps = 0
                 for conn in self._connections:
                     if conn.kind == "reward" and conn.reward_modulator is not None:
                         conn.reward_modulator.reset()
-                if self._reward_source is not None and hasattr(
-                    self._reward_source, "reset"
-                ):
-                    self._reward_source.reset()
+                if self._reward_source is not None:
+                    _rs_reset = getattr(self._reward_source, "reset", None)
+                    if _rs_reset is not None:
+                        _rs_reset()
                 continue
 
             # -- EOM token: signal turn boundary for motor RL --
@@ -755,6 +765,7 @@ class Topology:
                 tgt = self._regions[conn.target].region
 
                 if conn.kind == "surprise":
+                    assert conn.surprise_tracker is not None
                     n_active = int(src.active_columns.sum())
                     n_bursting = int(src.bursting_columns.sum())
                     burst_rate = n_bursting / max(n_active, 1)
@@ -797,6 +808,7 @@ class Topology:
             # -- Motor metrics + reward --
             for _name, s in self._regions.items():
                 if s.motor:
+                    assert isinstance(s.region, MotorRegion)
                     motor_region = s.region
                     # observe_token only during active phase (M1 processed)
                     if m1_active:
@@ -940,6 +952,9 @@ class Topology:
                 metrics[entry_name].overlaps.append(overlap)
 
                 # Decoder accuracies
+                assert entry_state.syn_decoder is not None
+                assert entry_state.decode_index is not None
+                assert entry_state.dendritic_decoder is not None
                 syn_id, syn_str = entry_state.syn_decoder.decode_synaptic(
                     predicted_neurons, entry_region
                 )
@@ -988,6 +1003,7 @@ class Topology:
 
             # BPC: measure prediction quality (sampled at metric intervals)
             if bpc_probe is not None and is_metric_step and t > 0:
+                assert entry_state.dendritic_decoder is not None
                 bpc_probe.step(
                     token_id,
                     entry_region.active_l23,
@@ -998,6 +1014,9 @@ class Topology:
             centroid_probe.observe(token_id, prev_l23)
 
             # -- Decoder training (every step — cheap, drives learning) --
+            assert entry_state.decode_index is not None
+            assert entry_state.syn_decoder is not None
+            assert entry_state.dendritic_decoder is not None
             if token_id not in entry_state.decode_index._token_id_to_idx:
                 active_set = frozenset(
                     int(i) for i in np.nonzero(entry_region.active_l4)[0]
@@ -1115,6 +1134,7 @@ class Topology:
                 break
         if motor_state is None:
             raise ValueError("No motor region for babbling.")
+        assert isinstance(motor_state.region, MotorRegion)
         motor_region = motor_state.region
 
         # Start with a random seed token
@@ -1254,13 +1274,14 @@ class Topology:
         entry_region = entry_state.region
 
         motor_state = None
-        motor_region = None
+        motor_region: MotorRegion | None = None
         for _name, s in self._regions.items():
             if s.motor:
+                assert isinstance(s.region, MotorRegion)
                 motor_state = s
                 motor_region = s.region
                 break
-        if motor_state is None:
+        if motor_state is None or motor_region is None:
             raise ValueError("No motor region for interleaved training.")
 
         # Adaptive noise state
@@ -1408,16 +1429,18 @@ class Topology:
         from step.cortex.pfc import PFCRegion
         from step.cortex.reward import EchoReward
 
+        assert self._entry_name is not None
         entry_name = self._entry_name
         entry_region = self._regions[entry_name].region
 
         # Find PFC and motor regions
         pfc_region = None
-        motor_region = None
+        motor_region: MotorRegion | None = None
         for _name, s in self._regions.items():
             if isinstance(s.region, PFCRegion):
                 pfc_region = s.region
             if s.motor:
+                assert isinstance(s.region, MotorRegion)
                 motor_region = s.region
 
         if pfc_region is None:
@@ -1631,15 +1654,17 @@ class Topology:
         from step.cortex.pfc import PFCRegion
         from step.cortex.reward import EchoReward
 
+        assert self._entry_name is not None
         entry_name = self._entry_name
         entry_region = self._regions[entry_name].region
 
         pfc_region = None
-        motor_region = None
+        motor_region: MotorRegion | None = None
         for _name, s in self._regions.items():
             if isinstance(s.region, PFCRegion):
                 pfc_region = s.region
             if s.motor:
+                assert isinstance(s.region, MotorRegion)
                 motor_region = s.region
 
         if pfc_region is None or motor_region is None:
@@ -2000,6 +2025,7 @@ class Topology:
             tgt = self._regions[conn.target].region
 
             if conn.kind == "surprise":
+                assert conn.surprise_tracker is not None
                 n_active = max(int(src.active_columns.sum()), 1)
                 n_bursting = int(src.bursting_columns.sum())
                 burst_rate = n_bursting / n_active
@@ -2037,6 +2063,7 @@ class Topology:
         for _name, s in self._regions.items():
             if not s.motor:
                 continue
+            assert isinstance(s.region, MotorRegion)
             motor_region = s.region
             pop_id, _pop_conf = motor_region.get_population_output()
 
@@ -2086,6 +2113,7 @@ class Topology:
         for _name, s in self._regions.items():
             if not s.motor:
                 continue
+            assert isinstance(s.region, MotorRegion)
             motor_region = s.region
             pop_id, _pop_conf = motor_region.get_population_output()
 
@@ -2131,6 +2159,7 @@ class Topology:
             EchoReward,
         )
 
+        assert self._reward_source is not None
         reward_types = (CuriosityReward, CaregiverReward, EchoReward)
         if isinstance(self._reward_source, reward_types):
             # Curiosity/Caregiver: pass S1 burst fraction
@@ -2192,6 +2221,7 @@ class Topology:
             return signal
 
         # Write into circular buffer, read oldest-first
+        assert conn._buffer is not None
         conn._buffer[conn._buffer_pos] = signal
         conn._buffer_pos = (conn._buffer_pos + 1) % conn.buffer_depth
         return np.roll(conn._buffer, -conn._buffer_pos, axis=0).flatten()
@@ -2200,6 +2230,7 @@ class Topology:
         """Return cached topological order. Auto-finalizes if needed."""
         if not self._finalized:
             self.finalize()
+        assert self._topo_cache is not None
         return self._topo_cache
 
     def _log_step(
@@ -2213,9 +2244,9 @@ class Topology:
         reward_modulators: dict[str, list[float]],
         rolling_window: int,
         show_predictions: int,
-        prediction_log: list[tuple[str, ...]],
-        bpc_probe: object = None,
-        centroid_probe: object = None,
+        prediction_log: list[tuple[str, str, str, str, str]],
+        bpc_probe: BPCProbe | None = None,
+        centroid_probe: CentroidBPCProbe | None = None,
     ):
         entry_metrics = metrics[entry_name]
         entry_diag = self._regions[entry_name].diagnostics
@@ -2322,7 +2353,11 @@ class Topology:
                 avg_b = sum(bdry) / len(bdry)
                 avg_s = sum(stdy) / len(stdy)
                 bpc_str += f" bdry={avg_b:.2f} stdy={avg_s:.2f}"
-        if centroid_probe.n_tokens > 1 and centroid_probe.bpc < float("inf"):
+        if (
+            centroid_probe is not None
+            and centroid_probe.n_tokens > 1
+            and centroid_probe.bpc < float("inf")
+        ):
             bpc_str += f" cbpc={centroid_probe.recent_bpc:.2f}"
         # Decoder BPC: approximate from dendritic decoder accuracy
         if roll_den > 0.001:
