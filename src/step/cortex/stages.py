@@ -102,13 +102,15 @@ class TrainingStage:
 
 
 def _sensory_connections():
-    """Sensory stage: full hierarchy + M1/M2/PFC listening."""
+    """Sensory stage: full hierarchy + M1/M2/PFC listening.
+
+    Surprise modulation is tonic (always active when configured on
+    a connection), so it is not stage-controlled here.
+    """
     return [
-        # Sensory feedforward + surprise: on
+        # Sensory feedforward: on
         StageConnection("S1", "S2", "feedforward", enabled=True),
-        StageConnection("S1", "S2", "surprise", enabled=True),
         StageConnection("S2", "S3", "feedforward", enabled=True),
-        StageConnection("S2", "S3", "surprise", enabled=True),
         # Apical feedback: on
         StageConnection("S2", "S1", "apical", enabled=True),
         StageConnection("S3", "S2", "apical", enabled=True),
@@ -133,9 +135,7 @@ def _babbling_connections():
     return [
         # Sensory hierarchy
         StageConnection("S1", "S2", "feedforward", enabled=True),
-        StageConnection("S1", "S2", "surprise", enabled=True),
         StageConnection("S2", "S3", "feedforward", enabled=True),
-        StageConnection("S2", "S3", "surprise", enabled=True),
         StageConnection("S2", "S1", "apical", enabled=True),
         StageConnection("S3", "S2", "apical", enabled=True),
         # Motor feedforward: PFC→M2→M1
@@ -158,15 +158,12 @@ def _guided_connections():
     return [
         # S1→M1: on
         StageConnection("S1", "M1", "feedforward", enabled=True),
-        StageConnection("S1", "M1", "surprise", enabled=True),
         # S1→S2: on (S2 provides reward signal)
         StageConnection("S1", "S2", "feedforward", enabled=True),
-        StageConnection("S1", "S2", "surprise", enabled=True),
         # S2→S1 apical: on (word context helps)
         StageConnection("S2", "S1", "apical", enabled=True),
         # S3: off
         StageConnection("S2", "S3", "feedforward", enabled=False),
-        StageConnection("S2", "S3", "surprise", enabled=False),
         StageConnection("S3", "S2", "apical", enabled=False),
         # M1→S1 apical: off
         StageConnection("M1", "S1", "apical", enabled=False),

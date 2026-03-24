@@ -82,17 +82,11 @@ def run_config(cfg, tokens, encoder):
         "feedforward",
         buffer_depth=4,
         burst_gate=True,
-    )
-    cortex.connect("S1", "S2", "surprise", surprise_tracker=SurpriseTracker())
-    cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
-    cortex.add_region("M1", motor, basal_ganglia=bg)
-    cortex.connect("S1", "M1", "feedforward")
-    cortex.connect(
-        "S1",
-        "M1",
-        "surprise",
         surprise_tracker=SurpriseTracker(),
     )
+    cortex.connect("S2", "S1", "apical", thalamic_gate=ThalamicGate())
+    cortex.add_region("M1", motor, basal_ganglia=bg)
+    cortex.connect("S1", "M1", "feedforward", surprise_tracker=SurpriseTracker())
     # M1→S1 apical only if M1 n_l23_total matches S2's (S2→S1 already set)
     if motor.n_l23_total == region2.n_l23_total:
         cortex.connect("M1", "S1", "apical", thalamic_gate=ThalamicGate())
