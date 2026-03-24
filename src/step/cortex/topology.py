@@ -2139,7 +2139,7 @@ class Topology:
             burst_frac = n_bursting / n_active
             return self._reward_source.step(char, burst_frac)
         else:
-            # Generic reward source (e.g., WordReward): pass S2 columns
+            # Generic reward source: pass S2 columns
             s2_cols = np.zeros(0)
             for _rn, _rs in self._regions.items():
                 if _rn == "S2":
