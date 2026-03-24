@@ -1485,8 +1485,10 @@ class Topology:
             # Pick a word (respecting curriculum length limit)
             if curriculum:
                 eligible = [
-                    w for ws in words_by_len.values()
-                    for w in ws if len(w) <= curr_max_len
+                    w
+                    for ws in words_by_len.values()
+                    for w in ws
+                    if len(w) <= curr_max_len
                 ]
                 word = eligible[ep % len(eligible)]
             else:
@@ -1575,9 +1577,7 @@ class Topology:
                 ):
                     curr_max_len = min(curr_max_len + 1, max_word_len)
                     curriculum_window.clear()
-                    print(
-                        f"  [echo] curriculum: advancing to max_len={curr_max_len}"
-                    )
+                    print(f"  [echo] curriculum: advancing to max_len={curr_max_len}")
 
             # Route reward to PFC via three-factor consolidation.
             # PFC's eligibility traces captured which S2+S3→PFC

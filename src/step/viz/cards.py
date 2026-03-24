@@ -152,6 +152,7 @@ def build_hierarchy_summary_cards(
         # Check if passed directly
         pass
     if bpc is not None and bpc < float("inf"):
+        assert motor_metrics is not None
         bpc_recent = motor_metrics.get("bpc_recent", bpc)
         cards.append(
             _card(
