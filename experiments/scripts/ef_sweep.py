@@ -6,8 +6,8 @@ sys.path.insert(0, "src")
 
 from step.config import CortexConfig, make_motor_region, make_sensory_region
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import EOM_TOKEN, prepare_tokens_personachat
 from step.encoders.positional import PositionalCharEncoder
 
@@ -50,7 +50,7 @@ def build_model(alphabet):
     s2 = make_sensory_region(cfg_s2, s1.n_l23_total * 4, seed=1)  # *4 for buffer_depth
     m1 = make_motor_region(cfg_m1, s1.n_l23_total, seed=2)
 
-    cortex = Topology(encoder)
+    cortex = Circuit(encoder)
     cortex.add_region("S1", s1, entry=True)
     cortex.add_region("S2", s2)
     cortex.add_region("M1", m1, basal_ganglia=BasalGanglia(cfg_s1.n_columns + 1))

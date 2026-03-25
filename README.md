@@ -122,7 +122,7 @@ src/step/
 │   ├── premotor.py     # PremotorRegion (M2, temporal sequencing)
 │   ├── motor.py        # MotorRegion (M1, L5 output, three-factor, babbling)
 │   ├── pfc.py          # PFCRegion (slow decay, global gate, confidence)
-│   ├── topology.py     # Region wiring, run loops, shared step methods
+│   ├── circuit.py      # Region wiring, run loops, shared step methods
 │   ├── stages.py       # Training stage definitions
 │   ├── reward.py       # CuriosityReward, CaregiverReward, EchoReward
 │   ├── basal_ganglia.py # Go/no-go gating with three-factor plasticity

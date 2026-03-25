@@ -137,14 +137,14 @@ class TestConnectionLaminaFields:
     """Verify Connection has source_lamina/target_lamina fields."""
 
     def test_connection_defaults(self):
-        from step.cortex.topology import Connection, ConnectionRole
+        from step.cortex.circuit import Connection, ConnectionRole
 
         conn = Connection(source="S1", target="S2", role=ConnectionRole.FEEDFORWARD)
         assert conn.source_lamina == LaminaID.L23
         assert conn.target_lamina == LaminaID.L4
 
     def test_connection_custom_lamina(self):
-        from step.cortex.topology import Connection, ConnectionRole
+        from step.cortex.circuit import Connection, ConnectionRole
 
         conn = Connection(
             source="S1",
@@ -156,8 +156,8 @@ class TestConnectionLaminaFields:
         assert conn.source_lamina == LaminaID.L5
 
     def test_connect_api_accepts_lamina(self):
+        from step.cortex.circuit import Circuit, ConnectionRole
         from step.cortex.region import CorticalRegion
-        from step.cortex.topology import ConnectionRole, Topology
         from step.encoders.positional import PositionalCharEncoder
 
         encoder = PositionalCharEncoder("abc", max_positions=4)
@@ -175,7 +175,7 @@ class TestConnectionLaminaFields:
             n_l23=4,
             k_columns=2,
         )
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", r1, entry=True)
         cortex.add_region("S2", r2)
         cortex.connect(

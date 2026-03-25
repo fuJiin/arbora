@@ -33,7 +33,7 @@ Connections: ConnectionRole enum (FEEDFORWARD, APICAL)
 
 ## Key abstractions
 - **Lamina**: per-layer state container (lamina.py). LaminaID enum: L4, L23, L5.
-- **Connection**: role + source/target lamina + modulators (topology.py)
+- **Connection**: role + source/target lamina + modulators (circuit.py)
 - **Segment prediction**: shared `_check_segments()` helper for L4/L2/3/L5
 - **apply_reward()**: base class with motor override
 
@@ -62,7 +62,7 @@ Connections: ConnectionRole enum (FEEDFORWARD, APICAL)
 - Connection gets source_lamina/target_lamina (defaults preserve existing behavior)
 - L5→L4 feedback is cross-region, deferred until thalamic relay exists
 - L5 should have all features (voltage, excitability, trace, firing_rate)
-- REPL delegates to cortex_staged.build_topology() for dimension consistency
+- REPL delegates to cortex_staged.build_circuit() for dimension consistency
 - L5 lateral segments default off (`n_l5_segments=0`): immature segments regress ctx_disc at 50k. Enable post-refactor during tuning phase.
 - Param tuning (neurons per column per lamina, segment counts) deferred until after refactors
 
@@ -74,7 +74,7 @@ Connections: ConnectionRole enum (FEEDFORWARD, APICAL)
 
 ## Next Steps
 - [ ] **STEP-43** Merge L5 lateral PR (in review)
-- [ ] **STEP-28** Split topology.py builder/runner (L)
+- [ ] **STEP-28** Split circuit.py builder/runner (L)
 - [ ] **STEP-49** Phase 4: alias cleanup, segment naming, DRY learning (M)
 - [ ] **STEP-35** PlasticityRule enum (M)
 - [ ] **STEP-30** Region Protocol typing (M)

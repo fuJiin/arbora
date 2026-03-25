@@ -39,6 +39,7 @@ from step.config import (
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.stages import (
     BABBLING_STAGE,
@@ -46,7 +47,6 @@ from step.cortex.stages import (
     SENSORY_STAGE,
     TrainingStage,
 )
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
 from step.runs import save_run
@@ -63,8 +63,8 @@ ALL_STAGES = [
 STAGE_MAP = {s.name: s for s in ALL_STAGES}
 
 
-def build_topology(encoder, *, log_interval=100, timeline_interval=100):
-    """Build the full topology with all regions and connections.
+def build_circuit(encoder, *, log_interval=100, timeline_interval=100):
+    """Build the full circuit with all regions and connections.
 
     All regions and connections are created upfront. Stages control
     which are active via freeze/enable APIs.
@@ -101,7 +101,7 @@ def build_topology(encoder, *, log_interval=100, timeline_interval=100):
     m1.output_weights *= m1.output_mask
     m1._output_eligibility = np.zeros((n_l23, len(output_vocab)))
 
-    cortex = Topology(
+    cortex = Circuit(
         encoder,
         enable_timeline=timeline_interval > 0,
         timeline_interval=max(timeline_interval, 1),
@@ -396,8 +396,8 @@ def main():
     max_tokens = max(s.n_tokens for s in stages)
     tokens, encoder = load_data(max_tokens)
 
-    # Build topology
-    cortex = build_topology(
+    # Build circuit
+    cortex = build_circuit(
         encoder,
         log_interval=args.log_interval,
         timeline_interval=args.timeline_interval,

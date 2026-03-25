@@ -5,7 +5,7 @@ Loads a checkpoint and runs corpus through the hierarchy, measuring:
 2. S2 column word-level selectivity (do columns specialize for words?)
 3. S1 column word-level selectivity (for comparison)
 
-Runs tokens through topology.run() in one batch for performance,
+Runs tokens through circuit.run() in one batch for performance,
 then analyzes the per-step snapshots captured during the run.
 """
 
@@ -23,8 +23,8 @@ from step.config import (
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import EOM_TOKEN, STORY_BOUNDARY, prepare_tokens_personachat
 from step.decoders.dendritic import DendriticDecoder
 from step.encoders.positional import PositionalCharEncoder
@@ -45,7 +45,7 @@ def build_model(alphabet):
 
     bg = BasalGanglia(s1_cfg.n_columns + 1)
 
-    cortex = Topology(encoder)
+    cortex = Circuit(encoder)
     cortex.add_region("S1", s1, entry=True)
     cortex.add_region("S2", s2)
     cortex.add_region("M1", m1, basal_ganglia=bg)
@@ -125,7 +125,7 @@ def main():
     s1_words = WordSelectivityProbe(s1.n_columns)
     s2_words = WordSelectivityProbe(s2.n_columns)
 
-    # Monkey-patch: capture per-step S2 state inside topology.run()
+    # Monkey-patch: capture per-step S2 state inside circuit.run()
     # We'll collect snapshots by wrapping S2's process method.
     snapshots = []
     original_s2_process = s2.process
