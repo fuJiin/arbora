@@ -124,7 +124,7 @@ def run_config(
         active_set = frozenset(int(i) for i in active_neurons)
 
         diag.step(t, region)
-        rep_tracker.observe(token_id, region.active_columns, region.active_l4)
+        rep_tracker.observe(token_id, region.active_columns, region.l4.active)
 
         syn_accuracies.append(1.0 if syn_id == token_id else 0.0)
 

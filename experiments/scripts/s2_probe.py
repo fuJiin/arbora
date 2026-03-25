@@ -135,7 +135,7 @@ def main():
         snapshots.append(
             {
                 "active_columns": s2.active_columns.copy(),
-                "l23": s2.active_l23.copy(),
+                "l23": s2.l23.active.copy(),
             }
         )
         return result
@@ -151,7 +151,7 @@ def main():
         s1_snapshots.append(
             {
                 "active_columns": s1.active_columns.copy(),
-                "l23": s1.active_l23.copy(),
+                "l23": s1.l23.active.copy(),
             }
         )
         return result

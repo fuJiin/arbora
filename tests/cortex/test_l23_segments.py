@@ -19,7 +19,7 @@ class TestL23SegmentInit:
 
     def test_predicted_l23_starts_empty(self):
         r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
-        assert r.predicted_l23.sum() == 0
+        assert r.l23.predicted.sum() == 0
 
     def test_sensory_region_local_connectivity(self):
         """L2/3 segments should use local pools in SensoryRegion."""
@@ -38,7 +38,7 @@ class TestL23SegmentInit:
 class TestL23Prediction:
     def test_no_predictions_initially(self):
         r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
-        r.active_l23[0] = True
+        r.l23.active[0] = True
         pred = r._predict_l23_from_segments()
         assert pred.sum() == 0
 
@@ -49,7 +49,7 @@ class TestL23Prediction:
         r.l23_seg_indices[0, 0, :] = 2
         r.l23_seg_perm[0, 0, :] = 1.0
         # Activate neuron 2
-        r.active_l23[2] = True
+        r.l23.active[2] = True
         pred = r._predict_l23_from_segments()
         assert pred[0]  # neuron 0 should be predicted
 
@@ -69,7 +69,7 @@ class TestL23Prediction:
         r.l23_seg_indices[0, 0, 1] = 2
         r.l23_seg_perm[0, 0, :] = 1.0
         # Only activate neuron 2 — only 2 synapses match, threshold is 3
-        r.active_l23[2] = True
+        r.l23.active[2] = True
         pred = r._predict_l23_from_segments()
         assert not pred[0]
 
@@ -84,8 +84,8 @@ class TestL23SegmentLearning:
         # Simulate burst in column 1
         r.active_columns[1] = True
         r.bursting_columns[1] = True
-        r.active_l23[2:4] = True  # both L2/3 in col 1
-        r.voltage_l23[2] = 0.8  # neuron 2 has higher voltage (trace winner)
+        r.l23.active[2:4] = True  # both L2/3 in col 1
+        r.l23.voltage[2] = 0.8  # neuron 2 has higher voltage (trace winner)
 
         perm_before = r.l23_seg_perm.copy()
         r._learn_l23_segments()
@@ -105,8 +105,8 @@ class TestL23SegmentLearning:
         # Simulate precise activation
         r.active_columns[0] = True
         r.bursting_columns[0] = False
-        r.active_l23[0] = True
-        r.predicted_l23[0] = True
+        r.l23.active[0] = True
+        r.l23.predicted[0] = True
 
         perm_before = r.l23_seg_perm[0, 0].copy()
         r._learn_l23_segments()
@@ -123,8 +123,8 @@ class TestL23SegmentLearning:
         r.l23_seg_perm[0, 0, :] = 0.6
         r._pred_context_l23[2] = True
         # Neuron 0 predicted but NOT active
-        r.predicted_l23[0] = True
-        r.active_l23[0] = False
+        r.l23.predicted[0] = True
+        r.l23.active[0] = False
         r.active_columns[0] = True
 
         perm_before = r.l23_seg_perm[0, 0, 0]
@@ -141,11 +141,11 @@ class TestL23SegmentIntegration:
         # Wire segment: neuron 0 predicted from neuron 2
         r.l23_seg_indices[0, 0, :] = 2
         r.l23_seg_perm[0, 0, :] = 1.0
-        r.active_l23[2] = True
+        r.l23.active[2] = True
 
         # Run prediction
         r._compute_predictions()
-        assert r.predicted_l23[0]
+        assert r.l23.predicted[0]
 
     def test_end_to_end_with_sensory(self):
         """Full process() cycle should work with L2/3 segments."""
@@ -163,6 +163,6 @@ class TestL23SegmentIntegration:
 
     def test_reset_clears_predicted_l23(self):
         r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
-        r.predicted_l23[0] = True
+        r.l23.predicted[0] = True
         r.reset_working_memory()
-        assert r.predicted_l23.sum() == 0
+        assert r.l23.predicted.sum() == 0

@@ -106,7 +106,7 @@ def probe(cortex, s1, s2, s3, tokens):
         def make_cap(n, r, o):
             def cap(enc):
                 result = o(enc)
-                snaps[n].append((r.active_columns.copy(), r.active_l23.copy()))
+                snaps[n].append((r.active_columns.copy(), r.l23.active.copy()))
                 return result
 
             return cap

@@ -35,8 +35,8 @@ class TestL5BaseLayer:
 
     def test_l5_state_shapes(self):
         r = self._make_region()
-        assert r.active_l5.shape == (r.n_l5_total,)
-        assert r.firing_rate_l5.shape == (r.n_l5_total,)
+        assert r.l5.active.shape == (r.n_l5_total,)
+        assert r.l5.firing_rate.shape == (r.n_l5_total,)
         assert r.output_scores.shape == (r.n_columns,)
 
     def test_l5_activates_on_step(self):
@@ -44,13 +44,13 @@ class TestL5BaseLayer:
         drive = np.random.default_rng(0).random(r.n_l4_total)
         r.step(drive)
         # k=2 columns active, so L5 should have active neurons
-        assert r.active_l5.any()
+        assert r.l5.active.any()
 
     def test_l5_only_active_in_active_columns(self):
         r = self._make_region()
         drive = np.random.default_rng(0).random(r.n_l4_total)
         r.step(drive)
-        l5_by_col = r.active_l5.reshape(r.n_columns, r.n_l5)
+        l5_by_col = r.l5.active.reshape(r.n_columns, r.n_l5)
         for col in range(r.n_columns):
             if not r.active_columns[col]:
                 assert not l5_by_col[col].any()
@@ -61,7 +61,7 @@ class TestL5BaseLayer:
         for _ in range(20):
             r.step(rng.random(r.n_l4_total))
         # After multiple steps, firing rate should be nonzero for active L5 neurons
-        assert r.firing_rate_l5.sum() > 0
+        assert r.l5.firing_rate.sum() > 0
 
     def test_output_scores_per_column(self):
         r = self._make_region()
@@ -71,7 +71,7 @@ class TestL5BaseLayer:
         # Active columns should have nonzero output scores
         assert r.output_scores.sum() > 0
         # Output scores should match per-column mean L5 firing rate
-        expected = r.firing_rate_l5.reshape(r.n_columns, r.n_l5).mean(axis=1)
+        expected = r.l5.firing_rate.reshape(r.n_columns, r.n_l5).mean(axis=1)
         np.testing.assert_allclose(r.output_scores, expected)
 
     def test_reset_clears_l5(self):
@@ -80,8 +80,8 @@ class TestL5BaseLayer:
         for _ in range(5):
             r.step(rng.random(r.n_l4_total))
         r.reset_working_memory()
-        assert not r.active_l5.any()
-        assert r.firing_rate_l5.sum() == 0
+        assert not r.l5.active.any()
+        assert r.l5.firing_rate.sum() == 0
         assert r.output_scores.sum() == 0
 
     def test_burst_columns_all_l5_fire(self):
@@ -93,7 +93,7 @@ class TestL5BaseLayer:
         drive[r.n_l4 : 2 * r.n_l4] = 0.8  # Strong drive to column 1
         r.step(drive)
         # Check burst columns have all L5 neurons active
-        l5_by_col = r.active_l5.reshape(r.n_columns, r.n_l5)
+        l5_by_col = r.l5.active.reshape(r.n_columns, r.n_l5)
         for col in range(r.n_columns):
             if r.bursting_columns[col] and r.active_columns[col]:
                 assert l5_by_col[col].all(), (
@@ -134,7 +134,7 @@ class TestMotorL5:
         # Observe a token — should record L5 coincidence
         m.observe_token(5)
         # Eligibility should be nonzero where L5 was active
-        l5_active_idx = np.nonzero(m.active_l5)[0]
+        l5_active_idx = np.nonzero(m.l5.active)[0]
         if len(l5_active_idx) > 0:
             assert m._output_eligibility[l5_active_idx, 5].sum() > 0
 
@@ -148,7 +148,7 @@ class TestMotorL5:
             m.observe_token(rng.integers(0, m.n_output_tokens))
         token_id, _confidence = m.get_population_output()
         # Should produce some output
-        assert token_id >= 0 or not m.active_l5.any()
+        assert token_id >= 0 or not m.l5.active.any()
 
     def test_output_scores_inherited_from_base(self):
         """Motor output_scores from base CorticalRegion L5."""
@@ -157,7 +157,7 @@ class TestMotorL5:
         for _ in range(5):
             m.process(rng.random(m.input_dim))
         # Should match per-column mean L5 firing rate
-        expected = m.firing_rate_l5.reshape(m.n_columns, m.n_l5).mean(axis=1)
+        expected = m.l5.firing_rate.reshape(m.n_columns, m.n_l5).mean(axis=1)
         np.testing.assert_allclose(m.output_scores, expected)
 
     def test_babble_activates_l5(self):
@@ -165,4 +165,4 @@ class TestMotorL5:
         m.babbling_noise = 1.0
         encoding = np.random.default_rng(0).random(m.input_dim)
         m.process(encoding)
-        assert m.active_l5.any()
+        assert m.l5.active.any()

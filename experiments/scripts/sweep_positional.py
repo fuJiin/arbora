@@ -107,7 +107,7 @@ for n_cols, k_cols, ltd_rate in configs:
         if prev_l23 is not None and not prev_was_boundary:
             decoder.observe(token_id, prev_l23)
 
-        prev_l23 = region.active_l23.copy()
+        prev_l23 = region.l23.active.copy()
         prev_was_boundary = False
 
     elapsed = time.monotonic() - start

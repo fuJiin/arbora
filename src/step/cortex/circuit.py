@@ -1218,7 +1218,7 @@ class Circuit:
             produced = []
 
             for _step_i in range(max_response_len):
-                motor_region.set_goal_drive(pfc_region.firing_rate_l23)
+                motor_region.set_goal_drive(pfc_region.l23.firing_rate)
 
                 seed = produced[-1] if produced else " "
                 encoding = self._encoder.encode(seed)
