@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -17,6 +16,7 @@ from step.cortex.lamina import LaminaID
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.region import CorticalRegion
+from step.cortex.topology_hooks import RunHooks, StepHooks
 from step.cortex.topology_types import (
     Connection,
     ConnectionRole,
@@ -31,10 +31,6 @@ from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
 from step.probes.timeline import Timeline
 
-if TYPE_CHECKING:
-    from step.probes.bpc import BPCProbe
-    from step.probes.centroid_bpc import CentroidBPCProbe
-
 # Re-export types for backward compatibility.
 # External code imports these from step.cortex.topology.
 __all__ = [
@@ -42,7 +38,9 @@ __all__ = [
     "ConnectionRole",
     "CortexResult",
     "Encoder",
+    "RunHooks",
     "RunMetrics",
+    "StepHooks",
     "Topology",
 ]
 
@@ -411,13 +409,24 @@ class Topology:
     # Single-token step (lightweight, no metrics overhead)
     # ------------------------------------------------------------------
 
-    def step(self, token_id: int, token_str: str) -> None:
+    def step(
+        self,
+        token_id: int,
+        token_str: str,
+        *,
+        hooks: StepHooks | None = None,
+        t: int = 0,
+    ) -> None:
         """Process one token through the hierarchy.
 
         Lightweight alternative to run() for interactive use and probing.
         Handles EOM/boundary tokens, feedforward processing, inter-region
         signals, motor output, and BG gating — but skips metrics
         accumulation, logging, BPC, and diagnostics.
+
+        When *hooks* is provided, callbacks are invoked at key points to
+        enable metrics collection, logging, and other instrumentation
+        without baking that logic into step() itself.
         """
         if self._entry_name is None:
             raise ValueError("No entry region. Call add_region(..., entry=True).")
@@ -428,6 +437,9 @@ class Topology:
 
         # -- Story boundary --
         if token_id == STORY_BOUNDARY:
+            # Hooks get first crack (BPC probe boundaries, rep_tracker reset, etc.)
+            if hooks is not None:
+                hooks.on_boundary(self)
             for s in self._regions.values():
                 s.region.reset_working_memory()
                 if s.basal_ganglia is not None:
@@ -459,72 +471,36 @@ class Topology:
             if self._eom_steps > 20:
                 self._in_eom = False
 
-        # -- Process in topo order --
-        # Ensure finalize() has been called (multi-ff needs _ff_conns)
-        if not getattr(self, "_ff_conns", None):
-            self.finalize()
-        # Motor regions skip process() during input phase (not EOM, gate
-        # not forced open). BG/observe still run — only the expensive
-        # cortical computation is skipped.
-        m1_active = self._in_eom or self.force_gate_open
+        # -- Hooks: before step --
+        if hooks is not None:
+            hooks.on_before_step(self, t, token_id, token_str)
+
+        # -- Process in topo order (multi-ff supported) --
         encoding = self._encoder.encode(token_str)
         topo_order = self._topo_order()
+        self._propagate_feedforward(topo_order, entry_name, encoding)
 
-        # Use _propagate_feedforward for proper multi-ff concatenation
-        # (PFC and M2 receive multiple ff sources)
-        for name in topo_order:
-            s = self._regions[name]
-            if s.motor and not m1_active:
-                # Skip M1 process during input phase
-                pass
-            elif name == entry_name:
-                s.region.process(encoding)
-            else:
-                conns = self._ff_conns.get(name)
-                if not conns:
-                    continue
-                active = [c for c in conns if c.enabled]
-                if not active:
-                    continue
-                if len(active) == 1:
-                    s.region.process(self._get_ff_signal(active[0]))
-                else:
-                    buf = self._ff_buffers.get(name)
-                    if buf is not None:
-                        pos = 0
-                        for conn in active:
-                            sig = self._get_ff_signal(conn)
-                            buf[pos : pos + len(sig)] = sig
-                            pos += len(sig)
-                        s.region.process(buf[:pos])
+        # -- Inter-region signals (after all regions processed) --
+        self._propagate_signals()
 
-        # -- Inter-region signals --
-        for conn in self._connections:
-            src = self._regions[conn.source].region
-            tgt = self._regions[conn.target].region
+        # -- Motor processing (skipped when hooks handle it) --
+        if hooks is None:
+            self._step_motor_inline(entry_region, token_id)
 
-            if conn.surprise_tracker is not None:
-                n_active = int(src.active_columns.sum())
-                n_bursting = int(src.bursting_columns.sum())
-                burst_rate = n_bursting / max(n_active, 1)
-                modulator = conn.surprise_tracker.update(burst_rate)
-                tgt.surprise_modulator = modulator
+        # -- Hooks: after step (before _total_steps increment) --
+        if hooks is not None:
+            hooks.on_after_step(self, t, token_id, token_str)
 
-            if conn.role == ConnectionRole.APICAL and tgt.has_apical:
-                src_lamina = src.get_lamina(conn.source_lamina)
-                r_active = int(src.active_columns.sum())
-                r_bursting = int(src.bursting_columns.sum())
-                confidence = 1.0 - (r_bursting / max(r_active, 1))
-                signal = src_lamina.firing_rate * confidence
-                if conn.thalamic_gate is not None:
-                    tgt_active = int(tgt.active_columns.sum())
-                    tgt_bursting = int(tgt.bursting_columns.sum())
-                    tgt_burst_rate = tgt_bursting / max(tgt_active, 1)
-                    readiness = conn.thalamic_gate.update(tgt_burst_rate)
-                    signal = signal * readiness
-                tgt.set_apical_context(signal, source_name=conn.source)
+        self._total_steps += 1
 
-        # -- Motor processing --
+    def _step_motor_inline(self, entry_region: CorticalRegion, token_id: int) -> None:
+        """Lightweight motor processing for step() without hooks.
+
+        When hooks are provided, RunHooks.on_after_step() handles motor
+        processing with full metrics.
+        """
+        m1_active = self._in_eom or self.force_gate_open
+
         for _name, s in self._regions.items():
             if s.motor:
                 assert isinstance(s.region, MotorRegion)
@@ -585,8 +561,6 @@ class Topology:
                         )
                         entry_region.set_efference_copy(ef_encoding)
 
-        self._total_steps += 1
-
     # ------------------------------------------------------------------
     # Run loop
     # ------------------------------------------------------------------
@@ -603,456 +577,16 @@ class Topology:
         if self._entry_name is None:
             raise ValueError("No entry region. Call add_region(..., entry=True).")
 
-        # metric_interval controls how often expensive decode/prediction
-        # metrics are computed. Default (0) = every log_interval steps.
-        # Set to 1 for full resolution (slower), or N for every Nth step.
-        if metric_interval <= 0:
-            metric_interval = max(1, log_interval)
-
-        topo_order = self._topo_order()
-        entry_name = self._entry_name
-        entry_state = self._regions[entry_name]
-        entry_region = entry_state.region
-        k = entry_region.k_columns
-
-        # Per-region metrics accumulators
-        metrics: dict[str, RunMetrics] = {name: RunMetrics() for name in self._regions}
-        # BPC probes (entry region only)
-        bpc_probe = None
-        if entry_state.dendritic_decoder:
-            from step.probes.bpc import BPCProbe
-
-            bpc_probe = BPCProbe()
-        from step.probes.centroid_bpc import CentroidBPCProbe
-
-        centroid_probe = CentroidBPCProbe(source_dim=entry_region.n_l23_total)
-        # Per-surprise-connection modulator lists, keyed by target name
-        surprise_modulators: dict[str, list[float]] = {}
-        thalamic_readiness: dict[str, list[float]] = {}
-        reward_modulators: dict[str, list[float]] = {}
-        for conn in self._connections:
-            if conn.surprise_tracker is not None:
-                surprise_modulators[conn.target] = []
-            if conn.thalamic_gate is not None:
-                thalamic_readiness[f"{conn.source}->{conn.target}"] = []
-            if conn.reward_modulator is not None:
-                reward_modulators[conn.target] = []
-
-        # Turn-taking state for motor RL (Stage 1)
-        # Use persistent instance state so EOM carries across run() calls.
-        _max_speak_steps = 20  # Anti-rambling: penalize after this many steps
-
-        prediction_log: list[tuple[str, str, str, str, str]] = []
-        start = time.monotonic()
-
-        for t, (token_id, token_str) in enumerate(tokens):
-            # -- Story boundary --
-            if token_id == STORY_BOUNDARY:
-                if bpc_probe is not None:
-                    bpc_probe.dialogue_boundary()
-                centroid_probe.dialogue_boundary()
-                for s in self._regions.values():
-                    s.region.reset_working_memory()
-                    s.rep_tracker.reset_context()
-                    if s.basal_ganglia is not None:
-                        s.basal_ganglia.reset()
-                for conn in self._connections:
-                    if conn._buffer is not None:
-                        conn._buffer[:] = 0.0
-                        conn._buffer_pos = 0
-                    if conn.thalamic_gate is not None:
-                        conn.thalamic_gate.reset()
-                _reset = getattr(self._encoder, "reset", None)
-                if _reset is not None:
-                    _reset()
-                self._in_eom = False
-                self._eom_steps = 0
-                for conn in self._connections:
-                    if conn.reward_modulator is not None:
-                        conn.reward_modulator.reset()
-                if self._reward_source is not None:
-                    _rs_reset = getattr(self._reward_source, "reset", None)
-                    if _rs_reset is not None:
-                        _rs_reset()
-                continue
-
-            # -- EOM token: signal turn boundary for motor RL --
-            if token_id == EOM_TOKEN:
-                self._in_eom = True
-                self._eom_steps = 0
-                continue
-
-            # Track turn-taking state
-            if self._in_eom:
-                self._eom_steps += 1
-                # Auto-exit EOM phase after max speaking steps
-                if self._eom_steps > _max_speak_steps:
-                    self._in_eom = False
-
-            # Snapshot L2/3 binary state before processing (for dendritic decoder)
-            prev_l23 = entry_region.active_l23.copy()
-
-            # Motor regions process when: EOM phase, gate forced open, or
-            # learning enabled (listening phase — M1 observes to build
-            # internal representations before babbling).
-            m1_active = self._in_eom or self.force_gate_open
-            for _mn, _ms in self._regions.items():
-                if _ms.motor and _ms.region.learning_enabled:
-                    m1_active = True
-                    break
-
-            # Snapshot motor L2/3 before processing (for motor decoder training)
-            prev_motor_l23: dict[str, np.ndarray] = {}
-            if m1_active:
-                for _mn, _ms in self._regions.items():
-                    if _ms.motor and _ms.motor_decoder is not None:
-                        prev_motor_l23[_mn] = _ms.region.active_l23.copy()
-
-            # -- Process in topo order (multi-ff supported) --
-            encoding = self._encoder.encode(token_str)
-            self._propagate_feedforward(topo_order, entry_name, encoding)
-
-            # -- Inter-region signals (after all regions processed) --
-            for conn in self._connections:
-                if not conn.enabled:
-                    continue
-                src = self._regions[conn.source].region
-                tgt = self._regions[conn.target].region
-
-                if conn.surprise_tracker is not None:
-                    n_active = int(src.active_columns.sum())
-                    n_bursting = int(src.bursting_columns.sum())
-                    burst_rate = n_bursting / max(n_active, 1)
-                    modulator = conn.surprise_tracker.update(burst_rate)
-                    tgt.surprise_modulator = modulator
-                    surprise_modulators[conn.target].append(modulator)
-
-                if conn.role == ConnectionRole.APICAL and tgt.has_apical:
-                    src_lamina = src.get_lamina(conn.source_lamina)
-                    r_active = int(src.active_columns.sum())
-                    r_bursting = int(src.bursting_columns.sum())
-                    confidence = 1.0 - (r_bursting / max(r_active, 1))
-                    signal = src_lamina.firing_rate * confidence
-                    if conn.thalamic_gate is not None:
-                        tgt_active = int(tgt.active_columns.sum())
-                        tgt_bursting = int(tgt.bursting_columns.sum())
-                        tgt_burst_rate = tgt_bursting / max(tgt_active, 1)
-                        readiness = conn.thalamic_gate.update(tgt_burst_rate)
-                        signal = signal * readiness
-                        key = f"{conn.source}->{conn.target}"
-                        thalamic_readiness[key].append(readiness)
-                    tgt.set_apical_context(signal, source_name=conn.source)
-
-            # -- Per-region bookkeeping (sampled to reduce overhead) --
-            is_metric_step = (t % metric_interval == 0) or (t < 100)
-            for _name, s in self._regions.items():
-                if is_metric_step:
-                    s.rep_tracker.observe(
-                        token_id, s.region.active_columns, s.region.active_l4
-                    )
-                if s.diagnostics is not None and is_metric_step:
-                    s.diagnostics.step(t, s.region)
-                if s.timeline is not None and t % self._timeline_interval == 0:
-                    s.timeline.capture(
-                        len(s.timeline.frames),
-                        s.region,
-                        s.region.last_column_drive,
-                    )
-
-            # -- Motor metrics + reward --
-            for _name, s in self._regions.items():
-                if s.motor:
-                    assert isinstance(s.region, MotorRegion)
-                    motor_region = s.region
-                    # observe_token only during active phase (M1 processed)
-                    if m1_active:
-                        motor_region.observe_token(token_id)
-                    if self._total_steps > 0:
-                        # BG gating: always step (learns from both phases)
-                        gate = 1.0
-                        if s.basal_ganglia is not None:
-                            precision = (~entry_region.bursting_columns).astype(
-                                np.float64
-                            )
-                            prec_frac = precision.sum() / max(
-                                entry_region.n_columns,
-                                1,
-                            )
-                            ctx = self._build_bg_ctx(precision, prec_frac)
-                            gate = s.basal_ganglia.step(ctx)
-                            if self.force_gate_open:
-                                gate = 1.0
-                            motor_region.output_scores *= gate
-                            metrics[_name].bg_gate_values.append(gate)
-
-                        if m1_active:
-                            # M1 processed this step — compute output + metrics
-                            pop_id, pop_conf = motor_region.get_population_output()
-                            if s.motor_decoder is not None:
-                                dec_id, _dec_conf = motor_region.get_decoded_output(
-                                    s.motor_decoder,
-                                )
-                            else:
-                                dec_id = -1
-                            m_id, m_conf = pop_id, pop_conf
-                        else:
-                            # M1 idle during input — silent output
-                            m_id, m_conf = -1, 0.0
-                            pop_id, dec_id = -1, -1
-
-                        metrics[_name].motor_confidences.append(m_conf)
-                        if m_id >= 0:
-                            metrics[_name].motor_accuracies.append(
-                                1.0 if m_id == token_id else 0.0
-                            )
-                        # Track both methods independently
-                        if pop_id >= 0:
-                            metrics[_name].motor_population_accuracies.append(
-                                1.0 if pop_id == token_id else 0.0,
-                            )
-                        if dec_id >= 0:
-                            metrics[_name].motor_decoder_accuracies.append(
-                                1.0 if dec_id == token_id else 0.0,
-                            )
-
-                        # -- Motor reward --
-                        spoke = m_id >= 0
-                        if self._reward_source is not None:
-                            m_char = chr(m_id) if spoke and 32 <= m_id < 127 else None
-                            reward = self._compute_pluggable_reward(
-                                m_char,
-                                entry_region,
-                            )
-                        else:
-                            reward = self._compute_turn_reward(
-                                spoke,
-                                self._in_eom,
-                                self._eom_steps,
-                                _max_speak_steps,
-                            )
-                        metrics[_name].motor_rewards.append(reward)
-
-                        # Expose last-step state for interactive use
-                        motor_region.last_output = (m_id, m_conf)
-                        motor_region.last_gate = gate
-                        motor_region.last_reward = reward
-
-                        # BG reward: send computed reward to update gate weights
-                        if s.basal_ganglia is not None:
-                            if self._reward_source is not None:
-                                # Pluggable reward: send directly to BG
-                                s.basal_ganglia.reward(reward)
-                            else:
-                                # Default: turn-taking gate error
-                                gate_target = 1.0 if self._in_eom else 0.0
-                                gate_error = gate_target - s.basal_ganglia.gate_value
-                                s.basal_ganglia.reward(gate_error)
-
-                        # -- Turn-taking behavioral counters --
-                        m = metrics[_name]
-                        if self._in_eom:
-                            m.turn_eom_steps += 1
-                            if spoke:
-                                if self._eom_steps > _max_speak_steps:
-                                    m.turn_rambles += 1
-                                else:
-                                    m.turn_correct_speak += 1
-                            else:
-                                m.turn_unresponsive += 1
-                        else:
-                            m.turn_input_steps += 1
-                            if spoke:
-                                m.turn_interruptions += 1
-                            else:
-                                m.turn_correct_silent += 1
-
-                        # Apply reward through connections with reward modulators
-                        for conn in self._connections:
-                            if (
-                                conn.source == _name
-                                and conn.reward_modulator is not None
-                            ):
-                                mod = conn.reward_modulator.update(reward)
-                                tgt = self._regions[conn.target].region
-                                tgt.reward_modulator = mod
-                                reward_modulators[conn.target].append(mod)
-
-                        # Efference copy: only during generation (gate forced open)
-                        if m_id >= 0 and self.force_gate_open:
-                            ef_encoding = self._encoder.encode(
-                                chr(m_id) if m_id < 128 else "",
-                            )
-                            entry_region.set_efference_copy(ef_encoding)
-
-                        # Train motor decoder: previous M1 L2/3 → current token
-                        if s.motor_decoder is not None and _name in prev_motor_l23:
-                            s.motor_decoder.observe(
-                                token_id,
-                                prev_motor_l23[_name],
-                            )
-
-            # -- Entry metrics (expensive decodes sampled at metric intervals) --
-            if is_metric_step and t > 0:
-                predicted_neurons = entry_region.get_prediction(k)
-                active_l4_indices = np.nonzero(entry_region.active_l4)[0]
-
-                # Overlap
-                if len(active_l4_indices) > 0 and len(predicted_neurons) > 0:
-                    n_hit = np.isin(active_l4_indices, predicted_neurons).sum()
-                    overlap = n_hit / len(active_l4_indices)
-                else:
-                    overlap = 0.0
-                metrics[entry_name].overlaps.append(overlap)
-
-                # Decoder accuracies
-                assert entry_state.syn_decoder is not None
-                assert entry_state.decode_index is not None
-                assert entry_state.dendritic_decoder is not None
-                syn_id, syn_str = entry_state.syn_decoder.decode_synaptic(
-                    predicted_neurons, entry_region
-                )
-                col_id, col_str = entry_state.syn_decoder.decode_columns(
-                    predicted_neurons, entry_region.n_l4
-                )
-                predicted_set = frozenset(int(i) for i in predicted_neurons)
-                idx_predicted = entry_state.decode_index.decode(predicted_set)
-                den_predictions = entry_state.dendritic_decoder.decode(
-                    entry_region.active_l23
-                )
-                den_id = den_predictions[0] if den_predictions else -1
-
-                metrics[entry_name].accuracies.append(
-                    1.0 if idx_predicted == token_id else 0.0
-                )
-                metrics[entry_name].synaptic_accuracies.append(
-                    1.0 if syn_id == token_id else 0.0
-                )
-                metrics[entry_name].column_accuracies.append(
-                    1.0 if col_id == token_id else 0.0
-                )
-                metrics[entry_name].dendritic_accuracies.append(
-                    1.0 if den_id == token_id else 0.0
-                )
-
-                if show_predictions > 0:
-                    idx_str = ""
-                    if (
-                        idx_predicted >= 0
-                        and idx_predicted in entry_state.syn_decoder._token_id_set
-                    ):
-                        for i, tid in enumerate(entry_state.syn_decoder._token_ids):
-                            if tid == idx_predicted:
-                                idx_str = entry_state.syn_decoder._token_strs[i]
-                                break
-                    den_str = ""
-                    if den_id >= 0 and den_id in entry_state.syn_decoder._token_id_set:
-                        for i, tid in enumerate(entry_state.syn_decoder._token_ids):
-                            if tid == den_id:
-                                den_str = entry_state.syn_decoder._token_strs[i]
-                                break
-                    prediction_log.append(
-                        (token_str, den_str, idx_str, col_str, syn_str)
-                    )
-
-            # BPC: measure prediction quality (sampled at metric intervals)
-            if bpc_probe is not None and is_metric_step and t > 0:
-                assert entry_state.dendritic_decoder is not None
-                bpc_probe.step(
-                    token_id,
-                    entry_region.active_l23,
-                    entry_state.dendritic_decoder,
-                )
-            if is_metric_step and t > 0:
-                centroid_probe.step(token_id, prev_l23)
-            centroid_probe.observe(token_id, prev_l23)
-
-            # -- Decoder training (every step — cheap, drives learning) --
-            assert entry_state.decode_index is not None
-            assert entry_state.syn_decoder is not None
-            assert entry_state.dendritic_decoder is not None
-            if token_id not in entry_state.decode_index._token_id_to_idx:
-                active_set = frozenset(
-                    int(i) for i in np.nonzero(entry_region.active_l4)[0]
-                )
-                entry_state.decode_index.observe(token_id, active_set)
-            entry_state.syn_decoder.observe(
-                token_id, token_str, encoding, entry_region.active_columns
-            )
-            entry_state.dendritic_decoder.observe(token_id, prev_l23)
-
-            # Train word decoders on all non-entry regions
-            for _wd_name, _wd_state in self._regions.items():
-                if _wd_state.word_decoder is not None:
-                    _wd_state.word_decoder.step(
-                        token_str, _wd_state.region.firing_rate_l23
-                    )
-
-            self._total_steps += 1
-
-            # -- Logging --
-            if (
-                t > 0
-                and t % log_interval == 0
-                and metrics[entry_name].dendritic_accuracies
-            ):
-                self._log_step(
-                    t,
-                    start,
-                    entry_name,
-                    metrics,
-                    surprise_modulators,
-                    thalamic_readiness,
-                    reward_modulators,
-                    rolling_window,
-                    show_predictions,
-                    prediction_log,
-                    bpc_probe,
-                    centroid_probe,
-                )
-
-        elapsed = time.monotonic() - start
-
-        # -- Finalize per-region representation summaries --
-        for name, s in self._regions.items():
-            m = metrics[name]
-            m.elapsed_seconds = elapsed
-            rep_summ = s.rep_tracker.summary(s.region.ff_weights)
-            sel = s.rep_tracker.column_selectivity()
-            rep_summ["column_selectivity_per_col"] = sel["per_column"]
-            m.representation = rep_summ
-
-        # Store BPC in entry metrics
-        if bpc_probe is not None:
-            # Flush last dialogue
-            bpc_probe.dialogue_boundary()
-            entry_m = metrics[entry_name]
-            entry_m.bpc = bpc_probe.bpc
-            entry_m.bpc_recent = bpc_probe.recent_bpc
-            entry_m.bpc_per_dialogue = bpc_probe.dialogue_bpcs
-            entry_m.bpc_boundary = bpc_probe.boundary_bpcs
-            entry_m.bpc_steady = bpc_probe.steady_bpcs
-
-        # Store centroid BPC
-        centroid_probe.dialogue_boundary()
-        entry_m = metrics[entry_name]
-        entry_m.centroid_bpc = centroid_probe.bpc
-        entry_m.centroid_bpc_recent = centroid_probe.recent_bpc
-
-        # Print representation reports
-        if len(self._regions) == 1:
-            entry_state.rep_tracker.print_report(entry_region.ff_weights)
-        else:
-            for name, s in self._regions.items():
-                print(f"\n--- {name} ---")
-                s.rep_tracker.print_report(s.region.ff_weights)
-
-        return CortexResult(
-            per_region=metrics,
-            surprise_modulators=surprise_modulators,
-            thalamic_readiness=thalamic_readiness,
-            reward_modulators=reward_modulators,
-            elapsed_seconds=elapsed,
+        hooks = RunHooks(
+            self,
+            log_interval=log_interval,
+            rolling_window=rolling_window,
+            show_predictions=show_predictions,
+            metric_interval=metric_interval,
         )
+        for t, (token_id, token_str) in enumerate(tokens):
+            self.step(token_id, token_str, hooks=hooks, t=t)
+        return hooks.finalize()
 
     # ------------------------------------------------------------------
     # Babbling loop (Stages 2-3)
@@ -2048,7 +1582,8 @@ class Topology:
                     tgt_active = max(int(tgt.active_columns.sum()), 1)
                     tgt_bursting = int(tgt.bursting_columns.sum())
                     tgt_burst_rate = tgt_bursting / tgt_active
-                    conn.thalamic_gate.update(tgt_burst_rate)
+                    readiness = conn.thalamic_gate.update(tgt_burst_rate)
+                    signal = signal * readiness
                 tgt.set_apical_context(signal, source_name=conn.source)
 
     def _build_bg_ctx(self, precision: np.ndarray, prec_frac: float) -> np.ndarray:
@@ -2236,168 +1771,4 @@ class Topology:
         assert self._topo_cache is not None
         return self._topo_cache
 
-    def _log_step(
-        self,
-        t: int,
-        start: float,
-        entry_name: str,
-        metrics: dict[str, RunMetrics],
-        surprise_modulators: dict[str, list[float]],
-        thalamic_readiness: dict[str, list[float]],
-        reward_modulators: dict[str, list[float]],
-        rolling_window: int,
-        show_predictions: int,
-        prediction_log: list[tuple[str, str, str, str, str]],
-        bpc_probe: BPCProbe | None = None,
-        centroid_probe: CentroidBPCProbe | None = None,
-    ):
-        entry_metrics = metrics[entry_name]
-        entry_diag = self._regions[entry_name].diagnostics
-
-        tail_den = entry_metrics.dendritic_accuracies[-rolling_window:]
-        roll_den = sum(tail_den) / len(tail_den) if tail_den else 0.0
-        tail_syn = entry_metrics.synaptic_accuracies[-rolling_window:]
-        roll_syn = sum(tail_syn) / len(tail_syn)
-        tail_o = entry_metrics.overlaps[-rolling_window:]
-        roll_o = sum(tail_o) / len(tail_o)
-        elapsed = time.monotonic() - start
-
-        burst_pct = 0.0
-        if entry_diag is not None:
-            bc = entry_diag._burst_count
-            pc = entry_diag._precise_count
-            total = bc + pc
-            burst_pct = bc / total if total > 0 else 0.0
-
-        label = entry_name if len(self._regions) > 1 else "cortex"
-
-        # Surprise modulator info
-        mod_str = ""
-        if surprise_modulators:
-            multi = len(surprise_modulators) > 1
-            for tgt, mods in surprise_modulators.items():
-                if mods:
-                    tail_mod = mods[-rolling_window:]
-                    avg_mod = sum(tail_mod) / len(tail_mod)
-                    tag = f"mod({tgt})" if multi else "mod"
-                    mod_str += f" {tag}={avg_mod:.2f}"
-
-        # Thalamic gate readiness
-        gate_str = ""
-        if thalamic_readiness:
-            multi = len(thalamic_readiness) > 1
-            for key, vals in thalamic_readiness.items():
-                if vals:
-                    tail_gate = vals[-rolling_window:]
-                    avg_gate = sum(tail_gate) / len(tail_gate)
-                    tag = f"gate({key})" if multi else "gate"
-                    gate_str += f" {tag}={avg_gate:.2f}"
-
-        # Reward modulator info
-        reward_str = ""
-        if reward_modulators:
-            multi = len(reward_modulators) > 1
-            for tgt, rews in reward_modulators.items():
-                if rews:
-                    tail_rew = rews[-rolling_window:]
-                    avg_rew = sum(tail_rew) / len(tail_rew)
-                    tag = f"rew({tgt})" if multi else "rew"
-                    reward_str += f" {tag}={avg_rew:.2f}"
-
-        # Motor accuracy
-        motor_str = ""
-        for _name, s in self._regions.items():
-            if s.motor:
-                m = metrics[_name]
-                if m.motor_accuracies:
-                    tail_m = m.motor_accuracies[-rolling_window:]
-                    roll_m = sum(tail_m) / len(tail_m)
-                    # Silence rate: steps with confidence 0 / total steps
-                    tail_c = m.motor_confidences[-rolling_window:]
-                    silence = sum(1 for c in tail_c if c == 0.0) / max(len(tail_c), 1)
-                    motor_str += f" M1={roll_m:.4f} sil={silence:.0%}"
-                    # Compare decoder vs population accuracy
-                    if m.motor_decoder_accuracies:
-                        tail_dec = m.motor_decoder_accuracies[-rolling_window:]
-                        roll_dec = sum(tail_dec) / len(tail_dec)
-                        motor_str += f" dec={roll_dec:.4f}"
-                    if m.motor_population_accuracies:
-                        tail_pop = m.motor_population_accuracies[-rolling_window:]
-                        roll_pop = sum(tail_pop) / len(tail_pop)
-                        motor_str += f" pop={roll_pop:.4f}"
-                    # Average reward
-                    if m.motor_rewards:
-                        tail_r = m.motor_rewards[-rolling_window:]
-                        avg_r = sum(tail_r) / len(tail_r)
-                        motor_str += f" r={avg_r:+.3f}"
-                    # Turn-taking rates
-                    if m.turn_eom_steps > 0 or m.turn_input_steps > 0:
-                        eom_t = m.turn_eom_steps
-                        inp_t = m.turn_input_steps
-                        intr = m.turn_interruptions / inp_t if inp_t > 0 else 0
-                        unre = m.turn_unresponsive / eom_t if eom_t > 0 else 0
-                        motor_str += f" int={intr:.0%} unr={unre:.0%}"
-                        if m.turn_rambles > 0:
-                            motor_str += f" ram={m.turn_rambles}"
-                    # BG gate value
-                    if m.bg_gate_values:
-                        tail_g = m.bg_gate_values[-rolling_window:]
-                        avg_g = sum(tail_g) / len(tail_g)
-                        motor_str += f" bg={avg_g:.2f}"
-
-        # BPC info
-        bpc_str = ""
-        if bpc_probe is not None and bpc_probe.bpc < float("inf"):
-            bpc_str = f" bpc={bpc_probe.recent_bpc:.2f}"
-            # Show boundary vs steady-state BPC (last 5 dialogues)
-            bdry = bpc_probe.boundary_bpcs[-5:]
-            stdy = bpc_probe.steady_bpcs[-5:]
-            if bdry and stdy:
-                avg_b = sum(bdry) / len(bdry)
-                avg_s = sum(stdy) / len(stdy)
-                bpc_str += f" bdry={avg_b:.2f} stdy={avg_s:.2f}"
-        if (
-            centroid_probe is not None
-            and centroid_probe.n_tokens > 1
-            and centroid_probe.bpc < float("inf")
-        ):
-            bpc_str += f" cbpc={centroid_probe.recent_bpc:.2f}"
-        # Decoder BPC: approximate from dendritic decoder accuracy
-        if roll_den > 0.001:
-            import math
-
-            dbpc = -math.log2(max(roll_den, 1e-10))
-            bpc_str += f" dbpc={dbpc:.2f}"
-
-        print(
-            f"  [{label}] t={t:,} "
-            f"den={roll_den:.4f} "
-            f"syn={roll_syn:.4f} "
-            f"overlap={roll_o:.4f} "
-            f"burst={burst_pct:.1%}"
-            f"{bpc_str}{mod_str}{gate_str}{reward_str}{motor_str} "
-            f"({elapsed:.1f}s)"
-        )
-
-        if show_predictions > 0 and prediction_log:
-            samples = prediction_log[-show_predictions:]
-            hdr = (
-                f"{'actual':>12s} | {'den':>12s} | {'idx':>12s} "
-                f"| {'col':>12s} | {'syn':>12s}"
-            )
-            sep = f"{'-' * 12}-+-" * 4 + f"{'-' * 12}"
-            print(f"    {hdr}")
-            print(f"    {sep}")
-            for actual, den_p, idx_p, col_p, syn_p in samples:
-                fmt = lambda s: repr(s)[:12].ljust(12)  # noqa: E731
-                marks = [
-                    "*" if p == actual else " " for p in (den_p, idx_p, col_p, syn_p)
-                ]
-                print(
-                    f"    {fmt(actual)} "
-                    f"|{marks[0]}{fmt(den_p)} "
-                    f"|{marks[1]}{fmt(idx_p)} "
-                    f"|{marks[2]}{fmt(col_p)} "
-                    f"|{marks[3]}{fmt(syn_p)}"
-                )
-            prediction_log.clear()
+    # _log_step has been moved to RunHooks._log_step
