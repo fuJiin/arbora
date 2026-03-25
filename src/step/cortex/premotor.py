@@ -23,6 +23,7 @@ Biologically maps to Broca's area / ventral premotor cortex:
 
 import numpy as np
 
+from step.config import PlasticityRule
 from step.cortex.region import CorticalRegion
 
 
@@ -34,7 +35,7 @@ class PremotorRegion(CorticalRegion):
     sequences so M2 can "play back" learned motor programs.
 
     The output to M1 is feedforward (additive drive), replacing the
-    direct PFC→M1 goal drive for sequences longer than 2-3 chars.
+    direct PFC->M1 goal drive for sequences longer than 2-3 chars.
     """
 
     def __init__(
@@ -45,6 +46,7 @@ class PremotorRegion(CorticalRegion):
         k_columns: int = 4,
         voltage_decay: float = 0.7,
         learning_rate: float = 0.05,
+        plasticity_rule: PlasticityRule = PlasticityRule.THREE_FACTOR,
         seed: int = 0,
         **kwargs,
     ):
@@ -54,6 +56,7 @@ class PremotorRegion(CorticalRegion):
             k_columns=k_columns,
             voltage_decay=voltage_decay,
             learning_rate=learning_rate,
+            plasticity_rule=plasticity_rule,
             seed=seed,
             **kwargs,
         )
