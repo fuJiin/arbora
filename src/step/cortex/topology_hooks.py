@@ -18,11 +18,11 @@ from step.cortex.topology_types import (
     CortexResult,
     RunMetrics,
 )
+from step.probes.bpc import BPCProbe
+from step.probes.centroid_bpc import CentroidBPCProbe
 
 if TYPE_CHECKING:
     from step.cortex.topology import Topology
-    from step.probes.bpc import BPCProbe
-    from step.probes.centroid_bpc import CentroidBPCProbe
 
 
 class StepHooks(Protocol):
@@ -89,14 +89,8 @@ class RunHooks:
         # BPC probes (entry region only)
         self._bpc_probe: BPCProbe | None = None
         if entry_state.dendritic_decoder:
-            from step.probes.bpc import BPCProbe
-
             self._bpc_probe = BPCProbe()
-        from step.probes.centroid_bpc import CentroidBPCProbe
-
-        self._centroid_probe: CentroidBPCProbe = CentroidBPCProbe(
-            source_dim=entry_region.n_l23_total
-        )
+        self._centroid_probe = CentroidBPCProbe(source_dim=entry_region.n_l23_total)
 
         # Per-surprise-connection modulator lists, keyed by target name
         self._surprise_modulators: dict[str, list[float]] = {}
