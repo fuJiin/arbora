@@ -20,7 +20,6 @@ Usage:
 
 import argparse
 import os
-import time
 from dataclasses import replace
 
 import step.env  # noqa: F401
@@ -137,18 +136,26 @@ def run_stage(
             cortex._reward_source.seed_vocabulary(vocab)
             print(f"  Seeded caregiver with {len(vocab)} words from corpus")
 
-    # Choose run mode: babbling (autoregressive) or corpus-driven
+    # Choose run mode: babbling (interleaved) or corpus-driven
     is_babbling = stage.babbling_noise > 0 or stage.force_motor_active
 
     if is_babbling:
         # Interleaved: alternate listening (corpus) and babbling (autoregressive)
-        print(f"  Mode: interleaved listen+babble (noise={stage.babbling_noise})")
-        result = cortex.run_interleaved(
+        # babble_ratio: fraction of total steps that are babbling
+        # n_babble_target = len(tokens) * ratio / (1 - ratio) = stage.n_tokens
+        # => ratio = n_tokens / (n_tokens + len(tokens))
+        n_listen = len(tokens)
+        total = n_listen + stage.n_tokens
+        babble_ratio = stage.n_tokens / total if total > 0 else 0.0
+        print(
+            f"  Mode: interleaved listen+babble "
+            f"(noise={stage.babbling_noise}, ratio={babble_ratio:.2f})"
+        )
+        result = cortex.run(
             tokens,
-            stage.n_tokens,
+            babble_ratio=babble_ratio,
             log_interval=log_interval,
         )
-        elapsed = result["elapsed_seconds"]
     else:
         # Corpus-driven: standard token-by-token processing
         stage_tokens = tokens[: stage.n_tokens]
@@ -158,11 +165,9 @@ def run_stage(
                 f"(requested {stage.n_tokens:,})"
             )
 
-        start = time.monotonic()
         result = cortex.run(stage_tokens, log_interval=log_interval)
-        elapsed = time.monotonic() - start
 
-    print(f"\nStage '{stage.name}' completed in {elapsed:.1f}s")
+    print(f"\nStage '{stage.name}' completed in {result.elapsed_seconds:.1f}s")
 
     # Save checkpoint
     if stage.save_checkpoint:
@@ -171,27 +176,27 @@ def run_stage(
         cortex.save_checkpoint(ckpt_path)
         print(f"Saved checkpoint: {ckpt_path}")
 
-    # Save run data (babbling returns dict, corpus returns CortexResult)
-    if not is_babbling:
-        run_dir = save_run(
-            name=f"staged-{stage.name}-{stage.n_tokens // 1000}k",
-            timelines=dict(cortex.timelines),
-            diagnostics=dict(cortex.diagnostics),
-            result=result,
-            region_configs={},
-            meta_extra={
-                "stage": stage.name,
-                "n_tokens": stage.n_tokens,
-                "learning_regions": stage.learning_regions,
-                "encoder": "PositionalCharEncoder",
-            },
-        )
-        print(f"Run saved: {run_dir}")
-    else:
+    # Save run data (now always CortexResult)
+    run_dir = save_run(
+        name=f"staged-{stage.name}-{stage.n_tokens // 1000}k",
+        timelines=dict(cortex.timelines),
+        diagnostics=dict(cortex.diagnostics),
+        result=result,
+        region_configs={},
+        meta_extra={
+            "stage": stage.name,
+            "n_tokens": stage.n_tokens,
+            "learning_regions": stage.learning_regions,
+            "encoder": "PositionalCharEncoder",
+        },
+    )
+    print(f"Run saved: {run_dir}")
+
+    if is_babbling and result.babble_tokens_produced:
         print(
             f"  Babbling summary: "
-            f"{len(result['tokens_produced'])} chars produced, "
-            f"{len(result['unique_tokens'])} unique"
+            f"{len(result.babble_tokens_produced)} chars produced, "
+            f"{len(result.babble_unique_tokens)} unique"
         )
 
     return result
