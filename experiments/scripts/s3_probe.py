@@ -124,7 +124,7 @@ def main():
         def make_capture(n, r, o):
             def cap(enc):
                 result = o(enc)
-                snaps[n].append((r.active_columns.copy(), r.active_l23.copy()))
+                snaps[n].append((r.active_columns.copy(), r.l23.active.copy()))
                 return result
 
             return cap

@@ -21,9 +21,9 @@ class WordDecoder:
     Usage:
         decoder = WordDecoder(source_dim=region.n_l23_total)
         # Each step:
-        decoder.step(char, region.firing_rate_l23)
+        decoder.step(char, region.l23.firing_rate)
         # To read:
-        decoder.predict(region.firing_rate_l23, k=3)
+        decoder.predict(region.l23.firing_rate, k=3)
     """
 
     def __init__(

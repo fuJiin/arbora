@@ -37,15 +37,15 @@ class Timeline:
     def capture(self, t: int, region: CorticalRegion, column_drive: np.ndarray):
         """Call after region.step() to capture current state."""
         active_cols = np.nonzero(region.active_columns)[0].tolist()
-        active_l4 = np.nonzero(region.active_l4)[0].tolist()
-        active_l23 = np.nonzero(region.active_l23)[0].tolist()
+        active_l4 = np.nonzero(region.l4.active)[0].tolist()
+        active_l23 = np.nonzero(region.l23.active)[0].tolist()
 
         ff_norms = np.linalg.norm(region.ff_weights, axis=0)
 
-        voltage_by_col = region.voltage_l4.reshape(region.n_columns, region.n_l4).max(
+        voltage_by_col = region.l4.voltage.reshape(region.n_columns, region.n_l4).max(
             axis=1
         )
-        excitability_by_col = region.excitability_l4.reshape(
+        excitability_by_col = region.l4.excitability.reshape(
             region.n_columns, region.n_l4
         ).max(axis=1)
 

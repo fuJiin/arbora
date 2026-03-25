@@ -164,23 +164,6 @@ class CorticalRegion:
         self._lat_source_pool = np.arange(self.n_l4_total)
         self._l23_source_pool = np.arange(self.n_l23_total)
 
-        # --- Backward-compat aliases (delegate to Lamina instances) ---
-        # TODO: migrate consumers to self.l4.*, self.l23.*, self.l5.*
-        self.voltage_l4 = self.l4.voltage
-        self.voltage_l23 = self.l23.voltage
-        self.excitability_l4 = self.l4.excitability
-        self.excitability_l23 = self.l23.excitability
-        self.active_l4 = self.l4.active
-        self.active_l23 = self.l23.active
-        self.active_l5 = self.l5.active
-        self.predicted_l4 = self.l4.predicted
-        self.predicted_l23 = self.l23.predicted
-        self.predicted_l5 = self.l5.predicted
-        self.trace_l4 = self.l4.trace
-        self.trace_l23 = self.l23.trace
-        self.firing_rate_l23 = self.l23.firing_rate
-        self.firing_rate_l5 = self.l5.firing_rate
-
         # Column-level state (not per-lamina)
         self.active_columns = np.zeros(n_columns, dtype=np.bool_)
         self.bursting_columns = np.zeros(n_columns, dtype=np.bool_)
@@ -359,8 +342,8 @@ class CorticalRegion:
         if len(active_cols) == 0:
             return np.empty(0, dtype=np.intp)
 
-        voltage_by_col = self.voltage_l4.reshape(self.n_columns, self.n_l4)
-        active_by_col = self.active_l4.reshape(self.n_columns, self.n_l4)
+        voltage_by_col = self.l4.voltage.reshape(self.n_columns, self.n_l4)
+        active_by_col = self.l4.active.reshape(self.n_columns, self.n_l4)
         is_burst = self.bursting_columns[active_cols]
 
         winner_indices = np.empty(len(active_cols), dtype=np.intp)
@@ -704,23 +687,23 @@ class CorticalRegion:
 
     def reset_working_memory(self):
         """Reset transient state, preserving learned synaptic weights and segments."""
-        self.voltage_l4[:] = 0.0
-        self.voltage_l23[:] = 0.0
-        self.firing_rate_l23[:] = 0.0
-        self.firing_rate_l5[:] = 0.0
-        self.active_l5[:] = False
+        self.l4.voltage[:] = 0.0
+        self.l23.voltage[:] = 0.0
+        self.l23.firing_rate[:] = 0.0
+        self.l5.firing_rate[:] = 0.0
+        self.l5.active[:] = False
         self.output_scores[:] = 0.0
-        self.trace_l4[:] = 0.0
-        self.trace_l23[:] = 0.0
-        self.excitability_l4[:] = 0.0
-        self.excitability_l23[:] = 0.0
-        self.active_l4[:] = False
-        self.active_l23[:] = False
+        self.l4.trace[:] = 0.0
+        self.l23.trace[:] = 0.0
+        self.l4.excitability[:] = 0.0
+        self.l23.excitability[:] = 0.0
+        self.l4.active[:] = False
+        self.l23.active[:] = False
         self.active_columns[:] = False
         self.bursting_columns[:] = False
-        self.predicted_l4[:] = False
-        self.predicted_l23[:] = False
-        self.predicted_l5[:] = False
+        self.l4.predicted[:] = False
+        self.l23.predicted[:] = False
+        self.l5.predicted[:] = False
         self._pred_context_l23[:] = False
         self._pred_context_l4[:] = False
         self._efference_copy = None
@@ -771,10 +754,10 @@ class CorticalRegion:
         """
         predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
         self._check_segments(
-            self.active_l23, self.fb_seg_indices, self.fb_seg_perm, predicted
+            self.l23.active, self.fb_seg_indices, self.fb_seg_perm, predicted
         )
         self._check_segments(
-            self.active_l4, self.lat_seg_indices, self.lat_seg_perm, predicted
+            self.l4.active, self.lat_seg_indices, self.lat_seg_perm, predicted
         )
         return predicted
 
@@ -796,26 +779,26 @@ class CorticalRegion:
             Array of global indices of active L4 neurons.
         """
         # 1. Decay voltages
-        self.voltage_l4 *= self.voltage_decay
-        self.voltage_l23 *= self.voltage_decay
+        self.l4.voltage *= self.voltage_decay
+        self.l23.voltage *= self.voltage_decay
 
         # 2. Compute predictive state BEFORE feedforward input.
         self._compute_predictions()
 
         # 3. Save prediction-time context for segment learning
         #    (current active state is from the previous step)
-        self._pred_context_l23[:] = self.active_l23
-        self._pred_context_l4[:] = self.active_l4
+        self._pred_context_l23[:] = self.l23.active
+        self._pred_context_l4[:] = self.l4.active
         # Update continuous segment traces (STDP-like)
         if self._seg_trace_l23 is not None:
             self._seg_trace_l23 *= self._pre_trace_decay
-            self._seg_trace_l23[self.active_l23] += 1.0
+            self._seg_trace_l23[self.l23.active] += 1.0
         if self._seg_trace_l4 is not None:
             self._seg_trace_l4 *= self._pre_trace_decay
-            self._seg_trace_l4[self.active_l4] += 1.0
+            self._seg_trace_l4[self.l4.active] += 1.0
 
         # 4. Feedforward drive to L4 neurons
-        self.voltage_l4 += drive
+        self.l4.voltage += drive
 
         # 5a. Apical gating (linear gain mode only).
         #     When use_l5_apical_segments=True, apical acts on L5 instead
@@ -835,13 +818,13 @@ class CorticalRegion:
                     out=raw_gain,
                 )
                 raw_gain += 1.0
-                self.voltage_l4 *= raw_gain
+                self.l4.voltage *= raw_gain
 
         # 5b. Predicted neurons get a voltage boost (they're primed)
-        self.voltage_l4[self.predicted_l4] += self.fb_boost
+        self.l4.voltage[self.l4.predicted] += self.fb_boost
 
         # 6. Activate L4: top-k columns, then burst/precise per column
-        scores_l4 = self.voltage_l4 + self.excitability_l4
+        scores_l4 = self.l4.voltage + self.l4.excitability
         top_cols = self._select_columns(scores_l4)
         self._activate_l4_burst(top_cols, scores_l4)
 
@@ -869,25 +852,25 @@ class CorticalRegion:
         self._update_excitability()
 
         # 11. Refractory: reset voltage for active neurons
-        self.voltage_l4[self.active_l4] = 0.0
-        self.voltage_l23[self.active_l23] = 0.0
+        self.l4.voltage[self.l4.active] = 0.0
+        self.l23.voltage[self.l23.active] = 0.0
 
         # 12. Clamp voltage (bounded membrane potential)
-        np.clip(self.voltage_l4, 0.0, 1.0, out=self.voltage_l4)
-        np.clip(self.voltage_l23, 0.0, 1.0, out=self.voltage_l23)
+        np.clip(self.l4.voltage, 0.0, 1.0, out=self.l4.voltage)
+        np.clip(self.l23.voltage, 0.0, 1.0, out=self.l23.voltage)
 
         # 13. Update firing rate estimates (EMA of spike train)
-        self.firing_rate_l23 *= self.voltage_decay
-        self.firing_rate_l23[self.active_l23] += 1.0 - self.voltage_decay
-        self.firing_rate_l5 *= self.voltage_decay
-        self.firing_rate_l5[self.active_l5] += 1.0 - self.voltage_decay
+        self.l23.firing_rate *= self.voltage_decay
+        self.l23.firing_rate[self.l23.active] += 1.0 - self.voltage_decay
+        self.l5.firing_rate *= self.voltage_decay
+        self.l5.firing_rate[self.l5.active] += 1.0 - self.voltage_decay
 
         # 14. Update L5 output scores (per-column mean L5 firing rate)
-        self.output_scores[:] = self.firing_rate_l5.reshape(
+        self.output_scores[:] = self.l5.firing_rate.reshape(
             self.n_columns, self.n_l5
         ).mean(axis=1)
 
-        return np.nonzero(self.active_l4)[0]
+        return np.nonzero(self.l4.active)[0]
 
     def _predict_l23_from_segments(self) -> np.ndarray:
         """Check which L2/3 neurons have active lateral dendritic segments.
@@ -896,7 +879,7 @@ class CorticalRegion:
         """
         predicted = np.zeros(self.n_l23_total, dtype=np.bool_)
         self._check_segments(
-            self.active_l23, self.l23_seg_indices, self.l23_seg_perm, predicted
+            self.l23.active, self.l23_seg_indices, self.l23_seg_perm, predicted
         )
         return predicted
 
@@ -932,16 +915,16 @@ class CorticalRegion:
 
     def _compute_predictions(self):
         """Determine which neurons are in predictive state via segments."""
-        self.predicted_l4[:] = self._predict_from_segments()
-        self.predicted_l23[:] = self._predict_l23_from_segments()
+        self.l4.predicted[:] = self._predict_from_segments()
+        self.l23.predicted[:] = self._predict_l23_from_segments()
         # L5 prediction from lateral segments (if enabled)
         if self.n_l5_segments > 0:
-            self.predicted_l5[:] = self._predict_l5_lateral_from_segments()
+            self.l5.predicted[:] = self._predict_l5_lateral_from_segments()
         else:
-            self.predicted_l5[:] = False
+            self.l5.predicted[:] = False
         # L5 prediction from apical segments (additive, if enabled)
         if self.use_l5_apical_segments and self._apical_sources:
-            self.predicted_l5 |= self._predict_l5_from_segments()
+            self.l5.predicted |= self._predict_l5_from_segments()
 
     def _predict_l5_lateral_from_segments(self) -> np.ndarray:
         """Check which L5 neurons have active lateral dendritic segments.
@@ -954,7 +937,7 @@ class CorticalRegion:
         """
         predicted = np.zeros(self.n_l5_total, dtype=np.bool_)
         self._check_segments(
-            self.active_l5, self.l5_seg_indices, self.l5_seg_perm, predicted
+            self.l5.active, self.l5_seg_indices, self.l5_seg_perm, predicted
         )
         return predicted
 
@@ -999,10 +982,10 @@ class CorticalRegion:
         """
         self.active_columns[:] = False
         self.active_columns[top_cols] = True
-        self.active_l4[:] = False
+        self.l4.active[:] = False
         self.bursting_columns[:] = False
 
-        predicted_by_col = self.predicted_l4.reshape(self.n_columns, self.n_l4)
+        predicted_by_col = self.l4.predicted.reshape(self.n_columns, self.n_l4)
         scores_by_col = scores.reshape(self.n_columns, self.n_l4)
 
         # Work only with the winning columns
@@ -1014,7 +997,7 @@ class CorticalRegion:
         burst_cols = top_cols[~has_prediction]
         self.bursting_columns[burst_cols] = True
         if len(burst_cols) > 0:
-            active_l4_by_col = self.active_l4.reshape(self.n_columns, self.n_l4)
+            active_l4_by_col = self.l4.active.reshape(self.n_columns, self.n_l4)
             active_l4_by_col[burst_cols] = True
 
         # Precise columns: mask unpredicted neurons, pick best scorer
@@ -1026,7 +1009,7 @@ class CorticalRegion:
             p_scores[~p_predicted] = -np.inf
             winners = p_scores.argmax(axis=1)  # (n_precise,)
             global_indices = precise_cols * self.n_l4 + winners
-            self.active_l4[global_indices] = True
+            self.l4.active[global_indices] = True
 
     def _activate_l23(self, top_cols: np.ndarray):
         """Activate L2/3 associative neurons in active columns.
@@ -1040,40 +1023,40 @@ class CorticalRegion:
         precise columns → single winner.
         """
         # L4 -> L2/3 feedforward: base drive to all neurons in active columns
-        v_l23 = self.voltage_l23.reshape(self.n_columns, self.n_l23)
+        v_l23 = self.l23.voltage.reshape(self.n_columns, self.n_l23)
         v_l23[top_cols] += 0.5
 
         # Bonus for L2/3 neuron matching the L4 winner (precise only)
         precise_cols = top_cols[~self.bursting_columns[top_cols]]
         if len(precise_cols) > 0:
-            active_l4_by_col = self.active_l4.reshape(self.n_columns, self.n_l4)
+            active_l4_by_col = self.l4.active.reshape(self.n_columns, self.n_l4)
             l4_winners = active_l4_by_col[precise_cols].argmax(axis=1)
             # Only apply bonus where L4 winner index fits in L2/3
             valid = l4_winners < self.n_l23
             if valid.any():
                 valid_cols = precise_cols[valid]
                 valid_winners = l4_winners[valid]
-                self.voltage_l23[valid_cols * self.n_l23 + valid_winners] += 0.5
+                self.l23.voltage[valid_cols * self.n_l23 + valid_winners] += 0.5
 
         # L2/3 segment prediction boost: predicted neurons are primed
         l23_boost = self.l23_prediction_boost or self.fb_boost
-        self.voltage_l23[self.predicted_l23] += l23_boost
+        self.l23.voltage[self.l23.predicted] += l23_boost
 
         # Competitive selection per column
-        self.active_l23[:] = False
-        l23_scores = self.voltage_l23 + self.excitability_l23
+        self.l23.active[:] = False
+        l23_scores = self.l23.voltage + self.l23.excitability
         by_col = l23_scores.reshape(self.n_columns, self.n_l23)
 
         # Burst columns: all L2/3 neurons fire
         burst_cols = top_cols[self.bursting_columns[top_cols]]
         if len(burst_cols) > 0:
-            active_l23_by_col = self.active_l23.reshape(self.n_columns, self.n_l23)
+            active_l23_by_col = self.l23.active.reshape(self.n_columns, self.n_l23)
             active_l23_by_col[burst_cols] = True
 
         # Precise columns: single winner per column
         if len(precise_cols) > 0:
             winners = by_col[precise_cols].argmax(axis=1)
-            self.active_l23[precise_cols * self.n_l23 + winners] = True
+            self.l23.active[precise_cols * self.n_l23 + winners] = True
 
     def _activate_l5(self, top_cols: np.ndarray):
         """Activate L5 output neurons in active columns.
@@ -1086,32 +1069,32 @@ class CorticalRegion:
         Burst columns: all L5 neurons fire (mirrors L2/3 burst behavior).
         Precise columns: single L5 winner (highest score in column).
         """
-        self.active_l5[:] = False
+        self.l5.active[:] = False
         if len(top_cols) == 0:
             return
 
         # Burst columns: all L5 neurons fire
         burst_cols = top_cols[self.bursting_columns[top_cols]]
         if len(burst_cols) > 0:
-            active_l5_by_col = self.active_l5.reshape(self.n_columns, self.n_l5)
+            active_l5_by_col = self.l5.active.reshape(self.n_columns, self.n_l5)
             active_l5_by_col[burst_cols] = True
 
         # Precise columns: L5 winner from L2/3 firing rate + apical boost
         precise_cols = top_cols[~self.bursting_columns[top_cols]]
         if len(precise_cols) > 0:
-            fr_by_col = self.firing_rate_l23.reshape(self.n_columns, self.n_l23)
+            fr_by_col = self.l23.firing_rate.reshape(self.n_columns, self.n_l23)
             n_map = min(self.n_l23, self.n_l5)
             # Build L5 scores from L2/3 firing rates
             l5_scores = np.zeros((len(precise_cols), self.n_l5))
             l5_scores[:, :n_map] = fr_by_col[precise_cols, :n_map]
 
             # Predicted L5 neurons get boost (lateral + apical predictions)
-            if self.predicted_l5.any():
-                pred_by_col = self.predicted_l5.reshape(self.n_columns, self.n_l5)
+            if self.l5.predicted.any():
+                pred_by_col = self.l5.predicted.reshape(self.n_columns, self.n_l5)
                 l5_scores += pred_by_col[precise_cols] * self.fb_boost
 
             l5_winners = l5_scores.argmax(axis=1)
-            self.active_l5[precise_cols * self.n_l5 + l5_winners] = True
+            self.l5.active[precise_cols * self.n_l5 + l5_winners] = True
 
     def _learn_apical_gain(self):
         """Slow Hebbian learning on apical gain weights (all sources).
@@ -1121,7 +1104,7 @@ class CorticalRegion:
         10x slower than feedforward to prevent sender-receiver coupling.
         """
         apical_lr = self.learning_rate * 0.1
-        active = self.active_l4.astype(np.float64)
+        active = self.l4.active.astype(np.float64)
         active_nz = np.flatnonzero(active)
         if len(active_nz) == 0:
             return
@@ -1161,8 +1144,8 @@ class CorticalRegion:
             # Boolean context for segment ops
             ctx_bool = ctx > 0.01
 
-            l5_by_col = self.active_l5.reshape(self.n_columns, self.n_l5)
-            pred_by_col = self.predicted_l5.reshape(self.n_columns, self.n_l5)
+            l5_by_col = self.l5.active.reshape(self.n_columns, self.n_l5)
+            pred_by_col = self.l5.predicted.reshape(self.n_columns, self.n_l5)
 
             # Per active column: reinforce or grow
             reinforce_neurons = []
@@ -1193,7 +1176,7 @@ class CorticalRegion:
                 self._grow_segment(neuron, seg_idx, seg_perm, ctx_bool, pool)
 
             # Punish false positives: predicted but not active
-            false_pred = np.nonzero(self.predicted_l5 & ~self.active_l5)[0]
+            false_pred = np.nonzero(self.l5.predicted & ~self.l5.active)[0]
             if len(false_pred) > 0:
                 self._adapt_segments_batch(
                     false_pred, seg_idx, seg_perm, ctx_bool, reinforce=False
@@ -1225,7 +1208,7 @@ class CorticalRegion:
         permanence increment/decrement).
         """
         active_cols = np.nonzero(self.active_columns)[0]
-        voltage_by_col = self.voltage_l4.reshape(self.n_columns, self.n_l4)
+        voltage_by_col = self.l4.voltage.reshape(self.n_columns, self.n_l4)
 
         # Burst columns: grow segment on trace winner
         burst_cols = active_cols[self.bursting_columns[active_cols]]
@@ -1247,8 +1230,8 @@ class CorticalRegion:
 
         # Precise + predicted: batch reinforce
         reinforce_neurons = np.nonzero(
-            self.active_l4
-            & self.predicted_l4
+            self.l4.active
+            & self.l4.predicted
             & np.repeat(self.active_columns & ~self.bursting_columns, self.n_l4)
         )[0]
         if len(reinforce_neurons) > 0:
@@ -1268,7 +1251,7 @@ class CorticalRegion:
             )
 
         # Punish false predictions (predicted but didn't fire)
-        false_predicted = np.nonzero(self.predicted_l4 & ~self.active_l4)[0]
+        false_predicted = np.nonzero(self.l4.predicted & ~self.l4.active)[0]
         if len(false_predicted) > 0:
             self._adapt_segments_batch(
                 false_predicted,
@@ -1522,7 +1505,7 @@ class CorticalRegion:
         Adapt uses thresholded traces or boolean context.
         """
         active_cols = np.nonzero(self.active_columns)[0]
-        voltage_l23_by_col = self.voltage_l23.reshape(self.n_columns, self.n_l23)
+        voltage_l23_by_col = self.l23.voltage.reshape(self.n_columns, self.n_l23)
 
         # Context for growth: use trace if available
         grow_ctx = self._pred_context_l23
@@ -1560,8 +1543,8 @@ class CorticalRegion:
 
         # Precise + predicted: batch reinforce
         reinforce_neurons = np.nonzero(
-            self.active_l23
-            & self.predicted_l23
+            self.l23.active
+            & self.l23.predicted
             & np.repeat(
                 self.active_columns & ~self.bursting_columns,
                 self.n_l23,
@@ -1577,7 +1560,7 @@ class CorticalRegion:
             )
 
         # Punish false predictions
-        false_predicted = np.nonzero(self.predicted_l23 & ~self.active_l23)[0]
+        false_predicted = np.nonzero(self.l23.predicted & ~self.l23.active)[0]
         if len(false_predicted) > 0:
             self._adapt_segments_batch(
                 false_predicted,
@@ -1600,13 +1583,13 @@ class CorticalRegion:
 
         # Context: current L5 activation (boolean, from previous step
         # — saved in predicted_l5 by _compute_predictions before step)
-        ctx = self.active_l5
+        ctx = self.l5.active
 
         # Burst columns: grow L5 lateral segment on best L5 neuron
         burst_cols = active_cols[self.bursting_columns[active_cols]]
         if len(burst_cols) > 0:
             # L5 burst = all active, pick by L2/3 firing rate as proxy
-            fr_by_col = self.firing_rate_l23.reshape(self.n_columns, self.n_l23)
+            fr_by_col = self.l23.firing_rate.reshape(self.n_columns, self.n_l23)
             l23_winners = fr_by_col[burst_cols].argmax(axis=1)
             l5_best = np.minimum(l23_winners, self.n_l5 - 1)
             for i, col in enumerate(burst_cols):
@@ -1621,8 +1604,8 @@ class CorticalRegion:
 
         # Precise + predicted: reinforce
         reinforce_neurons = np.nonzero(
-            self.active_l5
-            & self.predicted_l5
+            self.l5.active
+            & self.l5.predicted
             & np.repeat(
                 self.active_columns & ~self.bursting_columns,
                 self.n_l5,
@@ -1638,7 +1621,7 @@ class CorticalRegion:
             )
 
         # Punish false predictions
-        false_predicted = np.nonzero(self.predicted_l5 & ~self.active_l5)[0]
+        false_predicted = np.nonzero(self.l5.predicted & ~self.l5.active)[0]
         if len(false_predicted) > 0:
             self._adapt_segments_batch(
                 false_predicted,
@@ -1654,52 +1637,52 @@ class CorticalRegion:
 
     def _update_traces(self):
         """Set active neuron traces to 1, decay the rest."""
-        self.trace_l4 *= self.eligibility_decay
-        self.trace_l23 *= self.eligibility_decay
+        self.l4.trace *= self.eligibility_decay
+        self.l23.trace *= self.eligibility_decay
 
         active_cols = np.nonzero(self.active_columns)[0]
         if len(active_cols) == 0:
             return
 
-        voltage_l4_by_col = self.voltage_l4.reshape(self.n_columns, self.n_l4)
-        voltage_l23_by_col = self.voltage_l23.reshape(self.n_columns, self.n_l23)
-        active_l4_by_col = self.active_l4.reshape(self.n_columns, self.n_l4)
-        active_l23_by_col = self.active_l23.reshape(self.n_columns, self.n_l23)
+        voltage_l4_by_col = self.l4.voltage.reshape(self.n_columns, self.n_l4)
+        voltage_l23_by_col = self.l23.voltage.reshape(self.n_columns, self.n_l23)
+        active_l4_by_col = self.l4.active.reshape(self.n_columns, self.n_l4)
+        active_l23_by_col = self.l23.active.reshape(self.n_columns, self.n_l23)
 
         # Burst columns: trace to highest-voltage neuron
         burst_cols = active_cols[self.bursting_columns[active_cols]]
         if len(burst_cols) > 0:
             best_l4 = voltage_l4_by_col[burst_cols].argmax(axis=1)
-            self.trace_l4[burst_cols * self.n_l4 + best_l4] = 1.0
+            self.l4.trace[burst_cols * self.n_l4 + best_l4] = 1.0
             best_l23 = voltage_l23_by_col[burst_cols].argmax(axis=1)
-            self.trace_l23[burst_cols * self.n_l23 + best_l23] = 1.0
+            self.l23.trace[burst_cols * self.n_l23 + best_l23] = 1.0
 
         # Precise columns: trace to the active neuron
         precise_cols = active_cols[~self.bursting_columns[active_cols]]
         if len(precise_cols) > 0:
             # argmax on boolean active mask gives the first True index
             best_l4 = active_l4_by_col[precise_cols].argmax(axis=1)
-            self.trace_l4[precise_cols * self.n_l4 + best_l4] = 1.0
+            self.l4.trace[precise_cols * self.n_l4 + best_l4] = 1.0
             best_l23 = active_l23_by_col[precise_cols].argmax(axis=1)
-            self.trace_l23[precise_cols * self.n_l23 + best_l23] = 1.0
+            self.l23.trace[precise_cols * self.n_l23 + best_l23] = 1.0
 
     def _update_excitability(self):
         """Boost inactive neurons, reset active ones (capped)."""
         inc_l4 = self.max_excitability / self.n_l4
         inc_l23 = self.max_excitability / self.n_l23
-        self.excitability_l4[~self.active_l4] += inc_l4
-        self.excitability_l23[~self.active_l23] += inc_l23
-        self.excitability_l4[self.active_l4] = 0.0
-        self.excitability_l23[self.active_l23] = 0.0
+        self.l4.excitability[~self.l4.active] += inc_l4
+        self.l23.excitability[~self.l23.active] += inc_l23
+        self.l4.excitability[self.l4.active] = 0.0
+        self.l23.excitability[self.l23.active] = 0.0
         np.clip(
-            self.excitability_l4,
+            self.l4.excitability,
             0,
             self.max_excitability,
-            out=self.excitability_l4,
+            out=self.l4.excitability,
         )
         np.clip(
-            self.excitability_l23,
+            self.l23.excitability,
             0,
             self.max_excitability,
-            out=self.excitability_l23,
+            out=self.l23.excitability,
         )

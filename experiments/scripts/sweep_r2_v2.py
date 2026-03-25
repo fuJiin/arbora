@@ -74,8 +74,8 @@ def run_hierarchy(r2_cols, r2_k, r2_lr, r2_ltd, r2_vdecay):
         mod = surprise.update(burst_rate)
         r2.surprise_modulator = mod
 
-        r2.process(r1.firing_rate_l23)
-        rep2.observe(token_id, r2.active_columns, r2.active_l4)
+        r2.process(r1.l23.firing_rate)
+        rep2.observe(token_id, r2.active_columns, r2.l4.active)
 
     elapsed = time.monotonic() - start
     summ = rep2.summary(r2.ff_weights)
