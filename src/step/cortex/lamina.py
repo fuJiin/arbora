@@ -47,10 +47,6 @@ class Lamina:
         *,
         lamina_id: LaminaID,
         region: CorticalRegion | None = None,
-        has_voltage: bool = True,
-        has_excitability: bool = True,
-        has_trace: bool = True,
-        has_firing_rate: bool = True,
     ):
         self.n_per_col = n_per_col
         self.n_columns = n_columns
@@ -58,25 +54,19 @@ class Lamina:
         self.id = lamina_id
         self.region = region  # Set by CorticalRegion.register_lamina()
 
-        # All laminae have active + predicted masks
+        # Per-neuron state arrays (all laminae have all features)
         self.active = np.zeros(self.n_total, dtype=np.bool_)
         self.predicted = np.zeros(self.n_total, dtype=np.bool_)
-
-        # Optional state (configured per lamina)
-        self.voltage = np.zeros(self.n_total) if has_voltage else None
-        self.excitability = np.zeros(self.n_total) if has_excitability else None
-        self.trace = np.zeros(self.n_total) if has_trace else None
-        self.firing_rate = np.zeros(self.n_total) if has_firing_rate else None
+        self.voltage = np.zeros(self.n_total)
+        self.excitability = np.zeros(self.n_total)
+        self.trace = np.zeros(self.n_total)
+        self.firing_rate = np.zeros(self.n_total)
 
     def reset(self):
         """Zero all transient state, preserving configuration."""
         self.active[:] = False
         self.predicted[:] = False
-        if self.voltage is not None:
-            self.voltage[:] = 0.0
-        if self.excitability is not None:
-            self.excitability[:] = 0.0
-        if self.trace is not None:
-            self.trace[:] = 0.0
-        if self.firing_rate is not None:
-            self.firing_rate[:] = 0.0
+        self.voltage[:] = 0.0
+        self.excitability[:] = 0.0
+        self.trace[:] = 0.0
+        self.firing_rate[:] = 0.0
