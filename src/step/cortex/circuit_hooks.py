@@ -112,6 +112,13 @@ class RunHooks:
         self._m1_active: bool = False
         self._prev_motor_l23: dict[str, np.ndarray] = {}
 
+        # Babble metrics (set by Circuit._run_interleaved_impl)
+        self._babble_rewards: list[float] = []
+        self._babble_tokens_produced: list[str] = []
+        self._babble_unique_tokens: list[str] = []
+        self._total_listen_steps: int = 0
+        self._total_babble_steps: int = 0
+
     # ------------------------------------------------------------------
     # StepHooks interface
     # ------------------------------------------------------------------
@@ -304,6 +311,11 @@ class RunHooks:
             thalamic_readiness=self._thalamic_readiness,
             reward_modulators=self._reward_modulators,
             elapsed_seconds=elapsed,
+            babble_rewards=self._babble_rewards,
+            babble_tokens_produced=self._babble_tokens_produced,
+            babble_unique_tokens=self._babble_unique_tokens,
+            total_listen_steps=self._total_listen_steps,
+            total_babble_steps=self._total_babble_steps,
         )
 
     # ------------------------------------------------------------------
