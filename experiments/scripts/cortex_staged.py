@@ -29,7 +29,6 @@ from step.cortex.stages import (
     BABBLING_STAGE,
     GUIDED_BABBLING_STAGE,
     SENSORY_STAGE,
-    TrainingStage,
 )
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
@@ -247,15 +246,7 @@ def main():
             # Assume resume is a stage name checkpoint, inject it
             print(f"Loading checkpoint '{args.resume}' before first stage")
             stages = list(ALL_STAGES)
-            stages[0] = TrainingStage(
-                name=stages[0].name,
-                description=stages[0].description,
-                n_tokens=stages[0].n_tokens,
-                learning_regions=stages[0].learning_regions,
-                connections=stages[0].connections,
-                load_checkpoint=args.resume,
-                save_checkpoint=stages[0].save_checkpoint,
-            )
+            stages[0] = replace(stages[0], load_checkpoint=args.resume)
         else:
             stages = ALL_STAGES[resume_idx:]
             if not stages:
