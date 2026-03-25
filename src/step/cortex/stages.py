@@ -58,7 +58,6 @@ class TrainingStage:
     configure: Callable | None = None
 
 
-
 # ------------------------------------------------------------------
 # Configure helpers (shared logic)
 # ------------------------------------------------------------------
