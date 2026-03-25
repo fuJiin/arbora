@@ -27,6 +27,7 @@ class SurpriseTracker:
         self._ema_decay = ema_decay
         self.baseline_burst_rate: float = 0.5
         self._burst_ema: float = 0.5
+        self._last_modulator: float = 1.0
 
     def update(self, burst_rate: float) -> float:
         """Update with current burst rate, return surprise modulator (0-2 range)."""
@@ -39,7 +40,13 @@ class SurpriseTracker:
         )
         baseline = max(self.baseline_burst_rate, self.min_baseline)
         surprise = self._burst_ema / baseline
-        return min(surprise, 2.0)
+        self._last_modulator = min(surprise, 2.0)
+        return self._last_modulator
+
+    @property
+    def modulator(self) -> float:
+        """Last computed modulator value (read-only, no state change)."""
+        return self._last_modulator
 
 
 class RewardModulator:
