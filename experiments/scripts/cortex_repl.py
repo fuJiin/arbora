@@ -20,7 +20,6 @@ import contextlib
 import io
 import math
 import sys
-from dataclasses import replace
 
 import numpy as np
 
@@ -58,43 +57,24 @@ def surprise_color(burst_frac: float) -> str:
 
 
 def build_model(alphabet: str, *, use_l5_apical: bool = False):
-    """Build full hierarchy using the staged circuit builder.
+    """Build full hierarchy using the canonical circuit factory.
 
-    Delegates to cortex_staged.build_circuit() to ensure dimensions
-    always match checkpoints saved by the staged pipeline.
+    Uses build_canonical_circuit() to ensure dimensions always match
+    checkpoints saved by the staged pipeline.
     """
-    import os
-    import sys
-
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-    if use_l5_apical:
-        import step.config as cfg
-
-        _orig_s1 = cfg._default_s1_config
-        _orig_r2 = cfg._default_region2_config
-        _orig_r3 = cfg._default_region3_config
-        cfg._default_s1_config = lambda: replace(
-            _orig_s1(), use_l5_apical_segments=True
-        )
-        cfg._default_region2_config = lambda: replace(
-            _orig_r2(), use_l5_apical_segments=True
-        )
-        cfg._default_region3_config = lambda: replace(
-            _orig_r3(), use_l5_apical_segments=True
-        )
-
-    from scripts.cortex_staged import build_circuit
+    from step.cortex.canonical import build_canonical_circuit
 
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
-    cortex = build_circuit(encoder, log_interval=999999)
-    cortex.finalize()
 
-    # Restore config defaults if patched
-    if use_l5_apical:
-        cfg._default_s1_config = _orig_s1
-        cfg._default_region2_config = _orig_r2
-        cfg._default_region3_config = _orig_r3
+    apical_override = {"use_l5_apical_segments": True} if use_l5_apical else None
+    cortex = build_canonical_circuit(
+        encoder,
+        log_interval=999999,
+        timeline_interval=0,
+        s1_overrides=apical_override,
+        s2_overrides=apical_override,
+        s3_overrides=apical_override,
+    )
 
     region1 = cortex._regions["S1"].region
     motor = cortex._regions["M1"].region
