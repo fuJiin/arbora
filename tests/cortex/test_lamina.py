@@ -29,43 +29,11 @@ class TestLamina:
         assert lam.trace.shape == (32,)
         assert lam.firing_rate.shape == (32,)
 
-    def test_optional_features_disabled(self):
-        lam = Lamina(
-            8,
-            4,
-            lamina_id=LaminaID.L4,
-            has_voltage=False,
-            has_excitability=False,
-            has_trace=False,
-            has_firing_rate=False,
-        )
-        assert lam.active is not None  # always present
-        assert lam.predicted is not None  # always present
-        assert lam.voltage is None
-        assert lam.excitability is None
-        assert lam.trace is None
-        assert lam.firing_rate is None
-
-    def test_l4_config(self):
-        """L4: voltage + excitability + trace, no firing rate."""
-        lam = Lamina(8, 4, lamina_id=LaminaID.L4, has_firing_rate=False)
+    def test_all_features_always_present(self):
+        lam = Lamina(8, 4, lamina_id=LaminaID.L4)
         assert lam.voltage is not None
         assert lam.excitability is not None
         assert lam.trace is not None
-        assert lam.firing_rate is None
-
-    def test_l5_config(self):
-        """L5: firing rate only, no voltage/excitability/trace."""
-        lam = Lamina(
-            8,
-            4,
-            lamina_id=LaminaID.L5,
-            has_voltage=False,
-            has_excitability=False,
-            has_trace=False,
-            has_firing_rate=True,
-        )
-        assert lam.voltage is None
         assert lam.firing_rate is not None
 
     def test_reset(self):
@@ -84,13 +52,15 @@ class TestLamina:
         assert lam.trace.sum() == 0.0
         assert lam.firing_rate.sum() == 0.0
 
-    def test_reset_with_disabled_features(self):
-        lam = Lamina(8, 4, lamina_id=LaminaID.L5, has_voltage=False, has_trace=False)
+    def test_reset_all_fields(self):
+        lam = Lamina(8, 4, lamina_id=LaminaID.L5)
         lam.active[0] = True
         lam.firing_rate[1] = 0.5
-        lam.reset()  # should not crash
+        lam.voltage[2] = 0.3
+        lam.reset()
         assert not lam.active.any()
         assert lam.firing_rate.sum() == 0.0
+        assert lam.voltage.sum() == 0.0
 
 
 class TestLaminaRegionWiring:
