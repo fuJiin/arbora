@@ -158,6 +158,8 @@ def build_canonical_circuit(
     circuit.add_region("M2", m2)
 
     # --- Feedforward connections ---
+    # All default to source_lamina=L23, target_lamina=L4 (corticocortical).
+    # Future: connect(s1.l23, s2.l4) when connect() accepts Lamina objects (STEP-64).
 
     circuit.connect(
         "S1",
@@ -182,6 +184,8 @@ def build_canonical_circuit(
     circuit.connect("M2", "M1", ConnectionRole.FEEDFORWARD)
 
     # --- Apical feedback ---
+    # All default to source_lamina=L23, target_lamina=L4 (linear gain mode).
+    # With use_l5_apical_segments=True, apical targets L5 segments instead.
 
     # Sensory hierarchy (top-down context)
     circuit.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
