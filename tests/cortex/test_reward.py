@@ -2,11 +2,11 @@
 
 import pytest
 
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import RewardModulator
 from step.cortex.motor import MotorRegion
 from step.cortex.reward import EchoReward
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
 from step.encoders.charbit import CharbitEncoder
 
@@ -91,7 +91,7 @@ class TestRewardModulator:
 
 
 class TestTurnTakingReward:
-    _fn = staticmethod(Topology._compute_turn_reward)
+    _fn = staticmethod(Circuit._compute_turn_reward)
 
     def test_reward_function_speak_during_eom(self):
         """Speaking during EOM phase should be rewarded."""
@@ -156,7 +156,7 @@ class TestRewardIntegration:
     def test_reward_connection_runs(self, region1, motor, encoder):
         """Reward connection runs without error and collects metrics."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
@@ -180,7 +180,7 @@ class TestRewardIntegration:
             (0, "a"),
             (1, "b"),
         ]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
@@ -193,7 +193,7 @@ class TestRewardIntegration:
     def test_reward_modulators_in_result(self, region1, motor, encoder):
         """reward_modulators dict is populated when reward connections exist."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
@@ -207,7 +207,7 @@ class TestRewardIntegration:
     def test_no_reward_backward_compatible(self, region1, motor, encoder):
         """Without reward connections, reward_modulators is empty."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(20)]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
@@ -304,7 +304,7 @@ class TestTurnTakingCounters:
             (1, "b"),
             (2, "c"),
         ]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
@@ -329,7 +329,7 @@ class TestTurnTakingCounters:
     def test_counters_without_eom(self, region1, motor, encoder):
         """Without EOM, all steps are input phase."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(20)]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)

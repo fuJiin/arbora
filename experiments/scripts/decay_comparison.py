@@ -24,8 +24,8 @@ from step.config import (
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import prepare_tokens_tinydialogues
 from step.encoders.positional import PositionalCharEncoder
 
@@ -60,7 +60,7 @@ def run_decay(synapse_decay, tokens, encoder):
         seed=789,
     )
 
-    cortex = Topology(encoder, diagnostics_interval=10000)
+    cortex = Circuit(encoder, diagnostics_interval=10000)
     cortex.add_region("S1", region1, entry=True)
     cortex.add_region("S2", region2)
     cortex.connect(

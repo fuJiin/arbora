@@ -651,7 +651,7 @@ class CorticalRegion:
             self._apical_context = src["context"]
             self._apical_gain_weights = src.get("weights")
 
-    # Keep old name as alias for backward compat (topology.connect uses it)
+    # Keep old name as alias for backward compat (circuit.connect uses it)
     def init_apical_segments(self, source_dim: int, source_name: str = ""):
         """Backward-compatible alias for init_apical_context."""
         self.init_apical_context(source_dim, source_name)

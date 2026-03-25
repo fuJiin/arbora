@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-import step.cortex.topology  # noqa: F401  # resolve circular import chain
+import step.cortex.circuit  # noqa: F401  # resolve circular import chain
 from step.probes.bpc import BPCProbe
 
 

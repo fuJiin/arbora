@@ -1,7 +1,7 @@
-"""Data types for the topology system.
+"""Data types for the circuit system.
 
-Extracted from topology.py to separate type definitions from the
-builder and runner logic. All types are re-exported from topology.py
+Extracted from circuit.py to separate type definitions from the
+builder and runner logic. All types are re-exported from circuit.py
 for backward compatibility.
 """
 

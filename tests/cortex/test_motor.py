@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
 
@@ -88,9 +88,9 @@ class TestMotorRegion:
         assert motor.output_scores.sum() == 0.0
 
 
-class TestMotorTopology:
+class TestMotorCircuit:
     def test_motor_detected_as_motor(self, region1, motor, encoder):
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         assert cortex._regions["M1"].motor is True
@@ -99,7 +99,7 @@ class TestMotorTopology:
     def test_motor_runs_in_hierarchy(self, region1, motor, encoder):
         """M1 processes tokens and collects motor metrics."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(
@@ -115,7 +115,7 @@ class TestMotorTopology:
     def test_motor_with_thalamic_gate(self, region1, motor, encoder):
         """M1→S1 apical with thalamic gate runs without error."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(
@@ -134,7 +134,7 @@ class TestMotorTopology:
             (0, "a"),
             (1, "b"),
         ]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
@@ -144,7 +144,7 @@ class TestMotorTopology:
     def test_motor_without_hierarchy(self, region1, motor, encoder):
         """M1 can work without S2 — just S1→M1."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(20)]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)

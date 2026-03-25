@@ -25,8 +25,8 @@ from step.config import (
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import EOM_TOKEN, STORY_BOUNDARY, prepare_tokens_charlevel
 from step.decoders.dendritic import DendriticDecoder
 from step.encoders.positional import PositionalCharEncoder
@@ -49,7 +49,7 @@ def build_model(alphabet):
     m1 = make_motor_region(m1_cfg, s1.n_l23_total, seed=789)
     bg = BasalGanglia(s1_cfg.n_columns + 1)
 
-    cortex = Topology(encoder)
+    cortex = Circuit(encoder)
     cortex.add_region("S1", s1, entry=True)
     cortex.add_region("S2", s2)
     cortex.add_region("S3", s3)

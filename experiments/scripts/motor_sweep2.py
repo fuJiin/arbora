@@ -8,10 +8,10 @@ import time
 
 import step.env  # noqa: F401
 from step.config import CortexConfig, _default_region2_config
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
 
@@ -57,7 +57,7 @@ def run_one(tokens, encoder, cortex_cfg, motor_params):
         seed=456,
     )
 
-    cortex = Topology(encoder, diagnostics_interval=10000)
+    cortex = Circuit(encoder, diagnostics_interval=10000)
     cortex.add_region("S1", r1, entry=True)
     cortex.add_region("S2", r2)
     cortex.add_region("M1", m1)

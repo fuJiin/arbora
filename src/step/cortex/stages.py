@@ -1,7 +1,7 @@
 """Training stage configuration for developmental learning.
 
 Each stage defines which regions learn, which connections are active,
-and what reward signals are used. Stages are applied to a Topology
+and what reward signals are used. Stages are applied to a Circuit
 via configure(), and checkpoints flow between stages.
 
 Stages model infant development:
@@ -14,7 +14,7 @@ Stages model infant development:
 
 from dataclasses import dataclass, field
 
-from step.cortex.topology import ConnectionRole
+from step.cortex.circuit import ConnectionRole
 
 
 @dataclass
@@ -59,43 +59,43 @@ class TrainingStage:
     # Reward source: "turn_taking" (default), "curiosity", or "caregiver"
     reward_source: str = "turn_taking"
 
-    def configure(self, topology) -> None:
-        """Apply this stage's configuration to a Topology."""
+    def configure(self, circuit) -> None:
+        """Apply this stage's configuration to a Circuit."""
         # Freeze/unfreeze regions
-        for name in topology._regions:
+        for name in circuit._regions:
             if self.learning_regions:
                 if name in self.learning_regions:
-                    topology.unfreeze_region(name)
+                    circuit.unfreeze_region(name)
                 else:
-                    topology.freeze_region(name)
+                    circuit.freeze_region(name)
 
         # Motor babbling configuration
-        for _name, state in topology._regions.items():
+        for _name, state in circuit._regions.items():
             if state.motor:
                 state.region.babbling_noise = self.babbling_noise
-        topology.force_gate_open = self.force_motor_active
+        circuit.force_gate_open = self.force_motor_active
 
         # Reward source configuration
         if self.reward_source == "caregiver":
             from step.cortex.reward import CaregiverReward
 
-            topology.set_reward_source(CaregiverReward())
+            circuit.set_reward_source(CaregiverReward())
         elif self.reward_source == "curiosity":
             from step.cortex.reward import CuriosityReward
 
-            topology.set_reward_source(CuriosityReward())
+            circuit.set_reward_source(CuriosityReward())
         else:
-            topology.set_reward_source(None)  # default turn-taking
+            circuit.set_reward_source(None)  # default turn-taking
 
         # Enable/disable connections
         for sc in self.connections:
             try:
                 if sc.enabled:
-                    topology.enable_connection(sc.source, sc.target, sc.role)
+                    circuit.enable_connection(sc.source, sc.target, sc.role)
                 else:
-                    topology.disable_connection(sc.source, sc.target, sc.role)
+                    circuit.disable_connection(sc.source, sc.target, sc.role)
             except ValueError:
-                pass  # Connection doesn't exist in this topology — skip
+                pass  # Connection doesn't exist in this circuit — skip
 
 
 # ------------------------------------------------------------------

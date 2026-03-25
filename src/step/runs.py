@@ -5,7 +5,7 @@ import pickle
 from datetime import UTC, datetime
 from pathlib import Path
 
-from step.cortex.topology import CortexResult
+from step.cortex.circuit import CortexResult
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.timeline import Timeline
 
