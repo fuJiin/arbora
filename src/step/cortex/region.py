@@ -37,6 +37,7 @@ feedforward synapses.
 
 import numpy as np
 
+from step.config import PlasticityRule
 from step.cortex.lamina import Lamina, LaminaID
 
 try:
@@ -91,6 +92,7 @@ class CorticalRegion:
         source_dims: list[int] | None = None,
         ff_sparsity: float = 0.0,
         pre_trace_decay: float = 0.0,
+        plasticity_rule: PlasticityRule = PlasticityRule.HEBBIAN,
         seed: int = 0,
     ):
         self.input_dim = input_dim
@@ -229,11 +231,19 @@ class CorticalRegion:
         else:
             self._pre_trace = None
 
+        # Plasticity rule: HEBBIAN (immediate LTP/LTD) vs THREE_FACTOR
+        # (eligibility trace, consolidated by apply_reward).
+        self.plasticity_rule = plasticity_rule
+
         # Three-factor learning: eligibility clip threshold and trace.
-        # Subclasses (PFC, Motor) override _ff_eligibility with an array.
-        # Base default: None = no eligibility trace (two-factor Hebbian).
+        # Allocated when plasticity_rule is THREE_FACTOR.
         self._eligibility_clip: float = 0.0
-        self._ff_eligibility: np.ndarray | None = None
+        if plasticity_rule == PlasticityRule.THREE_FACTOR:
+            self._ff_eligibility: np.ndarray | None = np.zeros(
+                (input_dim, n_columns * n_l4)
+            )
+        else:
+            self._ff_eligibility = None
 
         # Efference copy: predicted sensory consequence of motor output.
         # Set by set_efference_copy(), consumed (cleared) in process().
@@ -366,19 +376,14 @@ class CorticalRegion:
         return winner_indices
 
     def _learn_ff(self, flat_input: np.ndarray):
-        """Per-neuron Hebbian ff learning with optional STDP-like pre traces.
+        """Per-neuron feedforward learning, dispatched by plasticity_rule.
 
-        When pre_trace_decay > 0, uses presynaptic traces for temporal
-        credit assignment: inputs that fired recently (not just now) get
-        credit when a postsynaptic neuron activates. This is the core
-        STDP mechanism — pre before post → strengthen.
+        Always updates presynaptic traces (STDP, orthogonal to rule).
 
-        When pre_trace_decay == 0, uses standard coincidence Hebbian
-        (original behavior: only current input gets credit).
-
-        LTP on active neurons (the winning neuron in each active column).
-        LTD on active neurons' inactive input connections.
-        Subthreshold LTP on all neurons in inactive columns.
+        HEBBIAN path: immediate LTP/LTD/subthreshold on ff_weights.
+        THREE_FACTOR path: decay eligibility, accumulate Hebbian
+        coincidences into eligibility trace. Weights updated only
+        when apply_reward() is called.
         """
         # Update presynaptic trace: decay + accumulate current input
         if self._pre_trace is not None:
@@ -400,6 +405,51 @@ class CorticalRegion:
         # Find winning neurons (one per active column) — vectorized
         winner_indices = self._find_winners()
 
+        if self.plasticity_rule == PlasticityRule.THREE_FACTOR:
+            self._learn_ff_three_factor(ltp_signal, winner_indices)
+        else:
+            self._learn_ff_hebbian(flat_input, ltp_signal, winner_indices)
+
+    def _learn_ff_three_factor(
+        self, ltp_signal: np.ndarray, winner_indices: np.ndarray
+    ):
+        """Three-factor: accumulate Hebbian coincidences in eligibility trace.
+
+        Eligibility trace decays each step. Consolidated into ff_weights
+        only when apply_reward() is called with nonzero reward.
+        """
+        # Decay eligibility trace
+        assert self._ff_eligibility is not None
+        self._ff_eligibility *= self.eligibility_decay
+
+        if len(winner_indices) == 0:
+            return
+
+        # Record in eligibility trace using temporal signal
+        self._ff_eligibility[:, winner_indices] += (
+            self.learning_rate * ltp_signal[:, np.newaxis]
+        )
+
+    def _learn_ff_hebbian(
+        self,
+        flat_input: np.ndarray,
+        ltp_signal: np.ndarray,
+        winner_indices: np.ndarray,
+    ):
+        """Hebbian: immediate LTP/LTD/subthreshold on ff_weights.
+
+        When pre_trace_decay > 0, uses presynaptic traces for temporal
+        credit assignment: inputs that fired recently (not just now) get
+        credit when a postsynaptic neuron activates. This is the core
+        STDP mechanism — pre before post → strengthen.
+
+        When pre_trace_decay == 0, uses standard coincidence Hebbian
+        (original behavior: only current input gets credit).
+
+        LTP on active neurons (the winning neuron in each active column).
+        LTD on active neurons' inactive input connections.
+        Subthreshold LTP on all neurons in inactive columns.
+        """
         neuromod = self.surprise_modulator * self.reward_modulator
         ltp_rate = self.learning_rate * neuromod
 
@@ -680,6 +730,8 @@ class CorticalRegion:
             self._seg_trace_l23[:] = 0.0
         if self._seg_trace_l4 is not None:
             self._seg_trace_l4[:] = 0.0
+        if self._ff_eligibility is not None:
+            self._ff_eligibility[:] = 0.0
         # Clear apical contexts (preserve learned weights)
         for src in self._apical_sources.values():
             src["context"][:] = 0.0

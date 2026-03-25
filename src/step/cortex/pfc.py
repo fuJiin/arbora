@@ -30,6 +30,7 @@ Development mirrors infant PFC:
 
 import numpy as np
 
+from step.config import PlasticityRule
 from step.cortex.region import CorticalRegion
 
 
@@ -37,11 +38,11 @@ class PFCRegion(CorticalRegion):
     """Prefrontal cortex with working memory and goal maintenance.
 
     Key differences from base CorticalRegion:
-    - Slow voltage decay → activity persists across many timesteps
-    - Three-factor learning → ff_weights learn from reward, not just
+    - Slow voltage decay -> activity persists across many timesteps
+    - Three-factor learning -> ff_weights learn from reward, not just
       input statistics. PFC learns to produce useful goal patterns.
-    - Per-stripe organization → groups of columns hold independent goals
-    - Confidence signal → derived from activation strength, available
+    - Per-stripe organization -> groups of columns hold independent goals
+    - Confidence signal -> derived from activation strength, available
       for downstream monitoring ("I don't know" detection)
     """
 
@@ -55,6 +56,7 @@ class PFCRegion(CorticalRegion):
         learning_rate: float = 0.02,
         eligibility_decay: float = 0.98,
         eligibility_clip: float = 0.05,
+        plasticity_rule: PlasticityRule = PlasticityRule.THREE_FACTOR,
         seed: int = 0,
         **kwargs,
     ):
@@ -65,6 +67,7 @@ class PFCRegion(CorticalRegion):
             voltage_decay=voltage_decay,
             learning_rate=learning_rate,
             eligibility_decay=eligibility_decay,
+            plasticity_rule=plasticity_rule,
             seed=seed,
             **kwargs,
         )
@@ -82,10 +85,7 @@ class PFCRegion(CorticalRegion):
         # Used for echo mode (M1 tries to reproduce this pattern).
         self._goal_context = np.zeros(self.n_l23_total, dtype=np.float64)
 
-        # Three-factor learning: eligibility traces on ff_weights.
-        # Slower decay (0.98 ≈ 50-step window) than Motor (0.95 ≈ 20-step)
-        # to match PFC's slow voltage dynamics.
-        self._ff_eligibility = np.zeros_like(self.ff_weights)
+        # Eligibility clip: prevents unbounded trace accumulation.
         self._eligibility_clip = eligibility_clip
 
     @property
@@ -94,7 +94,7 @@ class PFCRegion(CorticalRegion):
 
         High activation = strong goal representation = high confidence.
         Low activation = weak/degraded goal = low confidence.
-        Can be used downstream: low confidence → "I don't know" response.
+        Can be used downstream: low confidence -> "I don't know" response.
         """
         if not self.active_columns.any():
             return 0.0
@@ -110,20 +110,20 @@ class PFCRegion(CorticalRegion):
         When gate is closed: zero feedforward drive, rely on slow
         voltage decay to maintain previous activation (hold goal).
 
-        Eligibility traces decay unconditionally — even when gate is
-        closed. Otherwise stale traces from the listen phase persist
-        through the entire hold phase and get consolidated by reward
-        that was earned many steps later.
+        When gate is closed, eligibility traces still decay -- otherwise
+        stale traces from the listen phase persist through the entire
+        hold phase and get consolidated by reward earned many steps later.
+        (When gate is open, the base _learn_ff handles the decay.)
         """
-        # Always decay eligibility traces (even gate-closed)
-        self._ff_eligibility *= self.eligibility_decay
-
         flat = encoding.flatten().astype(np.float64)
 
         if self.gate_open:
             neuron_drive = flat @ self.ff_weights
         else:
-            # Gate closed: no new input, maintain via slow decay
+            # Gate closed: no new input, maintain via slow decay.
+            # Decay eligibility traces even though we skip _learn_ff.
+            if self._ff_eligibility is not None:
+                self._ff_eligibility *= self.eligibility_decay
             neuron_drive = np.zeros(self.n_l4_total)
 
         self.last_column_drive = neuron_drive.reshape(self.n_columns, self.n_l4).max(
@@ -136,35 +136,10 @@ class PFCRegion(CorticalRegion):
 
         return active
 
-    def _learn_ff(self, flat_input: np.ndarray):
-        """Three-factor learning with STDP-like presynaptic traces.
-
-        Uses pre_trace (if enabled) for temporal credit in the
-        eligibility trace. Inputs that fired before PFC activated
-        get credit, not just inputs active at the same time.
-        Weights updated only when apply_reward() is called.
-        """
-        # Update presynaptic trace
-        if self._pre_trace is not None:
-            self._pre_trace *= self._pre_trace_decay
-            self._pre_trace += flat_input
-            ltp_signal = self._pre_trace
-        else:
-            ltp_signal = flat_input
-
-        # Note: eligibility trace decay happens in process()
-
-        winner_indices = self._find_winners()
-        if len(winner_indices) == 0:
-            return
-
-        # Record in eligibility trace using temporal signal
-        self._ff_eligibility[:, winner_indices] += (
-            self.learning_rate * ltp_signal[:, np.newaxis]
-        )
-
-    # apply_reward() inherited from CorticalRegion — handles
-    # ff_eligibility clip + consolidation into ff_weights.
+    # _learn_ff() and apply_reward() inherited from CorticalRegion.
+    # Base _learn_ff dispatches to _learn_ff_three_factor which handles
+    # eligibility trace decay + accumulation. apply_reward() handles
+    # clip + consolidation into ff_weights.
 
     def snapshot_goal(self) -> None:
         """Capture current L2/3 state as the active goal.
@@ -185,4 +160,3 @@ class PFCRegion(CorticalRegion):
         super().reset_working_memory()
         self.gate_open = True
         self._goal_context[:] = 0.0
-        self._ff_eligibility[:] = 0.0
