@@ -23,24 +23,8 @@ import os
 import time
 from dataclasses import replace
 
-import numpy as np
-
 import step.env  # noqa: F401
-from step.config import (
-    _default_motor_config,
-    _default_pfc_config,
-    _default_premotor_config,
-    _default_region2_config,
-    _default_region3_config,
-    _default_s1_config,
-    make_motor_region,
-    make_pfc_region,
-    make_premotor_region,
-    make_sensory_region,
-)
-from step.cortex.basal_ganglia import BasalGanglia
-from step.cortex.circuit import Circuit, ConnectionRole
-from step.cortex.modulators import SurpriseTracker, ThalamicGate
+from step.cortex.canonical import build_canonical_circuit
 from step.cortex.stages import (
     BABBLING_STAGE,
     GUIDED_BABBLING_STAGE,
@@ -66,123 +50,15 @@ STAGE_MAP = {s.name: s for s in ALL_STAGES}
 def build_circuit(encoder, *, log_interval=100, timeline_interval=100):
     """Build the full circuit with all regions and connections.
 
-    All regions and connections are created upfront. Stages control
-    which are active via freeze/enable APIs.
+    Thin wrapper around build_canonical_circuit(). Stages control
+    which regions are active via freeze/enable APIs.
     """
-    s1_cfg = _default_s1_config()
-    s1 = make_sensory_region(s1_cfg, encoder.input_dim, encoder.encoding_width)
-
-    r2_cfg = _default_region2_config()
-    s2 = make_sensory_region(r2_cfg, s1.n_l23_total * 4, seed=123)
-
-    r3_cfg = _default_region3_config()
-    s3 = make_sensory_region(r3_cfg, s2.n_l23_total * 8, seed=789)
-
-    # M2 (premotor): created first so M1 knows its input dim
-    m2_cfg = _default_premotor_config()
-    # M2 created after PFC (needs PFC dims for input), but M1 needs
-    # M2 output dims. All premotor regions have same n_l23_total
-    # regardless of input_dim, so use a placeholder for now.
-    m2_n_l23 = m2_cfg.n_columns * m2_cfg.n_l23
-
-    m1_cfg = _default_motor_config()
-    # M1 input comes from M2
-    output_vocab = [ord(ch) for ch in encoder._char_to_idx]
-    m1 = make_motor_region(m1_cfg, m2_n_l23, seed=456)
-    # Set vocabulary for L5 output mapping
-    m1._output_vocab = np.array(output_vocab, dtype=np.int64)
-    m1.n_output_tokens = len(output_vocab)
-    # Reinitialize L5 weights with correct vocab size
-    n_l23 = m1.n_l23_total
-    m1.output_weights = m1._rng.uniform(0, 0.01, size=(n_l23, len(output_vocab)))
-    m1.output_mask = (m1._rng.random((n_l23, len(output_vocab))) < 0.5).astype(
-        np.float64
-    )
-    m1.output_weights *= m1.output_mask
-    m1._output_eligibility = np.zeros((n_l23, len(output_vocab)))
-
-    cortex = Circuit(
+    return build_canonical_circuit(
         encoder,
-        enable_timeline=timeline_interval > 0,
-        timeline_interval=max(timeline_interval, 1),
-        diagnostics_interval=log_interval,
+        log_interval=log_interval,
+        timeline_interval=timeline_interval,
+        finalize=False,
     )
-
-    # Regions
-    cortex.add_region("S1", s1, entry=True)
-    cortex.add_region("S2", s2)
-    cortex.add_region("S3", s3)
-    bg = BasalGanglia(
-        context_dim=s1.n_columns + 1,
-        learning_rate=0.05,
-        seed=789,
-    )
-    cortex.add_region("M1", m1, basal_ganglia=bg)
-
-    # PFC: receives S2 (word-level) + S3 (topic-level) via multiple ff
-    # input_dim = S2 + S3 concatenated
-    pfc_cfg = _default_pfc_config()
-    pfc = make_pfc_region(
-        pfc_cfg,
-        s2.n_l23_total + s3.n_l23_total,
-        seed=999,
-        source_dims=[s2.n_l23_total, s3.n_l23_total],
-    )
-    cortex.add_region("PFC", pfc)
-
-    # M2: receives S2 (word context) + PFC (goal) via multiple ff
-    # input_dim = S2 + PFC concatenated
-    m2 = make_premotor_region(
-        m2_cfg,
-        s2.n_l23_total + pfc.n_l23_total,
-        seed=321,
-        source_dims=[s2.n_l23_total, pfc.n_l23_total],
-    )
-    cortex.add_region("M2", m2)
-
-    # Feedforward chain (multiple ff to same target = summed/concatenated)
-    cortex.connect(
-        "S1",
-        "S2",
-        ConnectionRole.FEEDFORWARD,
-        buffer_depth=4,
-        burst_gate=True,
-        surprise_tracker=SurpriseTracker(),
-    )
-    cortex.connect(
-        "S2",
-        "S3",
-        ConnectionRole.FEEDFORWARD,
-        buffer_depth=8,
-        burst_gate=True,
-        surprise_tracker=SurpriseTracker(),
-    )
-    # PFC gets S2 + S3 (word + topic context for goal formation)
-    cortex.connect("S2", "PFC", ConnectionRole.FEEDFORWARD)
-    cortex.connect("S3", "PFC", ConnectionRole.FEEDFORWARD)
-    # M2 gets S2 (word context) + PFC (goal)
-    cortex.connect("S2", "M2", ConnectionRole.FEEDFORWARD)
-    cortex.connect("PFC", "M2", ConnectionRole.FEEDFORWARD)
-    # M2 → M1 (sequence step drives motor execution)
-    cortex.connect("M2", "M1", ConnectionRole.FEEDFORWARD)
-
-    # Apical feedback — sensory hierarchy (top-down context)
-    cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    cortex.connect("S3", "S2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    # Apical feedback — motor hierarchy (bottom-up monitoring)
-    cortex.connect("M1", "M2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    cortex.connect("M2", "PFC", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    # Cross-hierarchy apical (S1→M1 carries surprise — no S1→M1 ff path)
-    cortex.connect(
-        "S1",
-        "M1",
-        ConnectionRole.APICAL,
-        thalamic_gate=ThalamicGate(),
-        surprise_tracker=SurpriseTracker(),
-    )
-    cortex.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-
-    return cortex
 
 
 def load_data(n_tokens):
