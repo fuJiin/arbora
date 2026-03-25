@@ -40,7 +40,7 @@ class TestL5LateralPrediction:
         r.l5_seg_indices[1, 0, :] = 0
         r.l5_seg_perm[1, 0, :] = 1.0
         # Set neuron 0 active
-        r.active_l5[0] = True
+        r.l5.active[0] = True
         predicted = r._predict_l5_lateral_from_segments()
         assert predicted[1], "L5 neuron 1 should be predicted by neuron 0"
 
@@ -55,9 +55,9 @@ class TestL5LateralPrediction:
         r = _make_region()
         r.l5_seg_indices[1, 0, :] = 0
         r.l5_seg_perm[1, 0, :] = 1.0
-        r.active_l5[0] = True
+        r.l5.active[0] = True
         r._compute_predictions()
-        assert r.predicted_l5[1]
+        assert r.l5.predicted[1]
 
     def test_lateral_and_apical_predictions_combine(self):
         """Both lateral and apical predictions OR into predicted_l5."""
@@ -66,15 +66,15 @@ class TestL5LateralPrediction:
         # Lateral: neuron 0 predicts neuron 1
         r.l5_seg_indices[1, 0, :] = 0
         r.l5_seg_perm[1, 0, :] = 1.0
-        r.active_l5[0] = True
+        r.l5.active[0] = True
         # Apical: context predicts neuron 2
         src = r._apical_sources["S2"]
         src["seg_indices"][2, 0, :] = 0
         src["seg_perm"][2, 0, :] = 1.0
         src["context"][0] = 1.0
         r._compute_predictions()
-        assert r.predicted_l5[1], "Lateral prediction"
-        assert r.predicted_l5[2], "Apical prediction"
+        assert r.l5.predicted[1], "Lateral prediction"
+        assert r.l5.predicted[2], "Apical prediction"
 
 
 class TestL5LateralLearning:
@@ -93,9 +93,9 @@ class TestL5LateralLearning:
         # Wire: neuron 0 predicts neuron 1 via lateral
         r.l5_seg_indices[1, 0, :] = 0
         r.l5_seg_perm[1, 0, :] = 0.6
-        r.active_l5[0] = True
-        r.active_l5[1] = True
-        r.predicted_l5[1] = True
+        r.l5.active[0] = True
+        r.l5.active[1] = True
+        r.l5.predicted[1] = True
         r.active_columns[0] = True
         r.bursting_columns[0] = False
         initial = r.l5_seg_perm[1, 0, 0]
@@ -106,9 +106,9 @@ class TestL5LateralLearning:
         r = _make_region()
         r.l5_seg_indices[1, 0, :] = 0
         r.l5_seg_perm[1, 0, :] = 0.6
-        r.active_l5[0] = True
-        r.predicted_l5[1] = True
-        r.active_l5[1] = False  # predicted but not active
+        r.l5.active[0] = True
+        r.l5.predicted[1] = True
+        r.l5.active[1] = False  # predicted but not active
         r.active_columns[0] = True  # need at least one active column
         initial = r.l5_seg_perm[1, 0, 0]
         r._learn_l5_lateral_segments()
@@ -119,9 +119,9 @@ class TestL5LateralBoost:
     def test_predicted_l5_boosts_winner(self):
         r = _make_region(fb_boost=5.0)  # high boost to override firing rate
         # Zero out firing rates so boost is decisive
-        r.firing_rate_l23[:] = 0.01  # uniform small baseline
-        r.predicted_l5[0 * r.n_l5 + 1] = True
+        r.l23.firing_rate[:] = 0.01  # uniform small baseline
+        r.l5.predicted[0 * r.n_l5 + 1] = True
         r.active_columns[0] = True
         r.bursting_columns[0] = False
         r._activate_l5(np.array([0]))
-        assert r.active_l5[0 * r.n_l5 + 1]
+        assert r.l5.active[0 * r.n_l5 + 1]

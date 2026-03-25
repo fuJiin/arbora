@@ -99,7 +99,7 @@ class PFCRegion(CorticalRegion):
         if not self.active_columns.any():
             return 0.0
         # Mean L2/3 firing rate of active columns
-        rates = self.firing_rate_l23.reshape(self.n_columns, self.n_l23)
+        rates = self.l23.firing_rate.reshape(self.n_columns, self.n_l23)
         active_rates = rates[self.active_columns].mean()
         return float(active_rates)
 
@@ -148,7 +148,7 @@ class PFCRegion(CorticalRegion):
         Used for echo mode (compare M1 output against this goal)
         and confidence monitoring.
         """
-        self._goal_context[:] = self.firing_rate_l23
+        self._goal_context[:] = self.l23.firing_rate
 
     @property
     def goal_context(self) -> np.ndarray:

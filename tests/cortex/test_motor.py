@@ -61,7 +61,7 @@ class TestMotorRegion:
         """Processing + observing tokens strengthens L5 output weights."""
         enc = encoder.encode("a")
         region1.process(enc)
-        motor.process(region1.firing_rate_l23)
+        motor.process(region1.l23.firing_rate)
         weights_before = motor.output_weights[:, ord("a")].copy()
         motor.observe_token(ord("a"))
         weights_after = motor.output_weights[:, ord("a")]
@@ -71,19 +71,19 @@ class TestMotorRegion:
     def test_process_updates_output_scores(self, motor, region1, encoder):
         enc = encoder.encode("a")
         region1.process(enc)
-        motor.process(region1.firing_rate_l23)
+        motor.process(region1.l23.firing_rate)
         # After processing, some columns should have nonzero scores
         # (from firing_rate_l23 EMA)
         # First step may be zero since firing_rate starts at 0
         # Process a second token to build up rates
         region1.process(encoder.encode("b"))
-        motor.process(region1.firing_rate_l23)
+        motor.process(region1.l23.firing_rate)
         # Output scores should be populated
         assert motor.output_scores is not None
 
     def test_reset_clears_output(self, motor, region1, encoder):
         region1.process(encoder.encode("a"))
-        motor.process(region1.firing_rate_l23)
+        motor.process(region1.l23.firing_rate)
         motor.reset_working_memory()
         assert motor.output_scores.sum() == 0.0
 
@@ -159,7 +159,7 @@ class TestBabbleDirect:
         """_babble_direct should activate exactly k_columns columns."""
         enc = encoder.encode("a")
         region1.process(enc)
-        motor._babble_direct(region1.firing_rate_l23)
+        motor._babble_direct(region1.l23.firing_rate)
         active_cols = np.nonzero(motor.active_columns)[0]
         assert len(active_cols) == motor.k_columns
 
@@ -167,7 +167,7 @@ class TestBabbleDirect:
         """_babble_direct should return nonzero array of active L4 indices."""
         enc = encoder.encode("a")
         region1.process(enc)
-        active = motor._babble_direct(region1.firing_rate_l23)
+        active = motor._babble_direct(region1.l23.firing_rate)
         assert len(active) > 0
         # Active indices should be valid L4 neuron indices
         assert active.max() < motor.n_l4_total
@@ -177,7 +177,7 @@ class TestBabbleDirect:
         enc = encoder.encode("a")
         region1.process(enc)
         assert motor._ff_eligibility.sum() == 0.0
-        motor._babble_direct(region1.firing_rate_l23)
+        motor._babble_direct(region1.l23.firing_rate)
         # Eligibility trace should be nonzero after babbling with input
         assert motor._ff_eligibility.sum() != 0.0
 
@@ -187,7 +187,7 @@ class TestBabbleDirect:
         region1.process(enc)
         activated_sets = set()
         for _ in range(20):
-            motor._babble_direct(region1.firing_rate_l23)
+            motor._babble_direct(region1.l23.firing_rate)
             cols = tuple(sorted(np.nonzero(motor.active_columns)[0]))
             activated_sets.add(cols)
         # With 4 columns and k=1, should see multiple different selections
@@ -200,7 +200,7 @@ class TestBabbleDirect:
         region1.process(enc)
         # Run multiple steps — all should activate exactly k columns
         for _ in range(10):
-            motor.process(region1.firing_rate_l23)
+            motor.process(region1.l23.firing_rate)
             active_cols = np.nonzero(motor.active_columns)[0]
             assert len(active_cols) == motor.k_columns
 
@@ -211,7 +211,7 @@ class TestBabbleDirect:
         region1.process(enc)
         # Run enough steps that both paths should be taken
         for _ in range(20):
-            motor.process(region1.firing_rate_l23)
+            motor.process(region1.l23.firing_rate)
             active_cols = np.nonzero(motor.active_columns)[0]
             # Both paths produce valid activations
             assert len(active_cols) == motor.k_columns

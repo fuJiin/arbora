@@ -144,7 +144,7 @@ class RunHooks:
         entry_region = circuit._regions[self._entry_name].region
 
         # Snapshot L2/3 binary state before processing (for dendritic decoder)
-        self._prev_l23 = entry_region.active_l23.copy()
+        self._prev_l23 = entry_region.l23.active.copy()
 
         # Motor regions process when: EOM phase, gate forced open, or
         # learning enabled (listening phase -- M1 observes to build
@@ -161,7 +161,7 @@ class RunHooks:
         if m1_active:
             for _mn, _ms in circuit._regions.items():
                 if _ms.motor and _ms.motor_decoder is not None:
-                    self._prev_motor_l23[_mn] = _ms.region.active_l23.copy()
+                    self._prev_motor_l23[_mn] = _ms.region.l23.active.copy()
 
     def on_after_step(
         self, circuit: Circuit, t: int, token_id: int, token_str: str
@@ -197,7 +197,7 @@ class RunHooks:
         for _name, s in circuit._regions.items():
             if is_metric_step:
                 s.rep_tracker.observe(
-                    token_id, s.region.active_columns, s.region.active_l4
+                    token_id, s.region.active_columns, s.region.l4.active
                 )
             if s.diagnostics is not None and is_metric_step:
                 s.diagnostics.step(t, s.region)
@@ -220,7 +220,7 @@ class RunHooks:
             assert entry_state.dendritic_decoder is not None
             self._bpc_probe.step(
                 token_id,
-                entry_region.active_l23,
+                entry_region.l23.active,
                 entry_state.dendritic_decoder,
             )
         if is_metric_step and t > 0:
@@ -466,7 +466,7 @@ class RunHooks:
         k = self._k
 
         predicted_neurons = entry_region.get_prediction(k)
-        active_l4_indices = np.nonzero(entry_region.active_l4)[0]
+        active_l4_indices = np.nonzero(entry_region.l4.active)[0]
 
         # Overlap
         if len(active_l4_indices) > 0 and len(predicted_neurons) > 0:
@@ -488,7 +488,7 @@ class RunHooks:
         )
         predicted_set = frozenset(int(i) for i in predicted_neurons)
         idx_predicted = entry_state.decode_index.decode(predicted_set)
-        den_predictions = entry_state.dendritic_decoder.decode(entry_region.active_l23)
+        den_predictions = entry_state.dendritic_decoder.decode(entry_region.l23.active)
         den_id = den_predictions[0] if den_predictions else -1
 
         metrics[entry_name].accuracies.append(1.0 if idx_predicted == token_id else 0.0)
@@ -537,7 +537,7 @@ class RunHooks:
         assert entry_state.dendritic_decoder is not None
         if token_id not in entry_state.decode_index._token_id_to_idx:
             active_set = frozenset(
-                int(i) for i in np.nonzero(entry_region.active_l4)[0]
+                int(i) for i in np.nonzero(entry_region.l4.active)[0]
             )
             entry_state.decode_index.observe(token_id, active_set)
         entry_state.syn_decoder.observe(
@@ -548,7 +548,7 @@ class RunHooks:
         # Train word decoders on all non-entry regions
         for _wd_name, _wd_state in circuit._regions.items():
             if _wd_state.word_decoder is not None:
-                _wd_state.word_decoder.step(token_str, _wd_state.region.firing_rate_l23)
+                _wd_state.word_decoder.step(token_str, _wd_state.region.l23.firing_rate)
 
     def _log_step(
         self,

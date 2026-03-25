@@ -89,28 +89,28 @@ class TestLaminaRegionWiring:
         assert r.l23.region is r
         assert r.l5.region is r
 
-    def test_aliases_share_arrays(self):
+    def test_lamina_arrays_exist(self):
         r = self._make_region()
-        assert r.voltage_l4 is r.l4.voltage
-        assert r.voltage_l23 is r.l23.voltage
-        assert r.active_l4 is r.l4.active
-        assert r.active_l23 is r.l23.active
-        assert r.active_l5 is r.l5.active
-        assert r.firing_rate_l23 is r.l23.firing_rate
-        assert r.firing_rate_l5 is r.l5.firing_rate
-        assert r.excitability_l4 is r.l4.excitability
-        assert r.excitability_l23 is r.l23.excitability
-        assert r.predicted_l4 is r.l4.predicted
-        assert r.predicted_l23 is r.l23.predicted
-        assert r.predicted_l5 is r.l5.predicted
-        assert r.trace_l4 is r.l4.trace
-        assert r.trace_l23 is r.l23.trace
+        assert r.l4.voltage is not None
+        assert r.l23.voltage is not None
+        assert r.l4.active is not None
+        assert r.l23.active is not None
+        assert r.l5.active is not None
+        assert r.l23.firing_rate is not None
+        assert r.l5.firing_rate is not None
+        assert r.l4.excitability is not None
+        assert r.l23.excitability is not None
+        assert r.l4.predicted is not None
+        assert r.l23.predicted is not None
+        assert r.l5.predicted is not None
+        assert r.l4.trace is not None
+        assert r.l23.trace is not None
 
-    def test_in_place_mutation_shared(self):
+    def test_in_place_mutation(self):
         r = self._make_region()
         r.l4.voltage[0] = 0.5
-        assert r.voltage_l4[0] == 0.5
-        r.voltage_l23[1] = 0.3
+        assert r.l4.voltage[0] == 0.5
+        r.l23.voltage[1] = 0.3
         assert r.l23.voltage[1] == 0.3
 
     def test_get_lamina(self):

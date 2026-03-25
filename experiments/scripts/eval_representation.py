@@ -137,7 +137,7 @@ def main():
         active_set = frozenset(int(i) for i in active_neurons)
 
         # Track
-        rep.observe(token_id, region.active_columns, region.active_l4)
+        rep.observe(token_id, region.active_columns, region.l4.active)
         diag.step(t, region)
 
         if t > 0:

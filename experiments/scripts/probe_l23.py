@@ -110,9 +110,9 @@ def collect_activations(
 
         # Save current L2/3 state
         if use_firing_rate:
-            prev_l23 = region.firing_rate_l23.astype(np.float32).copy()
+            prev_l23 = region.l23.firing_rate.astype(np.float32).copy()
         else:
-            prev_l23 = region.active_l23.astype(np.float32).copy()
+            prev_l23 = region.l23.active.astype(np.float32).copy()
         prev_was_boundary = False
 
         if t > 0 and t % 1000 == 0:

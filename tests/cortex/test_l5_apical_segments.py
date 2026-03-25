@@ -92,7 +92,7 @@ class TestL5ApicalPrediction:
         r.init_apical_context(source_dim=32, source_name="S2")
         self._setup_predicted_neuron(r)
         r._compute_predictions()
-        assert r.predicted_l5[0]
+        assert r.l5.predicted[0]
 
 
 class TestL5ApicalBACFiring:
@@ -117,7 +117,7 @@ class TestL5ApicalBACFiring:
 
         # Run prediction
         r._compute_predictions()
-        assert r.predicted_l5[target_neuron]
+        assert r.l5.predicted[target_neuron]
 
         # Activate L5 with column 0 active and not bursting
         r.active_columns[:] = False
@@ -126,7 +126,7 @@ class TestL5ApicalBACFiring:
         r._activate_l5(np.array([0]))
 
         # The predicted neuron should be the winner (or at least active)
-        assert r.active_l5[target_neuron], (
+        assert r.l5.active[target_neuron], (
             "Predicted L5 neuron should win with apical boost"
         )
 
@@ -136,7 +136,7 @@ class TestL5ApicalBACFiring:
         r.init_apical_context(source_dim=32, source_name="S2")
         rng = np.random.default_rng(0)
         r.step(rng.random(r.n_l4_total))
-        assert not r.predicted_l5.any()
+        assert not r.l5.predicted.any()
 
 
 class TestL5ApicalLearning:
@@ -179,8 +179,8 @@ class TestL5ApicalLearning:
 
         # Make neuron 0 active and predicted
         r.active_columns[0] = True
-        r.active_l5[0] = True
-        r.predicted_l5[0] = True
+        r.l5.active[0] = True
+        r.l5.predicted[0] = True
 
         initial_perm = src["seg_perm"][0, 0, 0]
         r._learn_l5_apical()
@@ -200,8 +200,8 @@ class TestL5ApicalLearning:
         src["context"][:] = 0.0
         src["context"][0] = 1.0
 
-        r.predicted_l5[0] = True
-        r.active_l5[0] = False
+        r.l5.predicted[0] = True
+        r.l5.active[0] = False
         r.active_columns[:] = False  # Column not active
 
         initial_perm = src["seg_perm"][0, 0, 0]
@@ -212,9 +212,9 @@ class TestL5ApicalLearning:
 
     def test_reset_clears_predicted_l5(self):
         r = _make_region()
-        r.predicted_l5[0] = True
+        r.l5.predicted[0] = True
         r.reset_working_memory()
-        assert not r.predicted_l5.any()
+        assert not r.l5.predicted.any()
 
 
 class TestBackwardCompat:
@@ -229,7 +229,7 @@ class TestBackwardCompat:
         # Should not crash — linear gain path runs
         for _ in range(5):
             r.step(rng.random(r.n_l4_total))
-        assert r.active_l5.any()
+        assert r.l5.active.any()
 
     def test_default_is_linear_gain(self):
         r = CorticalRegion(

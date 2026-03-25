@@ -93,8 +93,8 @@ class CortexDiagnostics:
             self._column_counts[int(c)] += 1
 
         # Track active neuron indices for diversity window
-        l4_active = np.nonzero(region.active_l4)[0]
-        l23_active = np.nonzero(region.active_l23)[0]
+        l4_active = np.nonzero(region.l4.active)[0]
+        l23_active = np.nonzero(region.l23.active)[0]
         self._l4_neuron_window.extend(int(i) for i in l4_active)
         self._l23_neuron_window.extend(int(i) for i in l23_active)
 
@@ -118,7 +118,7 @@ class CortexDiagnostics:
         self._precise_count += n_active - n_bursting
 
         # Track prediction diversity: what did predicted_l4 look like?
-        predicted_neurons = np.nonzero(region.predicted_l4)[0]
+        predicted_neurons = np.nonzero(region.l4.predicted)[0]
         self._unique_prediction_sets.append(
             frozenset(int(i) for i in predicted_neurons)
         )
@@ -154,18 +154,18 @@ class CortexDiagnostics:
             setattr(snap, f"{prefix}_sparsity", float(np.mean(w < 1e-6)))
 
         # Excitability vs voltage
-        snap.excitability_l4_max = float(np.max(region.excitability_l4))
-        snap.excitability_l4_mean = float(np.mean(region.excitability_l4))
-        snap.voltage_l4_max = float(np.max(np.abs(region.voltage_l4)))
+        snap.excitability_l4_max = float(np.max(region.l4.excitability))
+        snap.excitability_l4_mean = float(np.mean(region.l4.excitability))
+        snap.voltage_l4_max = float(np.max(np.abs(region.l4.voltage)))
 
         # Trace health
-        snap.trace_l4_mean = float(np.mean(region.trace_l4))
-        snap.trace_l4_nonzero = int(np.count_nonzero(region.trace_l4 > 0.01))
-        snap.trace_l23_mean = float(np.mean(region.trace_l23))
-        snap.trace_l23_nonzero = int(np.count_nonzero(region.trace_l23 > 0.01))
+        snap.trace_l4_mean = float(np.mean(region.l4.trace))
+        snap.trace_l4_nonzero = int(np.count_nonzero(region.l4.trace > 0.01))
+        snap.trace_l23_mean = float(np.mean(region.l23.trace))
+        snap.trace_l23_nonzero = int(np.count_nonzero(region.l23.trace > 0.01))
 
         # Prediction state from dendritic segments
-        snap.n_predicted_neurons = int(region.predicted_l4.sum())
+        snap.n_predicted_neurons = int(region.l4.predicted.sum())
 
         # Dendritic segment health
         if hasattr(region, "fb_seg_perm"):
@@ -179,15 +179,15 @@ class CortexDiagnostics:
             )
 
             # Count active segments (would fire given current activity)
-            if region.active_l23.any():
-                fb_active = region.active_l23[region.fb_seg_indices]
+            if region.l23.active.any():
+                fb_active = region.l23.active[region.fb_seg_indices]
                 fb_conn = fb_perm > region.perm_threshold
                 fb_counts = (fb_active & fb_conn).sum(axis=2)
                 snap.n_active_fb_segments = int(
                     (fb_counts >= region.seg_activation_threshold).sum()
                 )
-            if region.active_l4.any():
-                lat_active = region.active_l4[region.lat_seg_indices]
+            if region.l4.active.any():
+                lat_active = region.l4.active[region.lat_seg_indices]
                 lat_conn = lat_perm > region.perm_threshold
                 lat_counts = (lat_active & lat_conn).sum(axis=2)
                 snap.n_active_lat_segments = int(
@@ -201,10 +201,10 @@ class CortexDiagnostics:
             snap.l23_seg_connected_frac = float(
                 np.mean(l23_perm > region.perm_threshold)
             )
-            snap.n_predicted_l23 = int(region.predicted_l23.sum())
+            snap.n_predicted_l23 = int(region.l23.predicted.sum())
 
-            if region.active_l23.any():
-                l23_active = region.active_l23[region.l23_seg_indices]
+            if region.l23.active.any():
+                l23_active = region.l23.active[region.l23_seg_indices]
                 l23_conn = l23_perm > region.perm_threshold
                 l23_counts = (l23_active & l23_conn).sum(axis=2)
                 snap.n_active_l23_segments = int(
