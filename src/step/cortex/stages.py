@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from step.cortex.circuit import ConnectionRole
 
@@ -37,7 +37,7 @@ class TrainingStage:
     n_tokens: int = 100_000
 
     # Regions where learning is enabled (for display / metadata)
-    learning_regions: list[str] | None = None
+    learning_regions: list[str] = field(default_factory=list)
 
     # Checkpoint to load before this stage (None = start fresh or continue)
     load_checkpoint: str | None = None
@@ -57,9 +57,6 @@ class TrainingStage:
     # Stage configuration function: (circuit) -> None
     configure: Callable | None = None
 
-    def __post_init__(self):
-        if self.learning_regions is None:
-            self.learning_regions = []
 
 
 # ------------------------------------------------------------------
