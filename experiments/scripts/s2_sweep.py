@@ -97,12 +97,12 @@ def probe(cortex, encoder, s1, s2, tokens):
 
     def cap_s2(enc):
         r = orig_s2(enc)
-        s2_snaps.append((s2.active_columns.copy(), s2.active_l23.copy()))
+        s2_snaps.append((s2.active_columns.copy(), s2.l23.active.copy()))
         return r
 
     def cap_s1(enc):
         r = orig_s1(enc)
-        s1_snaps.append((s1.active_columns.copy(), s1.active_l23.copy()))
+        s1_snaps.append((s1.active_columns.copy(), s1.l23.active.copy()))
         return r
 
     s2.process = cap_s2

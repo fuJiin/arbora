@@ -641,14 +641,14 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
 
             # S1 prediction BEFORE processing
             preds = decode_prediction(
-                region1.active_l23,
+                region1.l23.active,
                 decoder,
                 encoder,
             )
-            bits = compute_bits(token_id, region1.active_l23, decoder)
+            bits = compute_bits(token_id, region1.l23.active, decoder)
 
             # Train decoder on current state → token
-            decoder.observe(token_id, region1.active_l23)
+            decoder.observe(token_id, region1.l23.active)
 
             # Step through full hierarchy
             step_token(cortex, token_id, ch)
@@ -660,7 +660,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
 
             # S2 word decoder: step and check for word boundary
             s2_region = cortex._regions["S2"].region
-            completed_word = word_decoder.step(ch, s2_region.firing_rate_l23)
+            completed_word = word_decoder.step(ch, s2_region.l23.firing_rate)
 
             # Track per-char stats
             line_bursts.append(burst_frac)
@@ -690,7 +690,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
 
             # At word boundaries, show S2's word-level context
             if completed_word:
-                s2_preds = word_decoder.predict(s2_region.firing_rate_l23, k=3)
+                s2_preds = word_decoder.predict(s2_region.l23.firing_rate, k=3)
                 if s2_preds:
                     total = max(sum(s for _, s in s2_preds), 1)
                     wp = " ".join(f"{w}:{s / total:.0%}" for w, s in s2_preds)
@@ -734,7 +734,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
                 and hasattr(motor, "_goal_weights")
                 and motor._goal_weights is not None
             ):
-                motor.set_goal_drive(pfc_state.region.firing_rate_l23)
+                motor.set_goal_drive(pfc_state.region.l23.firing_rate)
 
             # Feed M1's last output as next input (autoregressive)
             step_token(cortex, last_token[0], last_token[1])

@@ -82,7 +82,7 @@ def run_config(
         region.process(encoding)
 
         diag.step(t_step, region)
-        rep_tracker.observe(token_id, region.active_columns, region.active_l4)
+        rep_tracker.observe(token_id, region.active_columns, region.l4.active)
 
         if t_step > 0 and t_step % log_interval == 0:
             elapsed = time.monotonic() - start

@@ -215,23 +215,23 @@ class MotorRegion(CorticalRegion):
 
         # Run the standard step pipeline but inject our columns
         # 1. Decay voltages
-        self.voltage_l4 *= self.voltage_decay
-        self.voltage_l23 *= self.voltage_decay
+        self.l4.voltage *= self.voltage_decay
+        self.l23.voltage *= self.voltage_decay
 
         # 2. Compute predictions (for segment learning)
         self._compute_predictions()
 
         # 3. Save prediction context
-        self._pred_context_l23[:] = self.active_l23
-        self._pred_context_l4[:] = self.active_l4
+        self._pred_context_l23[:] = self.l23.active
+        self._pred_context_l4[:] = self.l4.active
 
         # 4-6. Force our chosen columns active
         for col in cols:
             start = col * self.n_l4
             end = start + self.n_l4
-            self.voltage_l4[start:end] = 1.0
+            self.l4.voltage[start:end] = 1.0
 
-        scores_l4 = self.voltage_l4 + self.excitability_l4
+        scores_l4 = self.l4.voltage + self.l4.excitability
         self._activate_l4_burst(cols, scores_l4)
 
         # 7. Activate L2/3
@@ -252,19 +252,19 @@ class MotorRegion(CorticalRegion):
         # 9-13. Standard housekeeping
         self._update_traces()
         self._update_excitability()
-        self.voltage_l4[self.active_l4] = 0.0
-        self.voltage_l23[self.active_l23] = 0.0
-        np.clip(self.voltage_l4, 0.0, 1.0, out=self.voltage_l4)
-        np.clip(self.voltage_l23, 0.0, 1.0, out=self.voltage_l23)
-        self.firing_rate_l23 *= self.voltage_decay
-        self.firing_rate_l23[self.active_l23] += 1.0 - self.voltage_decay
-        self.firing_rate_l5 *= self.voltage_decay
-        self.firing_rate_l5[self.active_l5] += 1.0 - self.voltage_decay
-        self.output_scores[:] = self.firing_rate_l5.reshape(
+        self.l4.voltage[self.l4.active] = 0.0
+        self.l23.voltage[self.l23.active] = 0.0
+        np.clip(self.l4.voltage, 0.0, 1.0, out=self.l4.voltage)
+        np.clip(self.l23.voltage, 0.0, 1.0, out=self.l23.voltage)
+        self.l23.firing_rate *= self.voltage_decay
+        self.l23.firing_rate[self.l23.active] += 1.0 - self.voltage_decay
+        self.l5.firing_rate *= self.voltage_decay
+        self.l5.firing_rate[self.l5.active] += 1.0 - self.voltage_decay
+        self.output_scores[:] = self.l5.firing_rate.reshape(
             self.n_columns, self.n_l5
         ).mean(axis=1)
 
-        return np.nonzero(self.active_l4)[0]
+        return np.nonzero(self.l4.active)[0]
 
     # _learn_ff() inherited from CorticalRegion base class.
     # Base dispatches to _learn_ff_three_factor which handles
@@ -349,7 +349,7 @@ class MotorRegion(CorticalRegion):
         self._output_eligibility *= self.eligibility_decay
 
         # Record coincidence: active L5 neurons -> observed token
-        active = self.active_l5.astype(np.float64)
+        active = self.l5.active.astype(np.float64)
         if not active.any():
             return
 
@@ -380,7 +380,7 @@ class MotorRegion(CorticalRegion):
 
         Returns (-1, 0.0) if no L5 neurons are active or all scores zero.
         """
-        active = self.active_l5.astype(np.float64)
+        active = self.l5.active.astype(np.float64)
         if not active.any():
             return (-1, 0.0)
 
@@ -410,7 +410,7 @@ class MotorRegion(CorticalRegion):
         if not above.any():
             return (-1, 0.0)
 
-        predictions = decoder.decode(self.active_l23, k=1)
+        predictions = decoder.decode(self.l23.active, k=1)
         if not predictions:
             return (-1, 0.0)
 
