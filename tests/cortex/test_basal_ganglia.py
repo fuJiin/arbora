@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import EOM_TOKEN, STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
 
@@ -105,11 +105,11 @@ class TestBasalGangliaUnit:
 
 
 class TestBasalGangliaIntegration:
-    def test_bg_runs_in_topology(self, region1, motor, encoder):
+    def test_bg_runs_in_circuit(self, region1, motor, encoder):
         """BG wired to M1 runs without error."""
         bg = BasalGanglia(context_dim=region1.n_columns + 1)
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
@@ -132,7 +132,7 @@ class TestBasalGangliaIntegration:
             (0, "a"),
             (1, "b"),
         ]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
@@ -148,7 +148,7 @@ class TestBasalGangliaIntegration:
             (STORY_BOUNDARY, ""),
             (0, "a"),
         ]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
@@ -159,7 +159,7 @@ class TestBasalGangliaIntegration:
     def test_no_bg_backward_compatible(self, region1, motor, encoder):
         """Without BG, bg_gate_values is empty."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(20)]
-        cortex = Topology(encoder)
+        cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)

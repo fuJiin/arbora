@@ -25,8 +25,8 @@ from step.config import (
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
 
@@ -43,7 +43,7 @@ def load_data():
     return tokens, encoder
 
 
-def build_topology(encoder, use_l5_apical=False):
+def build_circuit(encoder, use_l5_apical=False):
     s1_cfg = _default_s1_config()
     if use_l5_apical:
         s1_cfg = replace(s1_cfg, use_l5_apical_segments=True)
@@ -75,7 +75,7 @@ def build_topology(encoder, use_l5_apical=False):
     m1.output_weights *= m1.output_mask
     m1._output_eligibility = np.zeros((n_l5, len(output_vocab)))
 
-    cortex = Topology(
+    cortex = Circuit(
         encoder,
         enable_timeline=False,
         diagnostics_interval=LOG_INTERVAL,
@@ -149,7 +149,7 @@ def run_config(name, tokens, encoder, use_l5_apical):
     print(f"Config: {name} (l5_apical_segments={use_l5_apical})")
     print(f"{'=' * 60}")
 
-    cortex = build_topology(encoder, use_l5_apical=use_l5_apical)
+    cortex = build_circuit(encoder, use_l5_apical=use_l5_apical)
     cortex.finalize()
 
     t0 = time.time()

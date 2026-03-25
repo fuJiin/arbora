@@ -23,8 +23,8 @@ from step.config import (
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import (
     inject_eom_tokens,
     prepare_tokens,
@@ -292,7 +292,7 @@ def _run_single(tokens, cortex_cfg, encoder, input_dim, encoding_width, args):
     region = _make_region(cortex_cfg, input_dim, encoding_width)
 
     enable_tl = args.timeline_interval != 0
-    cortex = Topology(
+    cortex = Circuit(
         encoder,
         enable_timeline=enable_tl,
         timeline_interval=args.timeline_interval if enable_tl else 1,
@@ -316,7 +316,7 @@ def _run_hierarchy(tokens, cortex_cfg, encoder, input_dim, encoding_width, args)
     surprise = SurpriseTracker()
 
     enable_tl = args.timeline_interval != 0
-    cortex = Topology(
+    cortex = Circuit(
         encoder,
         enable_timeline=enable_tl,
         timeline_interval=args.timeline_interval if enable_tl else 1,

@@ -36,9 +36,9 @@ from step.config import (
     make_sensory_region,
 )
 from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.stages import BABBLING_STAGE, SENSORY_STAGE
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
 
@@ -134,14 +134,14 @@ CONFIGS = {
 }
 
 
-def build_topology(
+def build_circuit(
     encoder,
     *,
     timeline_interval=0,
     m1_m2_surprise=False,
     m2_m1_surprise=False,
 ):
-    """Build topology (same as cortex_staged.py but without timeline)."""
+    """Build circuit (same as cortex_staged.py but without timeline)."""
     s1_cfg = _default_s1_config()
     s1 = make_sensory_region(s1_cfg, encoder.input_dim, encoder.encoding_width)
 
@@ -167,7 +167,7 @@ def build_topology(
     m1.output_weights *= m1.output_mask
     m1._output_eligibility = np.zeros((n_l23, len(output_vocab)))
 
-    cortex = Topology(
+    cortex = Circuit(
         encoder,
         enable_timeline=False,
         timeline_interval=1,
@@ -453,8 +453,8 @@ def main():
         print(f"  m2_m1_surprise={cfg.m2_m1_surprise}")
         print(f"{'=' * 60}")
 
-        # Fresh topology for each config (fair comparison)
-        cortex = build_topology(
+        # Fresh circuit for each config (fair comparison)
+        cortex = build_circuit(
             encoder,
             m1_m2_surprise=cfg.m1_m2_surprise,
             m2_m1_surprise=cfg.m2_m1_surprise,

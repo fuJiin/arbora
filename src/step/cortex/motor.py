@@ -109,7 +109,7 @@ class MotorRegion(CorticalRegion):
         # L5 eligibility trace (three-factor learning)
         self._output_eligibility = np.zeros((n_l5, n_output_tokens))
 
-        # Last step output (set by topology run loop after BG gating)
+        # Last step output (set by circuit run loop after BG gating)
         self.last_output: tuple[int, float] = (-1, 0.0)
         self.last_gate: float = 0.5
         self.last_reward: float = 0.0

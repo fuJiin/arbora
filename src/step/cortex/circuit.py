@@ -1,6 +1,6 @@
-"""Topology: declarative region wiring that replaces boilerplate run loops.
+"""Circuit: declarative region wiring that replaces boilerplate run loops.
 
-Build a topology by adding regions and connections, then call run() once.
+Build a circuit by adding regions and connections, then call run() once.
 Supports single-region, two-region hierarchy, and arbitrary DAGs.
 """
 
@@ -12,12 +12,8 @@ from collections import deque
 import numpy as np
 
 from step.cortex.basal_ganglia import BasalGanglia
-from step.cortex.lamina import LaminaID
-from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from step.cortex.motor import MotorRegion
-from step.cortex.region import CorticalRegion
-from step.cortex.topology_hooks import RunHooks, StepHooks
-from step.cortex.topology_types import (
+from step.cortex.circuit_hooks import RunHooks, StepHooks
+from step.cortex.circuit_types import (
     Connection,
     ConnectionRole,
     CortexResult,
@@ -25,15 +21,19 @@ from step.cortex.topology_types import (
     RunMetrics,
     _RegionState,
 )
+from step.cortex.lamina import LaminaID
+from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
+from step.cortex.motor import MotorRegion
+from step.cortex.region import CorticalRegion
 from step.data import EOM_TOKEN, STORY_BOUNDARY
 from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
 from step.probes.timeline import Timeline
 
-# Re-export types for backward compatibility.
-# External code imports these from step.cortex.topology.
+# Re-export types so external code can import from step.cortex.circuit.
 __all__ = [
+    "Circuit",
     "Connection",
     "ConnectionRole",
     "CortexResult",
@@ -41,12 +41,11 @@ __all__ = [
     "RunHooks",
     "RunMetrics",
     "StepHooks",
-    "Topology",
 ]
 
 
-class Topology:
-    """Declarative region topology with a single run() loop."""
+class Circuit:
+    """Declarative region circuit with a single run() loop."""
 
     def __init__(
         self,
@@ -85,7 +84,7 @@ class Topology:
     # ------------------------------------------------------------------
 
     def finalize(self) -> None:
-        """Validate the topology DAG and lock for execution.
+        """Validate the circuit DAG and lock for execution.
 
         After finalize():
         - No more add_region() or connect() calls
@@ -251,11 +250,11 @@ class Topology:
         entry: bool = False,
         diagnostics: bool = True,
         basal_ganglia: BasalGanglia | None = None,
-    ) -> Topology:
+    ) -> Circuit:
         """Register a region. Exactly one must have entry=True."""
         if self._finalized:
             raise RuntimeError(
-                "Topology is finalized. Cannot add regions after finalize()."
+                "Circuit is finalized. Cannot add regions after finalize()."
             )
         if name in self._regions:
             raise ValueError(f"Duplicate region name: {name!r}")
@@ -324,7 +323,7 @@ class Topology:
         buffer_depth: int = 1,
         burst_gate: bool = False,
         thalamic_gate: ThalamicGate | None = None,
-    ) -> Topology:
+    ) -> Circuit:
         """Wire source -> target.
 
         Args:
@@ -335,7 +334,7 @@ class Topology:
         """
         if self._finalized:
             raise RuntimeError(
-                "Topology is finalized. Cannot add connections after finalize()."
+                "Circuit is finalized. Cannot add connections after finalize()."
             )
         for name in (source, target):
             if name not in self._regions:
@@ -1388,7 +1387,7 @@ class Topology:
     def load_checkpoint(self, path: str) -> None:
         """Restore learned weights and state from a checkpoint file.
 
-        The topology must already be built with the same architecture
+        The circuit must already be built with the same architecture
         (same regions, connections, dimensions) before loading.
         """
         import pickle
