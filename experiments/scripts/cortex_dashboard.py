@@ -25,8 +25,8 @@ from pathlib import Path
 
 import step.env  # noqa: F401
 from step.config import CortexConfig, _default_region2_config, make_sensory_region
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
-from step.cortex.topology import ConnectionRole, Topology
 from step.data import prepare_tokens, prepare_tokens_charlevel
 from step.encoders.charbit import CharbitEncoder
 from step.encoders.positional import PositionalCharEncoder
@@ -673,7 +673,7 @@ def _legacy_run_single(
     config_html="",
 ) -> str:
     region = _make_region(cortex_cfg, input_dim, encoding_width)
-    cortex = Topology(
+    cortex = Circuit(
         encoder,
         enable_timeline=True,
         diagnostics_interval=args.log_interval,
@@ -733,7 +733,7 @@ def _legacy_run_hierarchy(
     r2_input_dim = region1.n_l23_total * args.buffer_depth
     region2 = make_sensory_region(r2_cfg, r2_input_dim, seed=123)
     surprise = SurpriseTracker()
-    cortex = Topology(
+    cortex = Circuit(
         encoder,
         enable_timeline=True,
         diagnostics_interval=args.log_interval,

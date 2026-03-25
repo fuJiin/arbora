@@ -58,9 +58,9 @@ def surprise_color(burst_frac: float) -> str:
 
 
 def build_model(alphabet: str, *, use_l5_apical: bool = False):
-    """Build full hierarchy using the staged topology builder.
+    """Build full hierarchy using the staged circuit builder.
 
-    Delegates to cortex_staged.build_topology() to ensure dimensions
+    Delegates to cortex_staged.build_circuit() to ensure dimensions
     always match checkpoints saved by the staged pipeline.
     """
     import os
@@ -84,10 +84,10 @@ def build_model(alphabet: str, *, use_l5_apical: bool = False):
             _orig_r3(), use_l5_apical_segments=True
         )
 
-    from scripts.cortex_staged import build_topology
+    from scripts.cortex_staged import build_circuit
 
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
-    cortex = build_topology(encoder, log_interval=999999)
+    cortex = build_circuit(encoder, log_interval=999999)
     cortex.finalize()
 
     # Restore config defaults if patched
@@ -317,7 +317,7 @@ def reset_state(cortex, encoder):
 
 
 def run_babble(cortex, encoder, region1, motor, n_chars=200):
-    """Watch M1 babble in real time using full topology."""
+    """Watch M1 babble in real time using full circuit."""
     print(f"\n{DIM}  M1 babbling {n_chars} chars (PFC→M2→M1)...{RESET}")
     print(f"  {BOLD}", end="", flush=True)
 
@@ -332,7 +332,7 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
     word_buf = []
 
     for _i in range(n_chars):
-        # Use topology's step() for proper propagation
+        # Use circuit's step() for proper propagation
         token_id = ord(current_char) if current_char else ord(" ")
         cortex.step(token_id, current_char)
 
@@ -482,7 +482,7 @@ def run_echo(cortex, encoder, motor, word: str):
     print(f"\n{DIM}  Echo mode: listening to '{word}'...{RESET}")
 
     entry_name = cortex._entry_name
-    # Ensure topology is finalized for proper multi-ff propagation
+    # Ensure circuit is finalized for proper multi-ff propagation
     if not hasattr(cortex, "_ff_conns") or not cortex._ff_conns:
         cortex.finalize()
 

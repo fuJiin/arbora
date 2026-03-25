@@ -20,11 +20,11 @@ cfg._default_region3_config = lambda: replace(_orig_r3(), use_l5_apical_segments
 import sys  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from scripts.cortex_staged import build_topology, load_data, run_stage  # noqa: E402
+from scripts.cortex_staged import build_circuit, load_data, run_stage  # noqa: E402
 
 tokens, encoder = load_data(300_000)
 
-cortex = build_topology(encoder, log_interval=5000)
+cortex = build_circuit(encoder, log_interval=5000)
 cortex.finalize()
 
 # Stage 1: Sensory (300k)

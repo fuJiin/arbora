@@ -1,11 +1,11 @@
+from step.cortex.circuit import Circuit
 from step.cortex.modulators import SurpriseTracker
 from step.cortex.region import CorticalRegion
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import Topology
 
 __all__ = [
+    "Circuit",
     "CorticalRegion",
     "SensoryRegion",
     "SurpriseTracker",
-    "Topology",
 ]

@@ -1,4 +1,4 @@
-"""Step hooks for the topology system.
+"""Step hooks for the circuit system.
 
 Defines the StepHooks protocol and RunHooks — the concrete implementation
 that extracts all metrics, BPC, logging, and decoder logic from run().
@@ -12,17 +12,17 @@ from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
-from step.cortex.motor import MotorRegion
-from step.cortex.topology_types import (
+from step.cortex.circuit_types import (
     ConnectionRole,
     CortexResult,
     RunMetrics,
 )
+from step.cortex.motor import MotorRegion
 from step.probes.bpc import BPCProbe
 from step.probes.centroid_bpc import CentroidBPCProbe
 
 if TYPE_CHECKING:
-    from step.cortex.topology import Topology
+    from step.cortex.circuit import Circuit
 
 
 class StepHooks(Protocol):
@@ -33,20 +33,20 @@ class StepHooks(Protocol):
     """
 
     def on_before_step(
-        self, topology: Topology, t: int, token_id: int, token_str: str
+        self, circuit: Circuit, t: int, token_id: int, token_str: str
     ) -> None: ...
 
     def on_after_step(
-        self, topology: Topology, t: int, token_id: int, token_str: str
+        self, circuit: Circuit, t: int, token_id: int, token_str: str
     ) -> None: ...
 
-    def on_boundary(self, topology: Topology) -> None: ...
+    def on_boundary(self, circuit: Circuit) -> None: ...
 
 
 class RunHooks:
     """Concrete StepHooks that implements all metrics/BPC/logging from run().
 
-    This is a "friend class" of Topology — it reads internal state directly.
+    This is a "friend class" of Circuit — it reads internal state directly.
     """
 
     # Anti-rambling: penalize after this many steps in EOM phase
@@ -56,14 +56,14 @@ class RunHooks:
 
     def __init__(
         self,
-        topology: Topology,
+        circuit: Circuit,
         *,
         log_interval: int = 100,
         rolling_window: int = 100,
         show_predictions: int = 0,
         metric_interval: int = 0,
     ):
-        self._topology = topology
+        self._circuit = circuit
 
         self._log_interval = log_interval
         self._rolling_window = rolling_window
@@ -74,16 +74,16 @@ class RunHooks:
             metric_interval = max(1, log_interval)
         self._metric_interval = metric_interval
 
-        entry_name = topology._entry_name
+        entry_name = circuit._entry_name
         assert entry_name is not None
         self._entry_name = entry_name
-        entry_state = topology._regions[entry_name]
+        entry_state = circuit._regions[entry_name]
         entry_region = entry_state.region
         self._k = entry_region.k_columns
 
         # Per-region metrics accumulators
         self._metrics: dict[str, RunMetrics] = {
-            name: RunMetrics() for name in topology._regions
+            name: RunMetrics() for name in circuit._regions
         }
 
         # BPC probes (entry region only)
@@ -96,7 +96,7 @@ class RunHooks:
         self._surprise_modulators: dict[str, list[float]] = {}
         self._thalamic_readiness: dict[str, list[float]] = {}
         self._reward_modulators: dict[str, list[float]] = {}
-        for conn in topology._connections:
+        for conn in circuit._connections:
             if conn.surprise_tracker is not None:
                 self._surprise_modulators[conn.target] = []
             if conn.thalamic_gate is not None:
@@ -116,7 +116,7 @@ class RunHooks:
     # StepHooks interface
     # ------------------------------------------------------------------
 
-    def on_boundary(self, topology: Topology) -> None:
+    def on_boundary(self, circuit: Circuit) -> None:
         """BPC dialogue boundary, rep_tracker reset, reward resets.
 
         Called BEFORE step()'s own boundary handling (region resets etc.).
@@ -125,23 +125,23 @@ class RunHooks:
             self._bpc_probe.dialogue_boundary()
         self._centroid_probe.dialogue_boundary()
 
-        for s in topology._regions.values():
+        for s in circuit._regions.values():
             s.rep_tracker.reset_context()
 
-        for conn in topology._connections:
+        for conn in circuit._connections:
             if conn.reward_modulator is not None:
                 conn.reward_modulator.reset()
 
-        if topology._reward_source is not None:
-            _rs_reset = getattr(topology._reward_source, "reset", None)
+        if circuit._reward_source is not None:
+            _rs_reset = getattr(circuit._reward_source, "reset", None)
             if _rs_reset is not None:
                 _rs_reset()
 
     def on_before_step(
-        self, topology: Topology, t: int, token_id: int, token_str: str
+        self, circuit: Circuit, t: int, token_id: int, token_str: str
     ) -> None:
         """Snapshot L2/3 state before processing."""
-        entry_region = topology._regions[self._entry_name].region
+        entry_region = circuit._regions[self._entry_name].region
 
         # Snapshot L2/3 binary state before processing (for dendritic decoder)
         self._prev_l23 = entry_region.active_l23.copy()
@@ -149,8 +149,8 @@ class RunHooks:
         # Motor regions process when: EOM phase, gate forced open, or
         # learning enabled (listening phase -- M1 observes to build
         # internal representations before babbling).
-        m1_active = topology._in_eom or topology.force_gate_open
-        for _mn, _ms in topology._regions.items():
+        m1_active = circuit._in_eom or circuit.force_gate_open
+        for _mn, _ms in circuit._regions.items():
             if _ms.motor and _ms.region.learning_enabled:
                 m1_active = True
                 break
@@ -159,16 +159,16 @@ class RunHooks:
         # Snapshot motor L2/3 before processing (for motor decoder training)
         self._prev_motor_l23 = {}
         if m1_active:
-            for _mn, _ms in topology._regions.items():
+            for _mn, _ms in circuit._regions.items():
                 if _ms.motor and _ms.motor_decoder is not None:
                     self._prev_motor_l23[_mn] = _ms.region.active_l23.copy()
 
     def on_after_step(
-        self, topology: Topology, t: int, token_id: int, token_str: str
+        self, circuit: Circuit, t: int, token_id: int, token_str: str
     ) -> None:
         """All per-step metrics, decoder training, logging."""
         entry_name = self._entry_name
-        entry_state = topology._regions[entry_name]
+        entry_state = circuit._regions[entry_name]
         entry_region = entry_state.region
         metrics = self._metrics
         prev_l23 = self._prev_l23
@@ -177,7 +177,7 @@ class RunHooks:
         # -- Inter-region signal metric recording --
         # The actual propagation happened in step(). We read values from
         # the connection objects to record time series.
-        for conn in topology._connections:
+        for conn in circuit._connections:
             if not conn.enabled:
                 continue
             if conn.surprise_tracker is not None:
@@ -186,7 +186,7 @@ class RunHooks:
                 self._surprise_modulators[conn.target].append(modulator)
 
             if conn.role == ConnectionRole.APICAL and conn.thalamic_gate is not None:
-                tgt = topology._regions[conn.target].region
+                tgt = circuit._regions[conn.target].region
                 if tgt.has_apical:
                     readiness = conn.thalamic_gate.readiness
                     key = f"{conn.source}->{conn.target}"
@@ -194,14 +194,14 @@ class RunHooks:
 
         # -- Per-region bookkeeping (sampled to reduce overhead) --
         is_metric_step = (t % self._metric_interval == 0) or (t < 100)
-        for _name, s in topology._regions.items():
+        for _name, s in circuit._regions.items():
             if is_metric_step:
                 s.rep_tracker.observe(
                     token_id, s.region.active_columns, s.region.active_l4
                 )
             if s.diagnostics is not None and is_metric_step:
                 s.diagnostics.step(t, s.region)
-            if s.timeline is not None and t % topology._timeline_interval == 0:
+            if s.timeline is not None and t % circuit._timeline_interval == 0:
                 s.timeline.capture(
                     len(s.timeline.frames),
                     s.region,
@@ -209,11 +209,11 @@ class RunHooks:
                 )
 
         # -- Motor metrics + reward --
-        self._process_motor_metrics(topology, t, token_id, token_str, metrics)
+        self._process_motor_metrics(circuit, t, token_id, token_str, metrics)
 
         # -- Entry metrics (expensive decodes sampled at metric intervals) --
         if is_metric_step and t > 0:
-            self._process_entry_metrics(topology, t, token_id, token_str, metrics)
+            self._process_entry_metrics(circuit, t, token_id, token_str, metrics)
 
         # BPC: measure prediction quality (sampled at metric intervals)
         if self._bpc_probe is not None and is_metric_step and t > 0:
@@ -228,7 +228,7 @@ class RunHooks:
         self._centroid_probe.observe(token_id, prev_l23)
 
         # -- Decoder training (every step -- cheap, drives learning) --
-        self._train_decoders(topology, t, token_id, token_str, prev_l23)
+        self._train_decoders(circuit, t, token_id, token_str, prev_l23)
 
         # -- Logging --
         if (
@@ -257,14 +257,14 @@ class RunHooks:
 
     def finalize(self) -> CortexResult:
         """Post-loop work: representation summaries, BPC flush, result."""
-        topology = self._topology
+        circuit = self._circuit
         entry_name = self._entry_name
         metrics = self._metrics
 
         elapsed = time.monotonic() - self._start
 
         # -- Finalize per-region representation summaries --
-        for name, s in topology._regions.items():
+        for name, s in circuit._regions.items():
             m = metrics[name]
             m.elapsed_seconds = elapsed
             rep_summ = s.rep_tracker.summary(s.region.ff_weights)
@@ -290,11 +290,11 @@ class RunHooks:
         entry_m.centroid_bpc_recent = self._centroid_probe.recent_bpc
 
         # Print representation reports
-        if len(topology._regions) == 1:
-            entry_state = topology._regions[entry_name]
+        if len(circuit._regions) == 1:
+            entry_state = circuit._regions[entry_name]
             entry_state.rep_tracker.print_report(entry_state.region.ff_weights)
         else:
-            for name, s in topology._regions.items():
+            for name, s in circuit._regions.items():
                 print(f"\n--- {name} ---")
                 s.rep_tracker.print_report(s.region.ff_weights)
 
@@ -312,7 +312,7 @@ class RunHooks:
 
     def _process_motor_metrics(
         self,
-        topology: Topology,
+        circuit: Circuit,
         t: int,
         token_id: int,
         token_str: str,
@@ -320,19 +320,19 @@ class RunHooks:
     ) -> None:
         """Motor metrics + reward (extracted from run() lines 762-893)."""
         entry_name = self._entry_name
-        entry_region = topology._regions[entry_name].region
+        entry_region = circuit._regions[entry_name].region
         m1_active = self._m1_active
         prev_motor_l23 = self._prev_motor_l23
         _max_speak_steps = self.MAX_SPEAK_STEPS
 
-        for _name, s in topology._regions.items():
+        for _name, s in circuit._regions.items():
             if s.motor:
                 assert isinstance(s.region, MotorRegion)
                 motor_region = s.region
                 # observe_token only during active phase (M1 processed)
                 if m1_active:
                     motor_region.observe_token(token_id)
-                if topology._total_steps > 0:
+                if circuit._total_steps > 0:
                     # BG gating: always step (learns from both phases)
                     gate = 1.0
                     if s.basal_ganglia is not None:
@@ -341,9 +341,9 @@ class RunHooks:
                             entry_region.n_columns,
                             1,
                         )
-                        ctx = topology._build_bg_ctx(precision, prec_frac)
+                        ctx = circuit._build_bg_ctx(precision, prec_frac)
                         gate = s.basal_ganglia.step(ctx)
-                        if topology.force_gate_open:
+                        if circuit.force_gate_open:
                             gate = 1.0
                         motor_region.output_scores *= gate
                         metrics[_name].bg_gate_values.append(gate)
@@ -380,17 +380,17 @@ class RunHooks:
 
                     # -- Motor reward --
                     spoke = m_id >= 0
-                    if topology._reward_source is not None:
+                    if circuit._reward_source is not None:
                         m_char = chr(m_id) if spoke and 32 <= m_id < 127 else None
-                        reward = topology._compute_pluggable_reward(
+                        reward = circuit._compute_pluggable_reward(
                             m_char,
                             entry_region,
                         )
                     else:
-                        reward = topology._compute_turn_reward(
+                        reward = circuit._compute_turn_reward(
                             spoke,
-                            topology._in_eom,
-                            topology._eom_steps,
+                            circuit._in_eom,
+                            circuit._eom_steps,
                             _max_speak_steps,
                         )
                     metrics[_name].motor_rewards.append(reward)
@@ -402,21 +402,21 @@ class RunHooks:
 
                     # BG reward: send computed reward to update gate weights
                     if s.basal_ganglia is not None:
-                        if topology._reward_source is not None:
+                        if circuit._reward_source is not None:
                             # Pluggable reward: send directly to BG
                             s.basal_ganglia.reward(reward)
                         else:
                             # Default: turn-taking gate error
-                            gate_target = 1.0 if topology._in_eom else 0.0
+                            gate_target = 1.0 if circuit._in_eom else 0.0
                             gate_error = gate_target - s.basal_ganglia.gate_value
                             s.basal_ganglia.reward(gate_error)
 
                     # -- Turn-taking behavioral counters --
                     m = metrics[_name]
-                    if topology._in_eom:
+                    if circuit._in_eom:
                         m.turn_eom_steps += 1
                         if spoke:
-                            if topology._eom_steps > _max_speak_steps:
+                            if circuit._eom_steps > _max_speak_steps:
                                 m.turn_rambles += 1
                             else:
                                 m.turn_correct_speak += 1
@@ -430,16 +430,16 @@ class RunHooks:
                             m.turn_correct_silent += 1
 
                     # Apply reward through connections with reward modulators
-                    for conn in topology._connections:
+                    for conn in circuit._connections:
                         if conn.source == _name and conn.reward_modulator is not None:
                             mod = conn.reward_modulator.update(reward)
-                            tgt = topology._regions[conn.target].region
+                            tgt = circuit._regions[conn.target].region
                             tgt.reward_modulator = mod
                             self._reward_modulators[conn.target].append(mod)
 
                     # Efference copy: only during generation (gate forced open)
-                    if m_id >= 0 and topology.force_gate_open:
-                        ef_encoding = topology._encoder.encode(
+                    if m_id >= 0 and circuit.force_gate_open:
+                        ef_encoding = circuit._encoder.encode(
                             chr(m_id) if m_id < 128 else "",
                         )
                         entry_region.set_efference_copy(ef_encoding)
@@ -453,7 +453,7 @@ class RunHooks:
 
     def _process_entry_metrics(
         self,
-        topology: Topology,
+        circuit: Circuit,
         t: int,
         token_id: int,
         token_str: str,
@@ -461,7 +461,7 @@ class RunHooks:
     ) -> None:
         """Entry-region metrics: predictions, decoder accuracies."""
         entry_name = self._entry_name
-        entry_state = topology._regions[entry_name]
+        entry_state = circuit._regions[entry_name]
         entry_region = entry_state.region
         k = self._k
 
@@ -520,7 +520,7 @@ class RunHooks:
 
     def _train_decoders(
         self,
-        topology: Topology,
+        circuit: Circuit,
         t: int,
         token_id: int,
         token_str: str,
@@ -528,9 +528,9 @@ class RunHooks:
     ) -> None:
         """Decoder training (every step -- cheap, drives learning)."""
         entry_name = self._entry_name
-        entry_state = topology._regions[entry_name]
+        entry_state = circuit._regions[entry_name]
         entry_region = entry_state.region
-        encoding = topology._encoder.encode(token_str)
+        encoding = circuit._encoder.encode(token_str)
 
         assert entry_state.decode_index is not None
         assert entry_state.syn_decoder is not None
@@ -546,7 +546,7 @@ class RunHooks:
         entry_state.dendritic_decoder.observe(token_id, prev_l23)
 
         # Train word decoders on all non-entry regions
-        for _wd_name, _wd_state in topology._regions.items():
+        for _wd_name, _wd_state in circuit._regions.items():
             if _wd_state.word_decoder is not None:
                 _wd_state.word_decoder.step(token_str, _wd_state.region.firing_rate_l23)
 
@@ -565,10 +565,10 @@ class RunHooks:
         bpc_probe: BPCProbe | None = None,
         centroid_probe: CentroidBPCProbe | None = None,
     ) -> None:
-        """Periodic logging (moved from Topology._log_step)."""
-        topology = self._topology
+        """Periodic logging (moved from Circuit._log_step)."""
+        circuit = self._circuit
         entry_metrics = metrics[entry_name]
-        entry_diag = topology._regions[entry_name].diagnostics
+        entry_diag = circuit._regions[entry_name].diagnostics
 
         tail_den = entry_metrics.dendritic_accuracies[-rolling_window:]
         roll_den = sum(tail_den) / len(tail_den) if tail_den else 0.0
@@ -585,7 +585,7 @@ class RunHooks:
             total = bc + pc
             burst_pct = bc / total if total > 0 else 0.0
 
-        label = entry_name if len(topology._regions) > 1 else "cortex"
+        label = entry_name if len(circuit._regions) > 1 else "cortex"
 
         # Surprise modulator info
         mod_str = ""
@@ -622,7 +622,7 @@ class RunHooks:
 
         # Motor accuracy
         motor_str = ""
-        for _name, s in topology._regions.items():
+        for _name, s in circuit._regions.items():
             if s.motor:
                 m = metrics[_name]
                 if m.motor_accuracies:

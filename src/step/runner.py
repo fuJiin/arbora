@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass, field
 
+from step.cortex.circuit import Circuit, ConnectionRole, Encoder, RunMetrics
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.sensory import SensoryRegion
-from step.cortex.topology import ConnectionRole, Encoder, RunMetrics, Topology
 from step.data import STORY_BOUNDARY  # noqa: F401 — re-exported for tests
 from step.probes.diagnostics import CortexDiagnostics
 
@@ -34,11 +34,11 @@ _DIAG_FIELDS = [
 
 
 def _copy_diag(
-    cortex: Topology,
+    cortex: Circuit,
     name: str,
     caller_diag: CortexDiagnostics | None,
 ) -> None:
-    """Copy diagnostics state from Topology back to caller's object."""
+    """Copy diagnostics state from Circuit back to caller's object."""
     if caller_diag is None:
         return
     topo_diag = cortex.diagnostics.get(name)
@@ -65,7 +65,7 @@ def run_cortex(
                       log interval (actual vs predicted for each decoder).
     """
     diag_interval = diagnostics.snapshot_interval if diagnostics else 100
-    cortex = Topology(encoder, diagnostics_interval=diag_interval)
+    cortex = Circuit(encoder, diagnostics_interval=diag_interval)
     cortex.add_region("S1", region, entry=True, diagnostics=diagnostics is not None)
     result = cortex.run(
         tokens,
@@ -115,7 +115,7 @@ def run_hierarchy(
     elif diagnostics2 is not None:
         diag_interval = diagnostics2.snapshot_interval
 
-    cortex = Topology(encoder, diagnostics_interval=diag_interval)
+    cortex = Circuit(encoder, diagnostics_interval=diag_interval)
     cortex.add_region(
         "S1",
         region1,
