@@ -1,111 +1,103 @@
-# Learning Mechanism Audit
+# Learning Mechanism Audit + STEP-62 Decisions
 
-> **DELETE THIS FILE** once findings are absorbed and actioned into STEP-62.
-> Created 2026-03-26 as pre-work for unifying learning mechanics.
+> **DELETE THIS FILE** once findings are absorbed and actioned.
+> Created 2026-03-26. Decisions agreed 2026-03-26.
 
-## Connections
+## Current state
 
-| Connection | Source | Target | Role | Learning | Notes |
-|---|---|---|---|---|---|
-| S1→S2 | L2/3 | L4 | FF | Hebbian + burst gate + surprise | Buffer depth, structural sparsity |
-| S2→S3 | L2/3 | L4 | FF | Hebbian + burst gate + surprise | Buffer depth |
-| S2→PFC | L2/3 | L4 | FF | Three-factor | |
-| S3→PFC | L2/3 | L4 | FF | Three-factor | |
-| S2→M2 | L2/3 | L4 | FF | Three-factor | |
-| PFC→M2 | L2/3 | L4 | FF | Three-factor | |
-| M2→M1 | L2/3 | L4 | FF | Three-factor | |
-| S2→S1 | L2/3 | L4 | Apical | Linear gain (slow Hebbian) | |
-| S3→S2 | L2/3 | L4 | Apical | Linear gain | |
-| M1→M2 | L2/3 | L4 | Apical | Linear gain | |
-| M2→PFC | L2/3 | L4 | Apical | Linear gain | |
-| S1→M1 | L2/3 | L4 | Apical | Linear gain + surprise | |
-| M1→S1 | L2/3 | L4 | Apical | Linear gain | Efference copy |
+### Connections
+| Connection | Source | Target | Role | Learning |
+|---|---|---|---|---|
+| S1→S2 | L2/3 | L4 | FF | Hebbian + burst gate + surprise |
+| S2→S3 | L2/3 | L4 | FF | Hebbian + burst gate + surprise |
+| S2→PFC | L2/3 | L4 | FF | Three-factor |
+| S3→PFC | L2/3 | L4 | FF | Three-factor |
+| S2→M2 | L2/3 | L4 | FF | Three-factor |
+| PFC→M2 | L2/3 | L4 | FF | Three-factor |
+| M2→M1 | L2/3 | L4 | FF | Three-factor |
+| S2→S1 | L2/3 | L4 | Apical | Linear gain |
+| S3→S2 | L2/3 | L4 | Apical | Linear gain |
+| M1→M2 | L2/3 | L4 | Apical | Linear gain |
+| M2→PFC | L2/3 | L4 | Apical | Linear gain |
+| S1→M1 | L2/3 | L4 | Apical | Linear gain + surprise |
+| M1→S1 | L2/3 | L4 | Apical | Linear gain (efference copy) |
 
-## Segment types per region
+### Segment types
+| Segment | Layer | Context | Traces | Status |
+|---|---|---|---|---|
+| fb_seg | L4 | L2/3 (intra-region) | Yes | Working |
+| lat_seg | L4 | L4 (lateral) | Yes | Working |
+| l23_seg | L2/3 | L2/3 (lateral) | Yes | Working |
+| l5_seg | L5 | L5 (lateral) | Yes (STEP-54) | Off by default |
+| apical_seg | L5 | External source | **No traces** | +18% PFC ctx_disc |
 
-| Segment | Layer | Context Source | Traces | Bio basis | Status |
-|---|---|---|---|---|---|
-| fb_seg (feedback) | L4 | L2/3 activity | Yes | L2/3→L4 feedback dendrites | Working |
-| lat_seg (lateral) | L4 | L4 activity | Yes | L4→L4 lateral prediction | Working |
-| l23_seg (lateral) | L2/3 | L2/3 activity | Yes | L2/3→L2/3 sequence learning | Working |
-| l5_seg (lateral) | L5 | L5 activity | Yes (STEP-54) | L5→L5 output sequence | Off by default, regressed at 50k |
-| apical_seg | L5 | External source | **No traces** | Apical BAC firing | +18% PFC ctx_disc |
+### Known issues
+1. Apical segments lack traces (boolean external context)
+2. L5 lateral off by default (regressed at 50k)
+3. Linear gain is LTP-only, no LTD
+4. No FF prediction penalty
+5. Surprise scales ALL learning (including structure)
 
-## Feedforward rules
+---
 
-| Rule | Regions | Mechanism | Evidence |
-|---|---|---|---|
-| HEBBIAN | S1, S2, S3 | Immediate LTP on pre-trace, LTD on inactive. Surprise modulates. | BPC improves, representations form |
-| THREE_FACTOR | PFC, M2, M1 | Eligibility trace accumulates, consolidated on reward | Motor output works, echo partial credit |
+## STEP-62 Decisions (agreed 2026-03-26)
 
-## Apical modes
+### 1. Per-connection traces ✅
+Every Connection carries a decaying trace of its source lamina's firing
+rate. All pathways (FF and apical) get temporal credit. One mechanism,
+universally applied. Replaces the need for separate per-mechanism traces.
 
-| Mode | Mechanism | Evidence |
-|---|---|---|
-| Linear gain (default) | Slow Hebbian weight matrix, multiplicative on L4 voltage. LTP-only. | Modest improvement |
-| Segments (opt-in) | Dendritic segments on L5, grow/reinforce/punish. Boolean external context. | +18% PFC but no traces |
+### 2. Apical target: L4 → {L2/3, L5} ✅
+Move apical destination from L4 to both L2/3 and L5. Both layers have
+apical dendrites reaching L1 in biology. Implemented as two connections
+per feedback pathway (one to L2/3, one to L5), or a single connection
+targeting both.
 
-## Known issues
+### 3. External apical segments on L2/3 ✅
+L2/3 gets apical segment infrastructure for top-down context from higher
+regions. Keep existing fb_seg (L2/3→L4 intra-region) — it serves a
+different role (within-region prediction, proxy for L6→L4).
 
-1. **Apical segments lack traces** — boolean external context while all others use continuous traces
-2. **L5 lateral off by default** — regressed at 50k (immature predictions bias selection)
-3. **Apical gain is LTP-only** — no LTD, passive decay only. Slow saturation risk
-4. **No FF prediction penalty** — wrong predictions only punish segments, not FF weights
-5. **Surprise scales ALL learning** — segments learn structure, may not want surprise gating
-6. **Pre-trace vs eligibility naming confusion** — orthogonal but confusingly similar
+### 4. Segments as default for all apical ✅
+Remove linear gain mode. Apical segments become the only apical mode.
+Simplifies code (one path, not two). Rally around segments everywhere,
+optimize later (sparse weights as a perf lever if needed, or Rust/async).
 
-## Perf impact
+### 5. Limit surprise to FF only ✅
+Surprise modulation applies to feedforward weight learning only.
+Segment learning (structure/prediction) is not surprise-gated.
 
+---
+
+## Deferred work (post-STEP-62)
+
+### L5 as universal corticocortical output (HIGH PRIORITY)
+**This is the next major architectural bet after STEP-62.**
+
+L5 becomes:
+- **FF source** to higher L4 (replaces current L2/3→L4 FF)
+- **Apical source** to lower L2/3 and L5 (replaces current L2/3 apical source)
+- **Subcortical output** (BG, cerebellum)
+
+**Blocker:** L5 lateral segments need to work reliably first.
+Re-evaluate L5 lateral with the new continuous traces (STEP-54).
+If L5 carries a good signal, switching FF/apical source to L5 is a
+one-line change per connection in canonical.py.
+
+### Other deferred items
+- FF prediction penalty (punish FF weights for wrong L4 predictions)
+- Segments vs sparse weights (profile first, optimize in fewer places)
+- fb_seg removal (evaluate after L2/3 apical is working)
+- M2 → PMC rename (cosmetic, low priority)
+- Pre-trace vs eligibility naming cleanup
+
+---
+
+## Perf notes
 | Mechanism | Cost | Notes |
 |---|---|---|
-| FF Hebbian | Low | Matrix multiply on winners only, ~5% of step |
-| FF Three-factor | Very low | Just accumulate eligibility; reward consolidation separate |
-| Segment prediction | **Highest** | Per-neuron scoring dominates when n_segments high |
-| Segment learning | Moderate | Batch grow/adapt per burst/precise neuron |
+| Segment prediction | **Highest** | Per-neuron scoring, dominates at high n_segments |
+| Segment learning | Moderate | Batch grow/adapt |
+| FF learning | Low | Matrix multiply on winners |
 | Trace updates | Negligible | O(n_neurons) per layer |
-| Apical gain | Low | Sparse outer product on active neurons |
-
-## Open questions (pre-STEP-62)
-
-### L5→L4 feedforward?
-Do we need L5 (lower) → L4 (higher) in addition to L2/3 (lower) → L4 (higher)?
-Could increase neurons/columns to accommodate.
-
-### S2→PFC reward gating
-S2→PFC and S3→PFC are both three-factor, but the question is whether
-sensory→frontal should be reward-gated at all vs immediate Hebbian.
-
-### Motor FF learning rule
-Should all motor FF be three-factor? Should reward just modulate by
-increasing LR rather than gating entirely?
-
-### Apical pathway biology
-Are L2/3 (higher) → L4 (lower) apical pathways real? Biology suggests:
-- L5 (higher) → L2/3 (lower) for feedback
-- L5 (lower) → L2/3 (higher) for motor efference
-
-### Motor hierarchy accuracy
-Is M2 really premotor cortex (PMC)? How does human M1/PMC/SMA wiring look?
-
-### L4 prediction mechanism
-L2/3→L4 apical (same region, fb_seg) drives predictions. But biology has
-L4→L4 lateral for prediction. How is the current architecture doing
-context discrimination? Is fb_seg serving as a proxy?
-
-### L2/3 apical from external sources
-Shouldn't L2/3 also get apical segments from external sources like L5 does?
-This would replace the current fb_seg (L2/3→L4 within region) with
-proper top-down context on L2/3.
-
-### Eligibility traces on all FF
-Hebbian on input→L4 makes sense for sensory. Should other FF connections
-(S2→S3, S2→PFC) use eligibility traces? Or experiment first?
-
-### Linear gain vs three-factor apical
-Linear gain is a simplistic Hebbian gain modulation. Should we replace
-with three-factor on all apical connections?
-
-### Segments vs neuron-to-neuron
-Are segments worth the complexity? Alternative: direct neuron-to-neuron
-connections with structural sparsity (like FF weights). Segments add
-combinatorial context sensitivity but at high computational cost.
+| Optimization levers | | Sparse weights, Rust, async, reduce n_segments |
