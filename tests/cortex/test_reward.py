@@ -9,6 +9,7 @@ from step.cortex.reward import EchoReward
 from step.cortex.sensory import SensoryRegion
 from step.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
 from step.encoders.charbit import CharbitEncoder
+from step.environment import ChatEnv
 from tests.conftest import run_circuit
 
 
@@ -92,64 +93,30 @@ class TestRewardModulator:
 
 
 class TestTurnTakingReward:
-    _fn = staticmethod(Circuit._compute_turn_reward)
+    """Turn-taking reward now lives on ChatEnv._turn_taking_reward."""
+
+    def _reward(self, spoke, in_eom, eom_steps=0, max_speak=20):
+        env = ChatEnv([], max_speak_steps=max_speak)
+        env._in_eom = in_eom
+        env._eom_steps = eom_steps
+        return env._turn_taking_reward(spoke)
 
     def test_reward_function_speak_during_eom(self):
-        """Speaking during EOM phase should be rewarded."""
-        r = self._fn(
-            spoke=True,
-            in_eom=True,
-            eom_steps=1,
-            max_speak_steps=20,
-        )
-        assert r > 0
+        assert self._reward(spoke=True, in_eom=True, eom_steps=1) > 0
 
     def test_reward_function_silent_during_input(self):
-        """Silence during input phase should be mildly rewarded."""
-        r = self._fn(
-            spoke=False,
-            in_eom=False,
-            eom_steps=0,
-            max_speak_steps=20,
-        )
-        assert r > 0
+        assert self._reward(spoke=False, in_eom=False) > 0
 
     def test_reward_function_speak_during_input(self):
-        """Speaking during input phase should be penalized."""
-        r = self._fn(
-            spoke=True,
-            in_eom=False,
-            eom_steps=0,
-            max_speak_steps=20,
-        )
-        assert r < 0
+        assert self._reward(spoke=True, in_eom=False) < 0
 
     def test_reward_function_silent_during_eom(self):
-        """Silence during EOM phase should be mildly penalized."""
-        r = self._fn(
-            spoke=False,
-            in_eom=True,
-            eom_steps=1,
-            max_speak_steps=20,
-        )
-        assert r < 0
+        assert self._reward(spoke=False, in_eom=True, eom_steps=1) < 0
 
     def test_reward_function_rambling(self):
-        """Speaking past max steps should be penalized most."""
-        r = self._fn(
-            spoke=True,
-            in_eom=True,
-            eom_steps=25,
-            max_speak_steps=20,
-        )
+        r = self._reward(spoke=True, in_eom=True, eom_steps=25)
         assert r < 0
-        # Should be harsher than speaking during input
-        r_input = self._fn(
-            spoke=True,
-            in_eom=False,
-            eom_steps=0,
-            max_speak_steps=20,
-        )
+        r_input = self._reward(spoke=True, in_eom=False)
         assert r < r_input
 
 

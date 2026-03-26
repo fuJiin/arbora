@@ -4,12 +4,14 @@ import sys
 
 sys.path.insert(0, "src")
 
+from step.agent import ChatAgent
 from step.config import CortexConfig, make_motor_region, make_sensory_region
 from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from step.data import EOM_TOKEN, prepare_tokens_personachat
+from step.data import prepare_tokens_personachat
 from step.encoders.positional import PositionalCharEncoder
+from step.environment import EOM_OBS, ChatObs
 
 
 def build_model(alphabet):
@@ -76,35 +78,31 @@ def build_model(alphabet):
     return cortex, encoder, s1, m1
 
 
-def step_token(cortex, token_id, token_str):
-    # Delegate to backward-compat step() which handles EOM/boundary
-    cortex.step(token_id, token_str)
-
-
 def generate(cortex, s1, m1, encoder, prompt, max_steps=30):
     """Feed prompt, inject EOM, then autoregress with forced gate."""
+    agent = ChatAgent(encoder=encoder, circuit=cortex)
+
     # Input phase
-    last_token = (ord(" "), " ")
     for ch in prompt:
-        step_token(cortex, ord(ch), ch)
-        last_token = (ord(ch), ch)
+        agent.act(ChatObs(token_id=ord(ch), token_str=ch), 0.0)
 
     # EOM injection
-    step_token(cortex, EOM_TOKEN, "")
+    agent.act(EOM_OBS, 0.0)
 
     # Generation phase
-    cortex.force_gate_open = True
+    agent.force_gate_open = True
     spoken = []
     silent = 0
+    last_char = " "
 
     for _ in range(max_steps + 10):
-        step_token(cortex, last_token[0], last_token[1])
+        agent.act(ChatObs(token_id=ord(last_char), token_str=last_char), 0.0)
         m_id, _m_conf = m1.last_output
 
         if m_id >= 0:
             ch = chr(m_id) if 32 <= m_id < 127 else "?"
             spoken.append(ch)
-            last_token = (m_id, ch)
+            last_char = ch
             silent = 0
             if len(spoken) >= max_steps:
                 break
@@ -115,7 +113,7 @@ def generate(cortex, s1, m1, encoder, prompt, max_steps=30):
             if silent >= 10:
                 break
 
-    cortex.force_gate_open = False
+    agent.force_gate_open = False
     return "".join(spoken)
 
 
