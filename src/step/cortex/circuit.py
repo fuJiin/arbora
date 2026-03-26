@@ -196,6 +196,13 @@ class Circuit:
                     )
                     self._ff_buffers[name] = np.empty(total, dtype=np.float64)
 
+        # Initialize per-connection traces for temporal credit.
+        for conn in self._connections:
+            if conn.trace_decay > 0:
+                src = self._regions[conn.source].region
+                src_lam = src.get_lamina(conn.source_lamina)
+                conn._trace = np.zeros(src_lam.n_total, dtype=np.float64)
+
         self._finalized = True
 
     # ------------------------------------------------------------------
@@ -498,6 +505,8 @@ class Circuit:
             if s.basal_ganglia is not None:
                 s.basal_ganglia.reset()
         for conn in self._connections:
+            if conn._trace is not None:
+                conn._trace[:] = 0.0
             if conn._buffer is not None:
                 conn._buffer[:] = 0.0
                 conn._buffer_pos = 0
@@ -835,10 +844,18 @@ class Circuit:
 
             if conn.role == ConnectionRole.APICAL and tgt.has_apical:
                 src_lamina = src.get_lamina(conn.source_lamina)
+                # Update connection trace
+                if conn._trace is not None:
+                    conn._trace *= conn.trace_decay
+                    conn._trace += src_lamina.firing_rate
                 r_active = max(int(src.active_columns.sum()), 1)
                 r_bursting = int(src.bursting_columns.sum())
                 confidence = 1.0 - (r_bursting / r_active)
-                signal = src_lamina.firing_rate * confidence
+                # Use trace for temporal credit if available
+                base = (
+                    conn._trace if conn._trace is not None else src_lamina.firing_rate
+                )
+                signal = base * confidence
                 if conn.thalamic_gate is not None:
                     tgt_active = max(int(tgt.active_columns.sum()), 1)
                     tgt_bursting = int(tgt.bursting_columns.sum())
@@ -859,13 +876,17 @@ class Circuit:
     def _get_ff_signal(self, conn: Connection) -> np.ndarray:
         """Build the feedforward signal for a connection.
 
-        Applies burst gating (if enabled) then writes into the temporal
-        buffer (if depth > 1), returning the concatenated oldest-first
-        window.
+        Updates the connection trace (temporal credit), applies burst
+        gating (if enabled), then writes into the temporal buffer.
         """
         src = self._regions[conn.source].region
         lamina = src.get_lamina(conn.source_lamina)
         signal = lamina.firing_rate.copy()
+
+        # Update connection trace (temporal credit for recent activity)
+        if conn._trace is not None:
+            conn._trace *= conn.trace_decay
+            conn._trace += signal
 
         # Burst gate: zero precisely-predicted columns
         if conn.burst_gate:
