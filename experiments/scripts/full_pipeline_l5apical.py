@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Full staged pipeline with L5 apical segments enabled on sensory regions."""
+"""Full staged pipeline with L5 apical segments on all regions."""
 
 from dataclasses import replace
 
@@ -8,8 +8,6 @@ from step.cortex.canonical import build_canonical_circuit
 from step.cortex.stages import BABBLING_STAGE, SENSORY_STAGE
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
-
-APICAL_OVERRIDE = {"use_l5_apical_segments": True}
 
 
 def load_data(n_tokens):
@@ -28,9 +26,6 @@ cortex = build_canonical_circuit(
     encoder,
     log_interval=5000,
     timeline_interval=0,
-    s1_overrides=APICAL_OVERRIDE,
-    s2_overrides=APICAL_OVERRIDE,
-    s3_overrides=APICAL_OVERRIDE,
     finalize=False,
 )
 cortex.finalize()
