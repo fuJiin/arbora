@@ -180,19 +180,31 @@ def build_canonical_circuit(
     circuit.connect(pfc.l23, m2.l4, ConnectionRole.FEEDFORWARD)
     circuit.connect(m2.l23, m1.l4, ConnectionRole.FEEDFORWARD)
 
-    # --- Apical feedback (L2/3 -> L4, top-down context) ---
-    circuit.connect(s2.l23, s1.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    circuit.connect(s3.l23, s2.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    circuit.connect(m1.l23, m2.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    circuit.connect(m2.l23, pfc.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    # --- Apical feedback (L2/3 -> {L2/3, L5}, top-down context) ---
+    # Each feedback pathway targets both L2/3 and L5 apical dendrites
+    # on the target region, matching cortical L1 input to apical tufts.
+    gate = ThalamicGate
+    # Sensory hierarchy (top-down)
+    circuit.connect(s2.l23, s1.l23, ConnectionRole.APICAL, thalamic_gate=gate())
+    circuit.connect(s2.l23, s1.l5, ConnectionRole.APICAL, thalamic_gate=gate())
+    circuit.connect(s3.l23, s2.l23, ConnectionRole.APICAL, thalamic_gate=gate())
+    circuit.connect(s3.l23, s2.l5, ConnectionRole.APICAL, thalamic_gate=gate())
+    # Motor hierarchy (bottom-up monitoring)
+    circuit.connect(m1.l23, m2.l23, ConnectionRole.APICAL, thalamic_gate=gate())
+    circuit.connect(m1.l23, m2.l5, ConnectionRole.APICAL, thalamic_gate=gate())
+    circuit.connect(m2.l23, pfc.l23, ConnectionRole.APICAL, thalamic_gate=gate())
+    circuit.connect(m2.l23, pfc.l5, ConnectionRole.APICAL, thalamic_gate=gate())
+    # Cross-hierarchy
     circuit.connect(
         s1.l23,
-        m1.l4,
+        m1.l23,
         ConnectionRole.APICAL,
-        thalamic_gate=ThalamicGate(),
+        thalamic_gate=gate(),
         surprise_tracker=SurpriseTracker(),
     )
-    circuit.connect(m1.l23, s1.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    circuit.connect(s1.l23, m1.l5, ConnectionRole.APICAL, thalamic_gate=gate())
+    circuit.connect(m1.l23, s1.l23, ConnectionRole.APICAL, thalamic_gate=gate())
+    circuit.connect(m1.l23, s1.l5, ConnectionRole.APICAL, thalamic_gate=gate())
 
     if finalize:
         circuit.finalize()
