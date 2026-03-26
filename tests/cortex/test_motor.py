@@ -104,9 +104,12 @@ class TestMotorCircuit:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(
-            "S1", "M1", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+            region1.l23,
+            motor.l4,
+            ConnectionRole.FEEDFORWARD,
+            surprise_tracker=SurpriseTracker(),
         )
-        cortex.connect("M1", "S1", ConnectionRole.APICAL)
+        cortex.connect(motor.l23, region1.l4, ConnectionRole.APICAL)
         result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
         # Motor metrics should be populated
@@ -120,9 +123,14 @@ class TestMotorCircuit:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(
-            "S1", "M1", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
+            region1.l23,
+            motor.l4,
+            ConnectionRole.FEEDFORWARD,
+            surprise_tracker=SurpriseTracker(),
         )
-        cortex.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+        cortex.connect(
+            motor.l23, region1.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate()
+        )
         result = run_circuit(cortex, tokens)
         assert "M1->S1" in result.thalamic_readiness
 
@@ -138,7 +146,7 @@ class TestMotorCircuit:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
 
@@ -148,7 +156,7 @@ class TestMotorCircuit:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         result = run_circuit(cortex, tokens)
         assert "M1" in result.per_region
 

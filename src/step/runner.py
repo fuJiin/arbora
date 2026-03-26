@@ -135,8 +135,8 @@ def run_hierarchy(
         diagnostics=diagnostics2 is not None,
     )
     cortex.connect(
-        "S1",
-        "S2",
+        region1.l23,
+        region2.l4,
         ConnectionRole.FEEDFORWARD,
         buffer_depth=buffer_depth,
         burst_gate=burst_gate,
@@ -144,7 +144,9 @@ def run_hierarchy(
     )
     if enable_apical_feedback:
         gate = ThalamicGate() if gate_feedback else None
-        cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=gate)
+        cortex.connect(
+            region2.l23, region1.l4, ConnectionRole.APICAL, thalamic_gate=gate
+        )
 
     env = ChatEnv(tokens)
     agent = ChatAgent(encoder=encoder, circuit=cortex)
