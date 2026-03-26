@@ -9,6 +9,7 @@ from step.cortex.reward import EchoReward
 from step.cortex.sensory import SensoryRegion
 from step.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
 from step.encoders.charbit import CharbitEncoder
+from tests.conftest import run_circuit
 
 
 @pytest.fixture()
@@ -163,7 +164,7 @@ class TestRewardIntegration:
         cortex.connect(
             "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
         )
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         m1_metrics = result.per_region["M1"]
         assert len(m1_metrics.motor_rewards) > 0
 
@@ -187,7 +188,7 @@ class TestRewardIntegration:
         cortex.connect(
             "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
         )
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert len(result.per_region["M1"].motor_rewards) > 0
 
     def test_reward_modulators_in_result(self, region1, motor, encoder):
@@ -200,7 +201,7 @@ class TestRewardIntegration:
         cortex.connect(
             "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
         )
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert "M1" in result.reward_modulators
         assert len(result.reward_modulators["M1"]) > 0
 
@@ -211,7 +212,7 @@ class TestRewardIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert result.reward_modulators == {}
 
 
@@ -311,7 +312,7 @@ class TestTurnTakingCounters:
         cortex.connect(
             "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
         )
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         m = result.per_region["M1"]
         # Should have counted both phases
         assert m.turn_input_steps > 0
@@ -336,7 +337,7 @@ class TestTurnTakingCounters:
         cortex.connect(
             "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
         )
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         m = result.per_region["M1"]
         assert m.turn_eom_steps == 0
         assert m.turn_input_steps > 0
