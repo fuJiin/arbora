@@ -971,7 +971,8 @@ class Circuit:
 
                 warnings.warn(
                     "run_echo() is deprecated. Echo training will be reimplemented "
-                    "as PFC goal injection in the Environment abstraction (STEP-67/69).",
+                    "as PFC goal injection in the Environment "
+                    "abstraction (STEP-67/69).",
                     DeprecationWarning,
                     stacklevel=2,
                 )
