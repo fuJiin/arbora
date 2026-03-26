@@ -412,7 +412,9 @@ class Circuit:
     # Core processing
     # ------------------------------------------------------------------
 
-    def process(self, encoding: np.ndarray) -> np.ndarray:
+    def process(
+        self, encoding: np.ndarray, *, motor_active: bool | None = None
+    ) -> np.ndarray:
         """Process one encoded input through the hierarchy.
 
         Pure neural processing: takes an encoding vector, propagates
@@ -429,6 +431,11 @@ class Circuit:
 
         Args:
             encoding: Input vector (from encoder or previous circuit output).
+            motor_active: Whether motor regions produce output this step.
+                If None (default), falls back to self._in_eom or
+                self.force_gate_open for backward compatibility.
+                Callers should pass this explicitly — the fallback
+                will be removed when EOM state moves out of Circuit.
 
         Returns:
             Motor output vector (M1 L5 firing rate). Callers can decode
@@ -441,21 +448,27 @@ class Circuit:
         entry_name = self._entry_name
         entry_region = self._regions[entry_name].region
 
-        # -- Turn-taking state --
+        # -- Turn-taking state (deprecated — will move to Environment) --
         if self._in_eom:
             self._eom_steps += 1
             if self._eom_steps > 20:
                 self._in_eom = False
 
+        # Resolve motor_active from legacy state if not passed explicitly
+        if motor_active is None:
+            motor_active = self._in_eom or self.force_gate_open
+
         # -- Process in topo order (multi-ff supported) --
         topo_order = self._topo_order()
-        self._propagate_feedforward(topo_order, entry_name, encoding)
+        self._propagate_feedforward(
+            topo_order, entry_name, encoding, motor_active=motor_active
+        )
 
         # -- Inter-region signals (after all regions processed) --
         self._propagate_signals()
 
         # -- Motor: BG gating + output (no token-level learning) --
-        self._step_motor_inline(entry_region)
+        self._step_motor_inline(entry_region, motor_active=motor_active)
 
         self._total_steps += 1
 
@@ -548,13 +561,15 @@ class Circuit:
 
         return output
 
-    def _step_motor_inline(self, entry_region: CorticalRegion) -> None:
+    def _step_motor_inline(
+        self, entry_region: CorticalRegion, *, motor_active: bool = False
+    ) -> None:
         """Motor processing: BG gating and output readout.
 
         Token-level learning (observe_token) is the Agent's responsibility
         — it knows the token identity. Circuit only does neural processing.
         """
-        m1_active = self._in_eom or self.force_gate_open
+        m1_active = motor_active
 
         for _name, s in self._regions.items():
             if s.motor:
@@ -1455,7 +1470,9 @@ class Circuit:
     # Internals
     # ------------------------------------------------------------------
 
-    def _propagate_feedforward(self, topo_order, entry_name, encoding=None):
+    def _propagate_feedforward(
+        self, topo_order, entry_name, encoding=None, *, motor_active=False
+    ):
         """Process regions in topo order with feedforward signals.
 
         Supports multiple feedforward connections to the same target —
@@ -1467,9 +1484,7 @@ class Circuit:
             if name == entry_name:
                 if encoding is not None:
                     s.region.process(encoding)
-            elif s.motor and not (
-                self._in_eom or self.force_gate_open or s.region.learning_enabled
-            ):
+            elif s.motor and not (motor_active or s.region.learning_enabled):
                 pass  # Skip idle motor region
             else:
                 conns = self._ff_conns.get(name)

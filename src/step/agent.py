@@ -142,17 +142,13 @@ class ChatAgent:
             ef = self._encoder.encode(action_char)
             entry.set_efference_copy(ef)
 
-        # Update circuit's turn-taking state for _step_motor_inline
-        # (pragmatic coupling — will be removed when motor gating
-        # moves fully to the agent)
-        self._circuit.force_gate_open = self.force_gate_open
-
-        # Neural processing
-        output = self._circuit.process(encoding)
+        # Neural processing — pass motor_active explicitly so Circuit
+        # doesn't need to read _in_eom/force_gate_open internally
+        motor_active = self._motor_active or self.force_gate_open
+        output = self._circuit.process(encoding, motor_active=motor_active)
         self.last_output = output
 
         # Token-level motor learning (agent's responsibility)
-        motor_active = self._motor_active or self.force_gate_open
         if motor_active:
             for s in self._circuit._regions.values():
                 if s.motor and isinstance(s.region, MotorRegion):
