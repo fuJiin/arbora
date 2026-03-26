@@ -134,11 +134,12 @@ class ChatAgent:
 
         # Efference copy: feed last motor output to entry region
         # (must happen before process() so it's available this step)
+        # TODO: efference copy gating should eventually be learned by
+        # BasalGanglia rather than hardcoded to force_gate_open.
         if self.last_action is not None and self.force_gate_open:
             entry = self._circuit.region(self._entry_name)
-            ef = self._encoder.encode(
-                chr(self.last_action) if self.last_action < 128 else "",
-            )
+            action_char = chr(self.last_action) if self.last_action < 128 else ""
+            ef = self._encoder.encode(action_char)
             entry.set_efference_copy(ef)
 
         # Update circuit's turn-taking state for _step_motor_inline

@@ -236,6 +236,11 @@ class ChatEnv:
         +0.2  silent during input (correct)
         -0.3  silent during EOM (unresponsive)
         -1.0  rambling past max_speak_steps
+
+        TODO: turn-taking reward should eventually be learned by
+        BasalGanglia rather than hardcoded here. The BG would learn
+        when to gate motor output based on context, making this
+        external reward signal unnecessary.
         """
         if self._in_eom:
             if self._eom_steps > self._max_speak_steps and spoke:
@@ -285,7 +290,13 @@ class ChatEnv:
         return ChatObs(token_id=ord(char), token_str=char)
 
     def _should_babble(self) -> bool:
-        """Decide whether the next step should be babble or listen."""
+        """Decide whether the next step should be babble or listen.
+
+        TODO: babble/listen alternation is a training curriculum concern.
+        Eventually BasalGanglia should learn when to self-initiate
+        (babble) vs. attend to input (listen), making the external
+        chunking schedule unnecessary.
+        """
         if self._babble_ratio <= 0:
             return False
 
