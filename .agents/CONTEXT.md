@@ -13,53 +13,55 @@ TrainRunner / ReplRunner (hooks, metrics, param sweeps) — future
         └── Agent.act(obs, reward) -> action           — ChatAgent
               └── Circuit.process(encoding) -> ndarray — pure neural (908 LOC)
 
+Topo: S1 → S2 → S3 → PFC → M2 → M1
 Layers: L4 (input) → L2/3 (associative) → L5 (output)
-  Lamina class, direct access (region.l4.voltage), all fields non-optional
-
-Connections: ConnectionRole (FEEDFORWARD, APICAL), source/target lamina
-Learning: PlasticityRule (HEBBIAN, THREE_FACTOR), orthogonal to STDP traces
+Connections: connect(source_lamina, target_lamina, role) — Lamina objects only
+Learning: PlasticityRule (HEBBIAN, THREE_FACTOR), STDP pre-traces, segments
 ```
 
 ## File organization
-- `environment.py` — Observation protocol, ChatObs, Environment protocol, ChatEnv
+- `environment.py` — Observation/Environment protocols, ChatEnv, ChatObs
 - `agent.py` — Agent protocol, ChatAgent (encoder + circuit + decoder)
-- `train.py` — train() loop bridging ChatEnv + ChatAgent with RunHooks
-- `cortex/circuit.py` — Circuit class (process + builder + checkpoint, 908 LOC)
-- `cortex/circuit_types.py` — Connection, ConnectionRole, CortexResult, RunMetrics
-- `cortex/circuit_hooks.py` — StepHooks protocol, RunHooks
+- `train.py` — train() bridging ChatEnv + ChatAgent with RunHooks
+- `cortex/circuit.py` — Circuit (process + builder + checkpoint, 908 LOC)
 - `cortex/canonical.py` — build_canonical_circuit() factory
-- `cortex/stages.py` — configure functions (configure_sensory, configure_babbling, etc.)
-- `cortex/lamina.py` — Lamina, LaminaID
 - `cortex/region.py` — CorticalRegion with Lamina composition
+- `.agents/LEARNING.md` — Learning mechanism audit (pre-STEP-62)
 
-## Session: 2026-03-26 (32 PRs total)
+## Session: 2026-03-26 (35 PRs total)
 
-### Completed
-- Previous: 25 PRs (Cycle 1, architecture, lamina, circuit split, canonical)
+### Completed this session
 - **STEP-69** (PR #26): Circuit.process(encoding) -> ndarray
-- **STEP-70** (PRs #27-30): ChatEnv + ChatAgent + train(), migrate all primary callers, deprecation + motor_active decoupling
-- **STEP-72** (PR #31): Migrate tests, remove all deprecated methods (870 lines deleted, circuit.py 1780→908)
-- **STEP-71** cancelled (encoder/decoder are Agent attributes)
-- **STEP-44** marked Done (all subtasks complete)
-- **STEP-38** cancelled (duplicate of STEP-61)
+- **STEP-70** (PRs #27-30): ChatEnv + ChatAgent + train(), full migration
+- **STEP-72** (PR #31): Remove deprecated methods (circuit.py 1780→908)
+- **PR #32**: Prune 14 broken experiment scripts (4,467 lines)
+- **STEP-64** (PR #33): connect() takes Lamina objects only (no strings)
+- **STEP-54** (PR #34): L5 continuous traces for lateral segments
+- **Learning audit** committed to .agents/LEARNING.md
 
-### Key decisions
-- `Circuit.process()` (neural), `Agent.act()` (obs→action), `Environment.step()` (action→obs,reward)
-- ChatObs: token_id, token_str, is_boundary, is_eom. Streaming via iterable.
-- motor_active param on process() decouples from _in_eom/force_gate_open
-- Turn-taking reward + babble chunking: TODO to move to BasalGanglia (learned gating)
-- 14 experiment sweep scripts still reference cortex.run() — need migration or archiving
+### Key decisions this session
+- Environment/Agent/Circuit layered architecture (clean separation)
+- connect(lamina, lamina) — no string-based routing
+- motor_active param on process() decouples EOM from Circuit
+- Turn-taking reward + babble chunking → TODO: BasalGanglia (STEP-61)
+- Encoder/decoder are Agent attributes, not Circuit (STEP-71 cancelled)
+
+### In progress: STEP-62 planning
+Learning audit complete. Architecture questions raised:
+- FF should use L5→L4 (not L2/3→L4) for biological accuracy
+- Apical should be L5(higher)→L2/3(lower), not L2/3→L4
+- All connections should carry decaying trace of source signal
+- Linear gain apical should be replaced with segments or three-factor
+- L2/3 should get apical context from external sources (like L5 does)
+See .agents/LEARNING.md for full audit and open questions.
 
 ## Remaining tickets
-- [ ] STEP-64 Redesign connect() for Lamina objects (M)
-- [ ] STEP-54 L5 segment continuous traces (S)
-- [ ] STEP-62 Uniform learning mechanics (L)
+- [ ] STEP-62 Uniform learning mechanics (L) — next up, needs design decisions
 - [ ] STEP-61 Adaptive gating — learned interleaving (XL)
 - [ ] STEP-30 Region Protocol typing (M)
 - [ ] STEP-48 Checkpoint validation (S)
 - [ ] STEP-50 Generate clean baseline (XS)
 - [ ] STEP-58 RunHooks verbosity cleanup (S)
 - [ ] STEP-20 Cerebellar forward model (XL)
-- [ ] Migrate/archive 14 experiment sweep scripts
 - [ ] Extract TrainRunner / ReplRunner
 - [ ] Remove _in_eom/force_gate_open/mark_eom from Circuit
