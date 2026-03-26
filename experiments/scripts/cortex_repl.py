@@ -24,6 +24,7 @@ import sys
 import numpy as np
 
 import step.env  # noqa: F401
+from step.agent import ChatAgent
 from step.data import (
     EOM_TOKEN,
     prepare_tokens_personachat,
@@ -31,6 +32,8 @@ from step.data import (
 )
 from step.decoders.dendritic import DendriticDecoder  # for type hints
 from step.encoders.positional import PositionalCharEncoder
+from step.environment import EOM_OBS, ChatEnv, ChatObs
+from step.train import train
 
 # ANSI colors
 DIM = "\033[2m"
@@ -80,18 +83,21 @@ def build_model(alphabet: str, *, use_l5_apical: bool = False):
     motor = cortex._regions["M1"].region
     decoder = cortex._regions["S1"].dendritic_decoder
     word_decoder = cortex._regions["S2"].word_decoder
+    agent = ChatAgent(encoder=encoder, circuit=cortex)
 
-    return cortex, encoder, region1, motor, decoder, word_decoder
+    return cortex, encoder, region1, motor, decoder, word_decoder, agent
 
 
-def warmup(cortex, tokens, log_interval=2000):
+def warmup(cortex, encoder, tokens, log_interval=2000):
     """Train the model on TinyDialogues tokens."""
     n = len(tokens)
     print(f"{DIM}Warming up on {n:,} chars...{RESET}")
 
+    env = ChatEnv(tokens)
+    agent = ChatAgent(encoder=encoder, circuit=cortex)
     f = io.StringIO()
     with contextlib.redirect_stdout(f):
-        result = cortex.run(tokens, log_interval=log_interval)
+        result = train(env, agent, log_interval=log_interval)
     s1 = result.per_region["S1"]
     print(
         f"{DIM}Warmup complete: "
@@ -102,10 +108,13 @@ def warmup(cortex, tokens, log_interval=2000):
     return result
 
 
-def step_token(cortex, token_id, token_str):
-    """Process one token through the full hierarchy, return motor output."""
-    # Delegate to backward-compat step() which handles observe_token + EOM
-    cortex.step(token_id, token_str)
+def step_token(agent, token_id, token_str):
+    """Process one token through the full hierarchy via ChatAgent."""
+    if token_id == EOM_TOKEN:
+        agent.act(EOM_OBS, 0.0)
+    else:
+        obs = ChatObs(token_id=token_id, token_str=token_str)
+        agent.act(obs, 0.0)
 
 
 def decode_prediction(
@@ -279,33 +288,20 @@ def print_info(cortex, encoder, region1, motor, decoder):
     print(f"  {DIM}child-directed speech — not adult conversation.{RESET}\n")
 
 
-def reset_state(cortex, encoder):
+def reset_state(cortex):
     """Reset working memory across all regions (story boundary)."""
-    for s in cortex._regions.values():
-        s.region.reset_working_memory()
-        if s.basal_ganglia is not None:
-            s.basal_ganglia.reset()
-    for conn in cortex._connections:
-        if conn._buffer is not None:
-            conn._buffer[:] = 0.0
-            conn._buffer_pos = 0
-        if conn.thalamic_gate is not None:
-            conn.thalamic_gate.reset()
-    cortex._in_eom = False
-    cortex._eom_steps = 0
-    if hasattr(encoder, "reset"):
-        encoder.reset()
+    cortex.reset()
 
 
-def run_babble(cortex, encoder, region1, motor, n_chars=200):
+def run_babble(agent, region1, motor, n_chars=200):
     """Watch M1 babble in real time using full circuit."""
     print(f"\n{DIM}  M1 babbling {n_chars} chars (PFC→M2→M1)...{RESET}")
     print(f"  {BOLD}", end="", flush=True)
 
     # Force gate open, set babbling noise for exploration
-    old_gate = cortex.force_gate_open
+    old_gate = agent.force_gate_open
     old_noise = motor.babbling_noise
-    cortex.force_gate_open = True
+    agent.force_gate_open = True
     motor.babbling_noise = 0.3  # Mostly learned policy, some exploration
 
     current_char = " "
@@ -313,9 +309,9 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
     word_buf = []
 
     for _i in range(n_chars):
-        # Use circuit's step() for proper propagation + motor learning
         token_id = ord(current_char) if current_char else ord(" ")
-        cortex.step(token_id, current_char)
+        obs = ChatObs(token_id=token_id, token_str=current_char)
+        agent.act(obs, 0.0)
 
         # M1 output
         pop_id, pop_conf = motor.get_population_output()
@@ -367,7 +363,7 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
             print(f"{DIM}  English bigrams: {bg_str}{RESET}")
 
     # Restore
-    cortex.force_gate_open = old_gate
+    agent.force_gate_open = old_gate
     motor.babbling_noise = old_noise
     print()
 
@@ -443,7 +439,7 @@ def run_probe(cortex, word_decoder=None):
     print()
 
 
-def run_echo(cortex, encoder, motor, word: str):
+def run_echo(agent, motor, word: str):
     """Interactive echo: hear a word, then watch M1 try to reproduce it.
 
     Demonstrates PFC goal maintenance and the full motor pipeline:
@@ -452,6 +448,8 @@ def run_echo(cortex, encoder, motor, word: str):
     3. Speak: M1 produces chars, compare to target
     """
     from step.cortex.pfc import PFCRegion
+
+    cortex = agent.circuit
 
     # Find PFC
     pfc = None
@@ -462,19 +460,12 @@ def run_echo(cortex, encoder, motor, word: str):
 
     print(f"\n{DIM}  Echo mode: listening to '{word}'...{RESET}")
 
-    entry_name = cortex._entry_name
-    # Ensure circuit is finalized for proper multi-ff propagation
-    if not hasattr(cortex, "_ff_conns") or not cortex._ff_conns:
-        cortex.finalize()
-
-    # Listen phase — use _propagate_feedforward for multi-ff (PFC)
+    # Listen phase
     if pfc is not None:
         pfc.gate_open = True
     for ch in word:
-        encoding = encoder.encode(ch)
-        topo_order = cortex._topo_order()
-        cortex._propagate_feedforward(topo_order, entry_name, encoding)
-        cortex._propagate_signals()
+        obs = ChatObs(token_id=ord(ch), token_str=ch)
+        agent.act(obs, 0.0)
 
     # PFC snapshot
     if pfc is not None:
@@ -484,17 +475,17 @@ def run_echo(cortex, encoder, motor, word: str):
 
     # Speak phase
     print(f"  {DIM}M1 reproducing:{RESET} ", end="", flush=True)
-    cortex.force_gate_open = True
+    agent.force_gate_open = True
     old_noise = motor.babbling_noise
     motor.babbling_noise = 0.2  # Mostly policy, some exploration
     produced = []
 
     current = " "
     for i in range(len(word) + 2):
-        encoding = encoder.encode(current)
-        topo_order = cortex._topo_order()
-        cortex._propagate_feedforward(topo_order, entry_name, encoding)
-        cortex._propagate_signals()
+        # Use agent for processing (echo still uses low-level access
+        # for per-char scoring — will be refactored into EchoEnv)
+        obs = ChatObs(token_id=ord(current), token_str=current)
+        agent.act(obs, 0.0)
 
         pop_id, _conf = motor.get_population_output()
         if pop_id >= 0 and 32 <= pop_id < 127:
@@ -516,7 +507,7 @@ def run_echo(cortex, encoder, motor, word: str):
             sys.stdout.write(f"{DIM}_{RESET}")
             sys.stdout.flush()
 
-    cortex.force_gate_open = False
+    agent.force_gate_open = False
     motor.babbling_noise = old_noise
 
     # Score
@@ -536,7 +527,9 @@ def run_echo(cortex, encoder, motor, word: str):
         s.region.reset_working_memory()
 
 
-def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, load_fn):
+def interactive_loop(
+    cortex, encoder, region1, motor, decoder, word_decoder, agent, load_fn
+):
     """Main REPL loop with full M1+BG turn-taking."""
     print(f"{BOLD}=== STEP Cortex REPL ==={RESET}")
     print_help()
@@ -569,7 +562,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
                 print_info(cortex, encoder, region1, motor, decoder)
                 continue
             elif cmd == "/reset":
-                reset_state(cortex, encoder)
+                reset_state(cortex)
                 total_bits = 0.0
                 n_chars = 0
                 recent_bits.clear()
@@ -588,7 +581,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
             elif cmd == "/warmup":
                 n = int(parts[1]) if len(parts) > 1 else 5000
                 tokens = load_fn(n, speak_window=10)
-                warmup(cortex, tokens)
+                warmup(cortex, encoder, tokens)
                 continue
             elif cmd == "/save":
                 name = parts[1] if len(parts) > 1 else "repl_default"
@@ -612,14 +605,14 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
                 continue
             elif cmd == "/babble":
                 n = int(parts[1]) if len(parts) > 1 else 200
-                run_babble(cortex, encoder, region1, motor, n)
+                run_babble(agent, region1, motor, n)
                 continue
             elif cmd == "/probe":
                 run_probe(cortex, word_decoder)
                 continue
             elif cmd == "/echo":
                 word = parts[1] if len(parts) > 1 else "the"
-                run_echo(cortex, encoder, motor, word)
+                run_echo(agent, motor, word)
                 continue
             else:
                 print(f"{DIM}Unknown command: {cmd} (try /help){RESET}")
@@ -652,7 +645,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
             decoder.observe(token_id, region1.l23.active)
 
             # Step through full hierarchy
-            step_token(cortex, token_id, ch)
+            step_token(agent, token_id, ch)
 
             # Burst fraction = surprise (per-char, after processing)
             n_active = max(int(region1.active_columns.sum()), 1)
@@ -700,7 +693,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
         # ── EOM INJECTION ──
         # Signal turn boundary: M1's turn to speak.
         # Feed EOM token, then neutral input (repeat last char) as speak window.
-        step_token(cortex, EOM_TOKEN, "")
+        step_token(agent, EOM_TOKEN, "")
 
         # Show transition with summary stats
         if n_chars > 0:
@@ -718,7 +711,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
         # ── SPEAKING PHASE ──
         # Force BG gate open — we know it's M1's turn.
         # PFC holds context from input phase → goal drive to M1.
-        cortex.force_gate_open = True
+        agent.force_gate_open = True
         spoken_chars = []
         silent_steps = 0
 
@@ -738,7 +731,7 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
                 motor.set_goal_drive(pfc_state.region.l23.firing_rate)
 
             # Feed M1's last output as next input (autoregressive)
-            step_token(cortex, last_token[0], last_token[1])
+            step_token(agent, last_token[0], last_token[1])
 
             m_id, m_conf = motor.last_output
             gate = motor.last_gate
@@ -770,14 +763,14 @@ def interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, loa
                     sys.stdout.write(f"{DIM}  (M1 silent — gate={gate:.2f}){RESET}")
                     break
 
-        cortex.force_gate_open = False
+        agent.force_gate_open = False
 
         if spoken_chars:
             sys.stdout.write(f"\n{DIM}  M1 spoke {len(spoken_chars)} chars{RESET}")
         print("\n")
 
         # Reset working memory for next exchange
-        reset_state(cortex, encoder)
+        reset_state(cortex)
 
 
 def main():
@@ -859,7 +852,7 @@ def main():
 
     # Build model
     print(f"{DIM}Building model (S1→S2→S3→PFC→M2→M1+BG)...{RESET}")
-    cortex, encoder, region1, motor, decoder, word_decoder = build_model(
+    cortex, encoder, region1, motor, decoder, word_decoder, agent = build_model(
         alphabet_str, use_l5_apical=args.l5_apical
     )
 
@@ -878,13 +871,15 @@ def main():
             sys.exit(1)
     elif not args.no_warmup and args.warmup > 0:
         tokens = load_fn(args.warmup, speak_window=10)
-        warmup(cortex, tokens)
+        warmup(cortex, encoder, tokens)
 
     # Show model info on startup
     print_info(cortex, encoder, region1, motor, decoder)
 
     # Enter interactive mode
-    interactive_loop(cortex, encoder, region1, motor, decoder, word_decoder, load_fn)
+    interactive_loop(
+        cortex, encoder, region1, motor, decoder, word_decoder, agent, load_fn
+    )
     print(f"{DIM}Goodbye!{RESET}")
 
 
