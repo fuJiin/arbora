@@ -24,12 +24,11 @@ class TestChatObs:
         assert not EOM_OBS.is_boundary
 
     def test_frozen(self):
+        import pytest
+
         obs = ChatObs(token_id=65, token_str="A")
-        try:
+        with pytest.raises(AttributeError):
             obs.token_id = 66  # type: ignore[misc]
-            assert False, "should be frozen"
-        except AttributeError:
-            pass
 
 
 class TestChatEnvCorpus:
@@ -145,7 +144,7 @@ class TestChatAgent:
         assert action is None or isinstance(action, (int, np.integer))
 
     def test_boundary_resets(self):
-        agent, circuit = self._make_agent()
+        agent, _circuit = self._make_agent()
         # Process a token first
         agent.act(ChatObs(token_id=ord("h"), token_str="h"), 0.0)
         # Boundary should reset
