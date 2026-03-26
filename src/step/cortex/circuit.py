@@ -21,7 +21,7 @@ from step.cortex.circuit_types import (
     RunMetrics,
     _RegionState,
 )
-from step.cortex.lamina import LaminaID
+from step.cortex.lamina import Lamina
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
 from step.cortex.motor import MotorRegion
 from step.cortex.region import CorticalRegion
@@ -311,39 +311,39 @@ class Circuit:
 
     def connect(
         self,
-        source: str,
-        target: str,
+        source: Lamina,
+        target: Lamina,
         role: ConnectionRole = ConnectionRole.FEEDFORWARD,
         *,
-        source_lamina: LaminaID = LaminaID.L23,
-        target_lamina: LaminaID = LaminaID.L4,
         surprise_tracker: SurpriseTracker | None = None,
         reward_modulator: RewardModulator | None = None,
         buffer_depth: int = 1,
         burst_gate: bool = False,
         thalamic_gate: ThalamicGate | None = None,
     ) -> Circuit:
-        """Wire source -> target.
+        """Wire source lamina -> target lamina.
 
-        Args:
-            source_lamina: Which layer's output to read from the source
-                region (default L2/3 — corticocortical projection).
-            target_lamina: Which layer receives the signal in the target
-                region (default L4 for feedforward input).
+        Routing is explicit — pass the Lamina objects directly::
+
+            circuit.connect(s1.l23, s2.l4, ConnectionRole.FEEDFORWARD)
+
+        Region names and lamina IDs are derived from the Lamina's
+        back-reference to its parent region.
         """
         if self._finalized:
             raise RuntimeError(
                 "Circuit is finalized. Cannot add connections after finalize()."
             )
-        for name in (source, target):
-            if name not in self._regions:
-                raise ValueError(f"Unknown region: {name!r}")
+        source_lamina = source.id
+        source_name = self._resolve_region_name(source.region)
+        target_lamina = target.id
+        target_name = self._resolve_region_name(target.region)
         if not isinstance(role, ConnectionRole):
             raise ValueError(f"Unknown connection role: {role!r}")
 
         conn = Connection(
-            source=source,
-            target=target,
+            source=source_name,
+            target=target_name,
             role=role,
             source_lamina=source_lamina,
             target_lamina=target_lamina,
@@ -354,28 +354,29 @@ class Circuit:
             thalamic_gate=thalamic_gate,
         )
         if role == ConnectionRole.APICAL:
-            src_region = self._regions[source].region
-            tgt_region = self._regions[target].region
-            src_lamina = src_region.get_lamina(source_lamina)
+            tgt_region = self._regions[target_name].region
             tgt_region.init_apical_segments(
-                source_dim=src_lamina.n_total,
-                source_name=source,
+                source_dim=source.n_total,
+                source_name=source_name,
             )
 
-        # Allocate temporal buffer for feedforward connections (skip self-loops)
-        if role == ConnectionRole.FEEDFORWARD and buffer_depth > 1 and source != target:
-            src_region = self._regions[source].region
-            tgt_region = self._regions[target].region
-            src_lamina = src_region.get_lamina(source_lamina)
-            expected_dim = buffer_depth * src_lamina.n_total
+        # Allocate temporal buffer for feedforward connections
+        if (
+            role == ConnectionRole.FEEDFORWARD
+            and buffer_depth > 1
+            and source_name != target_name
+        ):
+            tgt_region = self._regions[target_name].region
+            expected_dim = buffer_depth * source.n_total
             if tgt_region.input_dim != expected_dim:
                 raise ValueError(
-                    f"Target {target!r} input_dim={tgt_region.input_dim} "
+                    f"Target {target_name!r} "
+                    f"input_dim={tgt_region.input_dim} "
                     f"but buffer_depth={buffer_depth} * "
-                    f"source {source_lamina.value} n_total="
-                    f"{src_lamina.n_total} = {expected_dim}"
+                    f"source {source_lamina.value} "
+                    f"n_total={source.n_total} = {expected_dim}"
                 )
-            conn._buffer = np.zeros((buffer_depth, src_lamina.n_total))
+            conn._buffer = np.zeros((buffer_depth, source.n_total))
 
         self._connections.append(conn)
         return self
@@ -406,6 +407,13 @@ class Circuit:
 
     def region(self, name: str) -> CorticalRegion:
         return self._regions[name].region
+
+    def _resolve_region_name(self, region: CorticalRegion) -> str:
+        """Look up the registered name for a region."""
+        for name, state in self._regions.items():
+            if state.region is region:
+                return name
+        raise ValueError(f"Region {region!r} not registered in this circuit")
 
     # ------------------------------------------------------------------
     # Core processing

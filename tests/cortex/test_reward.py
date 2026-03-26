@@ -127,9 +127,12 @@ class TestRewardIntegration:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(
-            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+            motor.l23,
+            motor.l4,
+            ConnectionRole.FEEDFORWARD,
+            reward_modulator=RewardModulator(),
         )
         result = run_circuit(cortex, tokens)
         m1_metrics = result.per_region["M1"]
@@ -151,9 +154,12 @@ class TestRewardIntegration:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(
-            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+            motor.l23,
+            motor.l4,
+            ConnectionRole.FEEDFORWARD,
+            reward_modulator=RewardModulator(),
         )
         result = run_circuit(cortex, tokens)
         assert len(result.per_region["M1"].motor_rewards) > 0
@@ -164,9 +170,12 @@ class TestRewardIntegration:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(
-            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+            motor.l23,
+            motor.l4,
+            ConnectionRole.FEEDFORWARD,
+            reward_modulator=RewardModulator(),
         )
         result = run_circuit(cortex, tokens)
         assert "M1" in result.reward_modulators
@@ -178,7 +187,7 @@ class TestRewardIntegration:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         result = run_circuit(cortex, tokens)
         assert result.reward_modulators == {}
 
@@ -275,9 +284,12 @@ class TestTurnTakingCounters:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(
-            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+            motor.l23,
+            motor.l4,
+            ConnectionRole.FEEDFORWARD,
+            reward_modulator=RewardModulator(),
         )
         result = run_circuit(cortex, tokens)
         m = result.per_region["M1"]
@@ -300,9 +312,12 @@ class TestTurnTakingCounters:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(
-            "M1", "M1", ConnectionRole.FEEDFORWARD, reward_modulator=RewardModulator()
+            motor.l23,
+            motor.l4,
+            ConnectionRole.FEEDFORWARD,
+            reward_modulator=RewardModulator(),
         )
         result = run_circuit(cortex, tokens)
         m = result.per_region["M1"]
