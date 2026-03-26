@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from step.cortex.lamina import LaminaID
 from step.cortex.region import CorticalRegion
 
 
@@ -66,7 +67,7 @@ class TestL5ApicalPrediction:
         r = _make_region()
         r.init_apical_context(source_dim=32, source_name="S2")
         self._setup_predicted_neuron(r)
-        predicted = r._predict_l5_from_segments()
+        predicted = r._predict_from_apical_segments(LaminaID.L5)
         assert predicted[0], "L5 neuron 0 should be predicted"
 
     def test_not_predicted_without_context(self):
@@ -76,7 +77,7 @@ class TestL5ApicalPrediction:
         src["seg_indices"][0, 0, :] = 0
         src["seg_perm"][0, 0, :] = 1.0
         # No context set
-        predicted = r._predict_l5_from_segments()
+        predicted = r._predict_from_apical_segments(LaminaID.L5)
         assert not predicted.any()
 
     def test_compute_predictions_includes_l5(self):
@@ -153,7 +154,7 @@ class TestL5ApicalLearning:
         initial_perm_sum = src["seg_perm"].sum()
 
         # Run learning
-        r._learn_l5_apical()
+        r._learn_apical()
 
         # Permanences should have changed (growth happened)
         assert src["seg_perm"].sum() != initial_perm_sum
@@ -176,7 +177,7 @@ class TestL5ApicalLearning:
         r.l5.predicted[0] = True
 
         initial_perm = src["seg_perm"][0, 0, 0]
-        r._learn_l5_apical()
+        r._learn_apical()
 
         # Permanence should increase (reinforcement)
         assert src["seg_perm"][0, 0, 0] > initial_perm
@@ -198,7 +199,7 @@ class TestL5ApicalLearning:
         r.active_columns[:] = False  # Column not active
 
         initial_perm = src["seg_perm"][0, 0, 0]
-        r._learn_l5_apical()
+        r._learn_apical()
 
         # Permanence should decrease (punishment)
         assert src["seg_perm"][0, 0, 0] < initial_perm
