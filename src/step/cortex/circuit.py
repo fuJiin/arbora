@@ -412,14 +412,7 @@ class Circuit:
     # Core processing
     # ------------------------------------------------------------------
 
-    def process(
-        self,
-        encoding: np.ndarray,
-        *,
-        token_id: int = -1,
-        hooks: StepHooks | None = None,
-        t: int = 0,
-    ) -> np.ndarray:
+    def process(self, encoding: np.ndarray) -> np.ndarray:
         """Process one encoded input through the hierarchy.
 
         Pure neural processing: takes an encoding vector, propagates
@@ -430,16 +423,12 @@ class Circuit:
         caller's responsibility. Boundary and EOM handling use
         reset() and mark_eom() respectively.
 
-        When *hooks* is provided, callbacks are invoked at key points to
-        enable metrics collection, logging, and other instrumentation
-        without baking that logic into process() itself.
+        Token-level concerns (observe_token, decoder training, metrics)
+        belong at the Agent or Runner level — process() only does
+        neural computation.
 
         Args:
             encoding: Input vector (from encoder or previous circuit output).
-            token_id: Token index for motor learning (observe_token).
-                Pass -1 when not applicable (e.g. babble feedback).
-            hooks: Optional StepHooks for metrics/logging.
-            t: Step counter (for hooks).
 
         Returns:
             Motor output vector (M1 L5 firing rate). Callers can decode
@@ -458,10 +447,6 @@ class Circuit:
             if self._eom_steps > 20:
                 self._in_eom = False
 
-        # -- Hooks: before step --
-        if hooks is not None:
-            hooks.on_before_step(self, t, token_id, encoding)
-
         # -- Process in topo order (multi-ff supported) --
         topo_order = self._topo_order()
         self._propagate_feedforward(topo_order, entry_name, encoding)
@@ -469,13 +454,8 @@ class Circuit:
         # -- Inter-region signals (after all regions processed) --
         self._propagate_signals()
 
-        # -- Motor processing (skipped when hooks handle it) --
-        if hooks is None:
-            self._step_motor_inline(entry_region, token_id)
-
-        # -- Hooks: after step (before _total_steps increment) --
-        if hooks is not None:
-            hooks.on_after_step(self, t, token_id, encoding)
+        # -- Motor: BG gating + output (no token-level learning) --
+        self._step_motor_inline(entry_region)
 
         self._total_steps += 1
 
@@ -521,7 +501,8 @@ class Circuit:
         self._in_eom = True
         self._eom_steps = 0
 
-    # Backward compat: step() delegates to process() with internal encoding.
+    # Backward compat: step() wraps process() with encoding, hooks, and
+    # token-level learning that process() no longer handles.
     def step(
         self,
         token_id: int,
@@ -530,10 +511,11 @@ class Circuit:
         hooks: StepHooks | None = None,
         t: int = 0,
     ) -> np.ndarray:
-        """Deprecated: use process() instead.
+        """Deprecated: use process() + Agent-level logic instead.
 
-        Encodes token_str internally and delegates to process().
-        Handles STORY_BOUNDARY and EOM_TOKEN for backward compatibility.
+        Encodes token_str, calls process(), then handles token-level
+        concerns (hooks, observe_token) that belong at the Agent/Runner
+        level. Kept for backward compatibility during migration.
         """
         if token_id == STORY_BOUNDARY:
             self.reset(hooks=hooks)
@@ -541,14 +523,33 @@ class Circuit:
         if token_id == EOM_TOKEN:
             self.mark_eom()
             return np.zeros(0)
+
         encoding = self._encoder.encode(token_str)
-        return self.process(encoding, token_id=token_id, hooks=hooks, t=t)
 
-    def _step_motor_inline(self, entry_region: CorticalRegion, token_id: int) -> None:
-        """Lightweight motor processing for step() without hooks.
+        # Hooks: before
+        if hooks is not None:
+            hooks.on_before_step(self, t, token_id, encoding)
 
-        When hooks are provided, RunHooks.on_after_step() handles motor
-        processing with full metrics.
+        output = self.process(encoding)
+
+        # Token-level motor learning (Agent concern, not Circuit)
+        for s in self._regions.values():
+            if s.motor and isinstance(s.region, MotorRegion):
+                m1_active = self._in_eom or self.force_gate_open
+                if m1_active:
+                    s.region.observe_token(token_id)
+
+        # Hooks: after
+        if hooks is not None:
+            hooks.on_after_step(self, t, token_id, encoding)
+
+        return output
+
+    def _step_motor_inline(self, entry_region: CorticalRegion) -> None:
+        """Motor processing: BG gating and output readout.
+
+        Token-level learning (observe_token) is the Agent's responsibility
+        — it knows the token identity. Circuit only does neural processing.
         """
         m1_active = self._in_eom or self.force_gate_open
 
@@ -556,8 +557,6 @@ class Circuit:
             if s.motor:
                 assert isinstance(s.region, MotorRegion)
                 motor_region = s.region
-                if m1_active:
-                    motor_region.observe_token(token_id)
 
                 if self._total_steps > 0:
                     # BG gating: always step (learns from both phases)
@@ -671,7 +670,10 @@ class Circuit:
                     continue
                 hooks._current_token_str = token_str
                 encoding = self._encoder.encode(token_str)
-                self.process(encoding, token_id=token_id, hooks=hooks, t=t)
+                hooks.on_before_step(self, t, token_id, encoding)
+                self.process(encoding)
+                self._observe_token_on_motor(token_id)
+                hooks.on_after_step(self, t, token_id, encoding)
         else:
             self._run_interleaved_impl(
                 tokens,
@@ -752,7 +754,10 @@ class Circuit:
                     continue
                 hooks._current_token_str = token_str
                 encoding = self._encoder.encode(token_str)
-                self.process(encoding, token_id=token_id, hooks=hooks, t=t)
+                hooks.on_before_step(self, t, token_id, encoding)
+                self.process(encoding)
+                self._observe_token_on_motor(token_id)
+                hooks.on_after_step(self, t, token_id, encoding)
                 t += 1
                 total_listen += 1
             corpus_pos = chunk_end
@@ -778,7 +783,10 @@ class Circuit:
                 token_id = ord(current_char) if len(current_char) == 1 else 32
                 hooks._current_token_str = current_char
                 encoding = self._encoder.encode(current_char)
-                self.process(encoding, token_id=token_id, hooks=hooks, t=t)
+                hooks.on_before_step(self, t, token_id, encoding)
+                self.process(encoding)
+                self._observe_token_on_motor(token_id)
+                hooks.on_after_step(self, t, token_id, encoding)
                 t += 1
 
                 # Read M1's output for next babble input
@@ -910,8 +918,7 @@ class Circuit:
 
             # Encode + process through hierarchy (incl. motor via _step_motor_inline)
             encoding = self._encoder.encode(current_token_str)
-            token_id = ord(current_token_str) if len(current_token_str) == 1 else 32
-            self.process(encoding, token_id=token_id)
+            self.process(encoding)
 
             # Read motor output + reward set by _step_motor_inline
             pop_id = motor_region.last_output[0]
@@ -1136,8 +1143,7 @@ class Circuit:
 
             for ch in word:
                 encoding = self._encoder.encode(ch)
-                token_id = ord(ch) if len(ch) == 1 else 32
-                self.process(encoding, token_id=token_id)
+                self.process(encoding)
                 echo_reward.hear(ch)
 
             # PFC snapshots and closes gate
@@ -1557,6 +1563,20 @@ class Circuit:
                     readiness = conn.thalamic_gate.update(tgt_burst_rate)
                     signal = signal * readiness
                 tgt.set_apical_context(signal, source_name=conn.source)
+
+    def _observe_token_on_motor(self, token_id: int) -> None:
+        """Train motor output weights for the given token.
+
+        This is a token-level learning concern that belongs at the Agent
+        level. Kept here temporarily for backward compat with run() and
+        step(). Will move to Agent when that abstraction is created.
+        """
+        m1_active = self._in_eom or self.force_gate_open
+        if not m1_active:
+            return
+        for s in self._regions.values():
+            if s.motor and isinstance(s.region, MotorRegion):
+                s.region.observe_token(token_id)
 
     def _build_bg_ctx(self, precision: np.ndarray, prec_frac: float) -> np.ndarray:
         """Build BG context vector using a pre-allocated buffer."""
