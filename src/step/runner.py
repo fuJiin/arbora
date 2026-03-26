@@ -2,11 +2,14 @@
 
 from dataclasses import dataclass, field
 
+from step.agent import ChatAgent
 from step.cortex.circuit import Circuit, ConnectionRole, Encoder, RunMetrics
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY  # noqa: F401 — re-exported for tests
+from step.environment import ChatEnv
 from step.probes.diagnostics import CortexDiagnostics
+from step.train import train
 
 __all__ = [
     "Encoder",
@@ -67,8 +70,12 @@ def run_cortex(
     diag_interval = diagnostics.snapshot_interval if diagnostics else 100
     cortex = Circuit(encoder, diagnostics_interval=diag_interval)
     cortex.add_region("S1", region, entry=True, diagnostics=diagnostics is not None)
-    result = cortex.run(
-        tokens,
+
+    env = ChatEnv(tokens)
+    agent = ChatAgent(encoder=encoder, circuit=cortex)
+    result = train(
+        env,
+        agent,
         log_interval=log_interval,
         rolling_window=rolling_window,
         show_predictions=show_predictions,
@@ -139,8 +146,11 @@ def run_hierarchy(
         gate = ThalamicGate() if gate_feedback else None
         cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=gate)
 
-    result = cortex.run(
-        tokens,
+    env = ChatEnv(tokens)
+    agent = ChatAgent(encoder=encoder, circuit=cortex)
+    result = train(
+        env,
+        agent,
         log_interval=log_interval,
         rolling_window=rolling_window,
     )
