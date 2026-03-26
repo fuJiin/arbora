@@ -5,7 +5,7 @@ import numpy as np
 from step.cortex.region import CorticalRegion
 
 
-def _make_region(use_l5_apical=True, **kwargs):
+def _make_region(**kwargs):
     defaults = dict(
         input_dim=16,
         n_columns=8,
@@ -16,7 +16,6 @@ def _make_region(use_l5_apical=True, **kwargs):
         n_apical_segments=4,
         n_synapses_per_segment=8,
         seg_activation_threshold=2,
-        use_l5_apical_segments=use_l5_apical,
         seed=42,
     )
     defaults.update(kwargs)
@@ -40,13 +39,6 @@ class TestL5ApicalSegmentInit:
         r.init_apical_context(source_dim=32, source_name="S2")
         src = r._apical_sources["S2"]
         assert "weights" not in src
-
-    def test_linear_mode_no_segments(self):
-        r = _make_region(use_l5_apical=False)
-        r.init_apical_context(source_dim=32, source_name="S2")
-        src = r._apical_sources["S2"]
-        assert "weights" in src
-        assert "seg_indices" not in src
 
     def test_multiple_sources(self):
         r = _make_region()
@@ -130,12 +122,13 @@ class TestL5ApicalBACFiring:
             "Predicted L5 neuron should win with apical boost"
         )
 
-    def test_no_boost_without_segments(self):
-        """Linear gain mode should not set predicted_l5."""
-        r = _make_region(use_l5_apical=False)
+    def test_no_prediction_without_context(self):
+        """No apical context means no L5 predictions."""
+        r = _make_region()
         r.init_apical_context(source_dim=32, source_name="S2")
         rng = np.random.default_rng(0)
         r.step(rng.random(r.n_l4_total))
+        # No context was set, so no apical predictions
         assert not r.l5.predicted.any()
 
 
@@ -217,26 +210,23 @@ class TestL5ApicalLearning:
         assert not r.l5.predicted.any()
 
 
-class TestBackwardCompat:
-    """Default (use_l5_apical_segments=False) preserves old behavior."""
+class TestSegmentsAlwaysUsed:
+    """Segments are always used for apical feedback."""
 
-    def test_linear_gain_still_works(self):
-        r = _make_region(use_l5_apical=False)
+    def test_segments_with_context(self):
+        r = _make_region()
         r.init_apical_context(source_dim=32, source_name="S2")
         src = r._apical_sources["S2"]
         src["context"][:] = 0.5  # Nonzero context
         rng = np.random.default_rng(0)
-        # Should not crash — linear gain path runs
+        # Should not crash — segment path runs
         for _ in range(5):
             r.step(rng.random(r.n_l4_total))
         assert r.l5.active.any()
 
-    def test_default_is_linear_gain(self):
-        r = CorticalRegion(
-            input_dim=16,
-            n_columns=8,
-            n_l4=4,
-            n_l23=4,
-            k_columns=2,
-        )
-        assert not r.use_l5_apical_segments
+    def test_always_has_segments(self):
+        r = _make_region()
+        r.init_apical_context(source_dim=32, source_name="S2")
+        src = r._apical_sources["S2"]
+        assert "seg_indices" in src
+        assert "weights" not in src

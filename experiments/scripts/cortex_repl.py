@@ -59,7 +59,7 @@ def surprise_color(burst_frac: float) -> str:
     return RED  # Very surprising
 
 
-def build_model(alphabet: str, *, use_l5_apical: bool = False):
+def build_model(alphabet: str):
     """Build full hierarchy using the canonical circuit factory.
 
     Uses build_canonical_circuit() to ensure dimensions always match
@@ -69,14 +69,10 @@ def build_model(alphabet: str, *, use_l5_apical: bool = False):
 
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
 
-    apical_override = {"use_l5_apical_segments": True} if use_l5_apical else None
     cortex = build_canonical_circuit(
         encoder,
         log_interval=999999,
         timeline_interval=0,
-        s1_overrides=apical_override,
-        s2_overrides=apical_override,
-        s3_overrides=apical_override,
     )
 
     region1 = cortex._regions["S1"].region
@@ -801,11 +797,6 @@ def main():
         choices=["personachat", "tinydialogues", "babylm"],
         help="Dataset for vocab and warmup (default: babylm)",
     )
-    parser.add_argument(
-        "--l5-apical",
-        action="store_true",
-        help="Enable L5 apical segments on sensory regions",
-    )
     args = parser.parse_args()
 
     # Load tokens for vocab (and warmup)
@@ -853,7 +844,7 @@ def main():
     # Build model
     print(f"{DIM}Building model (S1→S2→S3→PFC→M2→M1+BG)...{RESET}")
     cortex, encoder, region1, motor, decoder, word_decoder, agent = build_model(
-        alphabet_str, use_l5_apical=args.l5_apical
+        alphabet_str
     )
 
     # Load checkpoint or warmup
