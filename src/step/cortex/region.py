@@ -185,9 +185,11 @@ class CorticalRegion:
         if self._pre_trace_decay > 0:
             self._seg_trace_l23 = np.zeros(self.n_l23_total)
             self._seg_trace_l4 = np.zeros(self.n_l4_total)
+            self._seg_trace_l5 = np.zeros(self.n_l5_total)
         else:
             self._seg_trace_l23 = None
             self._seg_trace_l4 = None
+            self._seg_trace_l5 = None
 
         # Apical feedback: per-source gain modulation (BAC firing model).
         # Multiple regions can send apical to the same target — each has
@@ -713,6 +715,8 @@ class CorticalRegion:
             self._seg_trace_l23[:] = 0.0
         if self._seg_trace_l4 is not None:
             self._seg_trace_l4[:] = 0.0
+        if self._seg_trace_l5 is not None:
+            self._seg_trace_l5[:] = 0.0
         if self._ff_eligibility is not None:
             self._ff_eligibility[:] = 0.0
         # Clear apical contexts (preserve learned weights)
@@ -796,6 +800,9 @@ class CorticalRegion:
         if self._seg_trace_l4 is not None:
             self._seg_trace_l4 *= self._pre_trace_decay
             self._seg_trace_l4[self.l4.active] += 1.0
+        if self._seg_trace_l5 is not None:
+            self._seg_trace_l5 *= self._pre_trace_decay
+            self._seg_trace_l5[self.l5.active] += 1.0
 
         # 4. Feedforward drive to L4 neurons
         self.l4.voltage += drive
@@ -1141,7 +1148,10 @@ class CorticalRegion:
             ctx = src["context"]
             if not ctx.any():
                 continue
-            # Boolean context for segment ops
+            # Boolean context for segment ops.
+            # Apical context comes from external sources (e.g. S2's L2/3).
+            # Traces for external context would need per-connection traces
+            # — deferred to STEP-62 (uniform learning).
             ctx_bool = ctx > 0.01
 
             l5_by_col = self.l5.active.reshape(self.n_columns, self.n_l5)
@@ -1574,21 +1584,31 @@ class CorticalRegion:
         """Update L5 lateral segment permanences.
 
         Same grow/reinforce/punish pattern as L2/3 lateral segments.
-        L5 lateral prediction enables output-layer sequence prediction:
-        which L5 pattern follows the current one?
+        Uses continuous traces (if enabled) for temporal credit,
+        matching L2/3 segment learning.
         """
         active_cols = np.nonzero(self.active_columns)[0]
         if len(active_cols) == 0:
             return
 
-        # Context: current L5 activation (boolean, from previous step
-        # — saved in predicted_l5 by _compute_predictions before step)
-        ctx = self.l5.active
+        # Context: continuous trace or boolean L5 activation
+        if self._seg_trace_l5 is not None:
+            grow_ctx_continuous = self._seg_trace_l5
+            adapt_ctx = self._seg_trace_l5
+        else:
+            grow_ctx_continuous = None
+            adapt_ctx = self.l5.active
+
+        # Growth context: threshold trace to boolean for _grow_segment
+        if grow_ctx_continuous is not None:
+            threshold = self._pre_trace_threshold or 0.01
+            grow_bool = grow_ctx_continuous > threshold
+        else:
+            grow_bool = self.l5.active
 
         # Burst columns: grow L5 lateral segment on best L5 neuron
         burst_cols = active_cols[self.bursting_columns[active_cols]]
         if len(burst_cols) > 0:
-            # L5 burst = all active, pick by L2/3 firing rate as proxy
             fr_by_col = self.l23.firing_rate.reshape(self.n_columns, self.n_l23)
             l23_winners = fr_by_col[burst_cols].argmax(axis=1)
             l5_best = np.minimum(l23_winners, self.n_l5 - 1)
@@ -1598,7 +1618,7 @@ class CorticalRegion:
                     neuron,
                     self.l5_seg_indices,
                     self.l5_seg_perm,
-                    ctx,
+                    grow_bool,
                     self._l5_source_pool,
                 )
 
@@ -1616,7 +1636,7 @@ class CorticalRegion:
                 reinforce_neurons,
                 self.l5_seg_indices,
                 self.l5_seg_perm,
-                ctx,
+                adapt_ctx,
                 reinforce=True,
             )
 
@@ -1627,7 +1647,7 @@ class CorticalRegion:
                 false_predicted,
                 self.l5_seg_indices,
                 self.l5_seg_perm,
-                ctx,
+                adapt_ctx,
                 reinforce=False,
             )
 
