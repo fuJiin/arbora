@@ -511,12 +511,15 @@ class Circuit:
         hooks: StepHooks | None = None,
         t: int = 0,
     ) -> np.ndarray:
-        """Deprecated: use process() + Agent-level logic instead.
+        """Deprecated: use ChatAgent.act() + Circuit.process() instead."""
+        import warnings
 
-        Encodes token_str, calls process(), then handles token-level
-        concerns (hooks, observe_token) that belong at the Agent/Runner
-        level. Kept for backward compatibility during migration.
-        """
+        warnings.warn(
+            "Circuit.step() is deprecated. Use ChatAgent.act() with "
+            "Circuit.process() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if token_id == STORY_BOUNDARY:
             self.reset(hooks=hooks)
             return np.zeros(0)
@@ -627,27 +630,14 @@ class Circuit:
         show_predictions: int = 0,
         metric_interval: int = 0,
     ) -> CortexResult:
-        """Process tokens through the circuit.
+        """Deprecated: use ChatEnv + ChatAgent + train() instead."""
+        import warnings
 
-        When babble_ratio is 0 (default), this is pure listening: each
-        token is processed sequentially through the hierarchy.
-
-        When babble_ratio > 0, this alternates between listening episodes
-        (corpus tokens) and babbling episodes (M1 output feeds back as
-        input). The ratio controls total babble steps relative to listen
-        steps: ``n_babble = len(tokens) * babble_ratio / (1 - babble_ratio)``.
-
-        Args:
-            tokens: Corpus tokens for listening.
-            babble_ratio: Fraction of total steps that are babbling (0-1).
-                0 = pure listening (default), 0.5 = equal listen/babble.
-            babble_chunk: Steps per babbling episode.
-            listen_chunk: Tokens per listening episode.
-            log_interval: Steps between log lines.
-            rolling_window: Window for rolling averages.
-            show_predictions: Number of recent predictions to show.
-            metric_interval: Interval for expensive metrics (0 = log_interval).
-        """
+        warnings.warn(
+            "Circuit.run() is deprecated. Use ChatEnv + ChatAgent + train() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self._entry_name is None:
             raise ValueError("No entry region. Call add_region(..., entry=True).")
 
@@ -853,14 +843,15 @@ class Circuit:
         *,
         log_interval: int = 100,
     ) -> dict:
-        """Autoregressive babbling loop: M1 drives, hears itself through S1.
+        """Deprecated: use ChatEnv with babble_ratio instead."""
+        import warnings
 
-        No corpus input. M1 produces a token, that token is encoded and
-        fed through S1 (frozen) → S2 (frozen, if connected). Reward is
-        computed from S2 pattern stability. M1 learns from the loop.
-
-        Returns dict with babbling metrics.
-        """
+        warnings.warn(
+            "Circuit.run_babbling() is deprecated. Use ChatEnv with "
+            "babble_ratio + ChatAgent + train() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self._entry_name is None:
             raise ValueError("No entry region.")
 
@@ -987,15 +978,12 @@ class Circuit:
         babble_chunk: int = 50,
         log_interval: int = 100,
     ) -> dict:
-        """Deprecated: use run(babble_ratio=...) instead.
-
-        Wrapper that converts n_babble_steps into a babble_ratio and
-        delegates to run(). Returns a dict for backward compatibility.
-        """
+        """Deprecated: use ChatEnv with babble_ratio instead."""
         import warnings
 
         warnings.warn(
-            "run_interleaved() is deprecated. Use run(babble_ratio=...) instead.",
+            "Circuit.run_interleaved() is deprecated. Use ChatEnv with "
+            "babble_ratio + ChatAgent + train() instead.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -1039,36 +1027,15 @@ class Circuit:
         curriculum: bool = False,
         echo_reward_kwargs: dict | None = None,
     ) -> dict:
-        """
-                import warnings
+        """Deprecated: echo training will be reimplemented as EchoEnv."""
+        import warnings
 
-                warnings.warn(
-                    "run_echo() is deprecated. Echo training will be reimplemented "
-                    "as PFC goal injection in the Environment "
-                    "abstraction (STEP-67/69).",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-        Echo training: hear a word, reproduce it.
-
-                For each episode:
-                1. Listen: process chars of a word through hierarchy, PFC open
-                2. PFC snapshots goal and closes gate
-                3. Speak: M1 produces chars, rewarded for matching heard word
-                4. Reset for next word
-
-                Args:
-                    tokens: Corpus for extracting words.
-                    n_episodes: Number of listen→echo episodes.
-                    max_word_len: Max word length to echo (start small).
-                    min_word_len: Min word length to echo.
-                    log_interval: Episodes between log lines.
-                    batch_reward: If True, accumulate reward over episode and
-                        apply once at end (normalized by word length). Prevents
-                        per-step weight oscillation.
-                    curriculum: If True, start with short words (2-3 chars) and
-                        gradually increase max length as performance improves.
-        """
+        warnings.warn(
+            "Circuit.run_echo() is deprecated. Echo training will be "
+            "reimplemented as an Environment variant (EchoEnv).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         from step.cortex.pfc import PFCRegion
         from step.cortex.reward import EchoReward
 
