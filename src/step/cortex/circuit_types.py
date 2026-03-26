@@ -109,6 +109,8 @@ class Connection:
     burst_gate: bool = False
     thalamic_gate: ThalamicGate | None = None
     enabled: bool = True
+    trace_decay: float = 0.8
+    _trace: np.ndarray | None = field(default=None, repr=False)
     _buffer: np.ndarray | None = field(default=None, repr=False)
     _buffer_pos: int = 0
 
