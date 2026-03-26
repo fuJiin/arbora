@@ -57,10 +57,6 @@ class Snapshot:
     n_active_l23_segments: int = 0
     n_predicted_l23: int = 0
 
-    # Apical gain health (S2 → S1 feedback)
-    apical_gain_mean: float = 0.0
-    apical_gain_max: float = 0.0
-
 
 @dataclass
 class CortexDiagnostics:
@@ -210,11 +206,6 @@ class CortexDiagnostics:
                 snap.n_active_l23_segments = int(
                     (l23_counts >= region.seg_activation_threshold).sum()
                 )
-
-        # Apical gain health
-        if region.has_apical and region._apical_gain_weights is not None:
-            snap.apical_gain_mean = float(np.mean(region._apical_gain_weights))
-            snap.apical_gain_max = float(np.max(region._apical_gain_weights))
 
         return snap
 

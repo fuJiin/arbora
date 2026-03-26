@@ -196,6 +196,13 @@ class Circuit:
                     )
                     self._ff_buffers[name] = np.empty(total, dtype=np.float64)
 
+        # Initialize per-connection traces for temporal credit.
+        for conn in self._connections:
+            if conn.trace_decay > 0:
+                src = self._regions[conn.source].region
+                src_lam = src.get_lamina(conn.source_lamina)
+                conn._trace = np.zeros(src_lam.n_total, dtype=np.float64)
+
         self._finalized = True
 
     # ------------------------------------------------------------------
@@ -498,6 +505,8 @@ class Circuit:
             if s.basal_ganglia is not None:
                 s.basal_ganglia.reset()
         for conn in self._connections:
+            if conn._trace is not None:
+                conn._trace[:] = 0.0
             if conn._buffer is not None:
                 conn._buffer[:] = 0.0
                 conn._buffer_pos = 0
@@ -595,13 +604,11 @@ class Circuit:
                 "l5_seg_indices": r.l5_seg_indices,
                 "l5_seg_perm": r.l5_seg_perm,
             }
-            # Apical per-source state (weights or segments)
+            # Apical per-source segment state
             if r._apical_sources:
                 apical_data = {}
                 for name, src in r._apical_sources.items():
-                    if "weights" in src:
-                        apical_data[name] = {"weights": src["weights"].copy()}
-                    elif "seg_indices" in src:
+                    if "seg_indices" in src:
                         apical_data[name] = {
                             "seg_indices": src["seg_indices"].copy(),
                             "seg_perm": src["seg_perm"].copy(),
@@ -688,29 +695,19 @@ class Circuit:
                 r.l5_seg_indices[:] = region_data["l5_seg_indices"]
                 r.l5_seg_perm[:] = region_data["l5_seg_perm"]
 
-            # Load apical state (per-source weights or segments)
+            # Load apical state (per-source segments)
             if "apical_sources" in region_data:
                 for src_name, saved in region_data["apical_sources"].items():
                     if src_name not in r._apical_sources:
                         continue
                     src = r._apical_sources[src_name]
-                    if isinstance(saved, dict):
-                        # New format: dict with weights or seg_indices/seg_perm
-                        if "weights" in saved and "weights" in src:
-                            src["weights"][:] = saved["weights"]
-                        if "seg_indices" in saved and "seg_indices" in src:
-                            src["seg_indices"][:] = saved["seg_indices"]
-                            src["seg_perm"][:] = saved["seg_perm"]
-                    else:
-                        # Legacy format: bare weight array
-                        if "weights" in src:
-                            src["weights"][:] = saved
-            elif (
-                "apical_gain_weights" in region_data
-                and r._apical_gain_weights is not None
-            ):
-                # Legacy: single-source checkpoint
-                r._apical_gain_weights[:] = region_data["apical_gain_weights"]
+                    if (
+                        isinstance(saved, dict)
+                        and "seg_indices" in saved
+                        and "seg_indices" in src
+                    ):
+                        src["seg_indices"][:] = saved["seg_indices"]
+                        src["seg_perm"][:] = saved["seg_perm"]
 
             # Restore ff_eligibility for any region that uses three-factor learning
             if "ff_eligibility" in region_data and r._ff_eligibility is not None:
@@ -847,10 +844,18 @@ class Circuit:
 
             if conn.role == ConnectionRole.APICAL and tgt.has_apical:
                 src_lamina = src.get_lamina(conn.source_lamina)
+                # Update connection trace
+                if conn._trace is not None:
+                    conn._trace *= conn.trace_decay
+                    conn._trace += src_lamina.firing_rate
                 r_active = max(int(src.active_columns.sum()), 1)
                 r_bursting = int(src.bursting_columns.sum())
                 confidence = 1.0 - (r_bursting / r_active)
-                signal = src_lamina.firing_rate * confidence
+                # Use trace for temporal credit if available
+                base = (
+                    conn._trace if conn._trace is not None else src_lamina.firing_rate
+                )
+                signal = base * confidence
                 if conn.thalamic_gate is not None:
                     tgt_active = max(int(tgt.active_columns.sum()), 1)
                     tgt_bursting = int(tgt.bursting_columns.sum())
@@ -871,13 +876,17 @@ class Circuit:
     def _get_ff_signal(self, conn: Connection) -> np.ndarray:
         """Build the feedforward signal for a connection.
 
-        Applies burst gating (if enabled) then writes into the temporal
-        buffer (if depth > 1), returning the concatenated oldest-first
-        window.
+        Updates the connection trace (temporal credit), applies burst
+        gating (if enabled), then writes into the temporal buffer.
         """
         src = self._regions[conn.source].region
         lamina = src.get_lamina(conn.source_lamina)
         signal = lamina.firing_rate.copy()
+
+        # Update connection trace (temporal credit for recent activity)
+        if conn._trace is not None:
+            conn._trace *= conn.trace_decay
+            conn._trace += signal
 
         # Burst gate: zero precisely-predicted columns
         if conn.burst_gate:
