@@ -8,60 +8,51 @@ Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + thr
 
 ## Architecture
 ```
-TrainRunner / ReplRunner (hooks, metrics, param sweeps) — future
-  └── Environment.step(action) -> (obs, reward)       — ChatEnv
-        └── Agent.act(obs, reward) -> action           — ChatAgent
-              └── Circuit.process(encoding) -> ndarray — pure neural (908 LOC)
+Environment.step(action) -> (obs, reward)       — ChatEnv
+  └── Agent.act(obs, reward) -> action           — ChatAgent
+        └── Circuit.process(encoding) -> ndarray — pure neural (908 LOC)
 
 Topo: S1 → S2 → S3 → PFC → M2 → M1
 Layers: L4 (input) → L2/3 (associative) → L5 (output)
-Connections: connect(source_lamina, target_lamina, role) — Lamina objects only
-Learning: PlasticityRule (HEBBIAN, THREE_FACTOR), STDP pre-traces, segments
+
+Feedforward: L5 → L4 (corticocortical, all inter-region)
+Apical: L5 → {L2/3, L5} (top-down context, dual target)
+Intra-region: L4 → L2/3 → L5 (within column)
+
+Learning: segments everywhere (lateral, feedback, apical)
+  Per-connection traces (temporal credit, decay=0.8)
+  Hebbian (sensory) vs three-factor (motor/PFC)
+  Surprise modulates FF only, not segments
 ```
 
-## File organization
-- `environment.py` — Observation/Environment protocols, ChatEnv, ChatObs
-- `agent.py` — Agent protocol, ChatAgent (encoder + circuit + decoder)
-- `train.py` — train() bridging ChatEnv + ChatAgent with RunHooks
-- `cortex/circuit.py` — Circuit (process + builder + checkpoint, 908 LOC)
-- `cortex/canonical.py` — build_canonical_circuit() factory
-- `cortex/region.py` — CorticalRegion with Lamina composition
-- `.agents/LEARNING.md` — Learning mechanism audit (pre-STEP-62)
+## Session: 2026-03-26 (38 PRs total)
 
-## Session: 2026-03-26 (35 PRs total)
+### Completed
+- STEP-69: Circuit.process(encoding) -> ndarray
+- STEP-70: ChatEnv + ChatAgent + train(), full migration
+- STEP-72: Remove deprecated methods (circuit.py 1780→908)
+- STEP-64: connect() takes Lamina objects only
+- STEP-54: L5 continuous traces for lateral segments
+- STEP-62: Uniform learning (per-connection traces, remove linear gain, apical→{L2/3,L5}, limit surprise)
+- STEP-73: L5 as universal corticocortical output
+- Pruned 14 broken experiment scripts
 
-### Completed this session
-- **STEP-69** (PR #26): Circuit.process(encoding) -> ndarray
-- **STEP-70** (PRs #27-30): ChatEnv + ChatAgent + train(), full migration
-- **STEP-72** (PR #31): Remove deprecated methods (circuit.py 1780→908)
-- **PR #32**: Prune 14 broken experiment scripts (4,467 lines)
-- **STEP-64** (PR #33): connect() takes Lamina objects only (no strings)
-- **STEP-54** (PR #34): L5 continuous traces for lateral segments
-- **Learning audit** committed to .agents/LEARNING.md
+### Key decisions
+- L5 is the universal corticocortical output (FF source + apical source)
+- Apical segments only mode (linear gain removed)
+- Per-connection traces on all pathways
+- L2/3→L5 intra-region uses firing rate proxy (STEP-74: proper ff weights)
+- Segments everywhere, optimize later (sparse weights as perf lever)
 
-### Key decisions this session
-- Environment/Agent/Circuit layered architecture (clean separation)
-- connect(lamina, lamina) — no string-based routing
-- motor_active param on process() decouples EOM from Circuit
-- Turn-taking reward + babble chunking → TODO: BasalGanglia (STEP-61)
-- Encoder/decoder are Agent attributes, not Circuit (STEP-71 cancelled)
-
-### In progress: STEP-62 planning
-Learning audit complete. Architecture questions raised:
-- FF should use L5→L4 (not L2/3→L4) for biological accuracy
-- Apical should be L5(higher)→L2/3(lower), not L2/3→L4
-- All connections should carry decaying trace of source signal
-- Linear gain apical should be replaced with segments or three-factor
-- L2/3 should get apical context from external sources (like L5 does)
-See .agents/LEARNING.md for full audit and open questions.
+### In progress
+- Baseline training run (300k tokens sensory stage)
 
 ## Remaining tickets
-- [ ] STEP-62 Uniform learning mechanics (L) — next up, needs design decisions
+- [ ] STEP-74 L2/3→L5 intra-region ff weights (M, high priority)
+- [ ] STEP-50 Generate clean baseline (XS, in progress)
 - [ ] STEP-61 Adaptive gating — learned interleaving (XL)
 - [ ] STEP-30 Region Protocol typing (M)
 - [ ] STEP-48 Checkpoint validation (S)
-- [ ] STEP-50 Generate clean baseline (XS)
 - [ ] STEP-58 RunHooks verbosity cleanup (S)
 - [ ] STEP-20 Cerebellar forward model (XL)
-- [ ] Extract TrainRunner / ReplRunner
 - [ ] Remove _in_eom/force_gate_open/mark_eom from Circuit
