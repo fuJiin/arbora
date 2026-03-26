@@ -77,6 +77,7 @@ def build_model(alphabet):
 
 
 def step_token(cortex, token_id, token_str):
+    # Delegate to backward-compat step() which handles EOM/boundary
     cortex.step(token_id, token_str)
 
 
