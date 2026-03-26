@@ -104,6 +104,7 @@ def warmup(cortex, tokens, log_interval=2000):
 
 def step_token(cortex, token_id, token_str):
     """Process one token through the full hierarchy, return motor output."""
+    # Delegate to backward-compat step() which handles observe_token + EOM
     cortex.step(token_id, token_str)
 
 
@@ -312,7 +313,7 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
     word_buf = []
 
     for _i in range(n_chars):
-        # Use circuit's step() for proper propagation
+        # Use circuit's step() for proper propagation + motor learning
         token_id = ord(current_char) if current_char else ord(" ")
         cortex.step(token_id, current_char)
 
