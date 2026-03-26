@@ -120,3 +120,9 @@ class CortexResult:
     thalamic_readiness: dict[str, list[float]] = field(default_factory=dict)
     reward_modulators: dict[str, list[float]] = field(default_factory=dict)
     elapsed_seconds: float = 0.0
+    # Babble metrics (populated when babble_ratio > 0)
+    babble_rewards: list[float] = field(default_factory=list)
+    babble_tokens_produced: list[str] = field(default_factory=list)
+    babble_unique_tokens: list[str] = field(default_factory=list)
+    total_listen_steps: int = 0
+    total_babble_steps: int = 0

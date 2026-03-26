@@ -568,11 +568,35 @@ class Circuit:
         self,
         tokens: list[tuple[int, str]],
         *,
+        babble_ratio: float = 0.0,
+        babble_chunk: int = 50,
+        listen_chunk: int = 200,
         log_interval: int = 100,
         rolling_window: int = 100,
         show_predictions: int = 0,
         metric_interval: int = 0,
     ) -> CortexResult:
+        """Process tokens through the circuit.
+
+        When babble_ratio is 0 (default), this is pure listening: each
+        token is processed sequentially through the hierarchy.
+
+        When babble_ratio > 0, this alternates between listening episodes
+        (corpus tokens) and babbling episodes (M1 output feeds back as
+        input). The ratio controls total babble steps relative to listen
+        steps: ``n_babble = len(tokens) * babble_ratio / (1 - babble_ratio)``.
+
+        Args:
+            tokens: Corpus tokens for listening.
+            babble_ratio: Fraction of total steps that are babbling (0-1).
+                0 = pure listening (default), 0.5 = equal listen/babble.
+            babble_chunk: Steps per babbling episode.
+            listen_chunk: Tokens per listening episode.
+            log_interval: Steps between log lines.
+            rolling_window: Window for rolling averages.
+            show_predictions: Number of recent predictions to show.
+            metric_interval: Interval for expensive metrics (0 = log_interval).
+        """
         if self._entry_name is None:
             raise ValueError("No entry region. Call add_region(..., entry=True).")
 
@@ -583,9 +607,163 @@ class Circuit:
             show_predictions=show_predictions,
             metric_interval=metric_interval,
         )
-        for t, (token_id, token_str) in enumerate(tokens):
-            self.step(token_id, token_str, hooks=hooks, t=t)
+
+        if babble_ratio <= 0:
+            # Pure listening (existing behavior)
+            for t, (token_id, token_str) in enumerate(tokens):
+                self.step(token_id, token_str, hooks=hooks, t=t)
+        else:
+            self._run_interleaved_impl(
+                tokens,
+                hooks=hooks,
+                babble_ratio=babble_ratio,
+                babble_chunk=babble_chunk,
+                listen_chunk=listen_chunk,
+                log_interval=log_interval,
+            )
+
         return hooks.finalize()
+
+    def _run_interleaved_impl(
+        self,
+        tokens: list[tuple[int, str]],
+        *,
+        hooks: RunHooks,
+        babble_ratio: float,
+        babble_chunk: int,
+        listen_chunk: int,
+        log_interval: int,
+    ) -> None:
+        """Interleaved listen+babble loop (internal).
+
+        Alternates listening episodes (corpus tokens processed through
+        RunHooks for full metrics) and babbling episodes (M1 output
+        feeds back as input with adaptive noise).
+        """
+        assert self._entry_name is not None
+        entry_name = self._entry_name
+        entry_region = self._regions[entry_name].region
+
+        # Find motor region
+        motor_region: MotorRegion | None = None
+        for _name, s in self._regions.items():
+            if s.motor:
+                assert isinstance(s.region, MotorRegion)
+                motor_region = s.region
+                break
+        if motor_region is None:
+            raise ValueError("No motor region for interleaved training.")
+
+        # Compute total babble steps from ratio
+        n_babble_target = int(len(tokens) * babble_ratio / (1 - babble_ratio))
+
+        # Adaptive noise state
+        noise_floor = 0.05
+        noise_ceiling = motor_region.babbling_noise
+        noise = noise_ceiling
+        reward_ema = 0.0
+        reward_ema_slow = 0.0
+        noise_adapt_rate = 0.001
+
+        # Babble metrics (stored on hooks.result via finalize)
+        babble_rewards: list[float] = []
+        babble_tokens_produced: list[str] = []
+        babble_unique_tokens: set[str] = set()
+        total_listen = 0
+        total_babble = 0
+        corpus_pos = 0
+        t = 0
+
+        start = time.monotonic()
+
+        while total_babble < n_babble_target:
+            # -- LISTEN episode: process corpus tokens via hooks --
+            chunk_end = min(corpus_pos + listen_chunk, len(tokens))
+            if corpus_pos >= len(tokens):
+                corpus_pos = 0  # Loop corpus
+                chunk_end = min(listen_chunk, len(tokens))
+
+            for token_id, token_str in tokens[corpus_pos:chunk_end]:
+                self.step(token_id, token_str, hooks=hooks, t=t)
+                t += 1
+                total_listen += 1
+            corpus_pos = chunk_end
+
+            # -- BABBLE episode: M1 output feeds back as input --
+            self.force_gate_open = True
+            current_char = " "
+
+            for _ in range(babble_chunk):
+                if total_babble >= n_babble_target:
+                    break
+
+                # Adaptive noise
+                if total_babble > 100:
+                    reward_delta = reward_ema - reward_ema_slow
+                    noise -= noise_adapt_rate * reward_delta
+                    if abs(reward_delta) < 0.001:
+                        noise += noise_adapt_rate * 0.1
+                    noise = max(noise_floor, min(noise_ceiling, noise))
+                motor_region.babbling_noise = noise
+
+                # Process babble token through the circuit with hooks
+                token_id = ord(current_char) if len(current_char) == 1 else 32
+                self.step(token_id, current_char, hooks=hooks, t=t)
+                t += 1
+
+                # Read M1's output for next babble input
+                for _mname, ms in self._regions.items():
+                    if ms.motor:
+                        assert isinstance(ms.region, MotorRegion)
+                        pop_id, _pop_conf = ms.region.get_population_output()
+                        m_char = (
+                            chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
+                        )
+                        # Compute reward for adaptive noise
+                        reward = ms.region.last_reward
+                        reward_ema = 0.99 * reward_ema + 0.01 * reward
+                        reward_ema_slow = 0.999 * reward_ema_slow + 0.001 * reward
+                        babble_rewards.append(reward)
+                        if m_char:
+                            babble_tokens_produced.append(m_char)
+                            babble_unique_tokens.add(m_char)
+                            current_char = m_char
+                        break
+
+                total_babble += 1
+
+            self.force_gate_open = False
+
+            # Babble logging at end of each babble episode
+            if total_babble % log_interval < babble_chunk:
+                recent_r = babble_rewards[-babble_chunk:]
+                avg_r = sum(recent_r) / max(len(recent_r), 1)
+                recent_tok = babble_tokens_produced[-babble_chunk:]
+                n_unique = len(set(recent_tok))
+                tail = "".join(recent_tok[-30:])
+                sample = repr(tail) if tail else "(empty)"
+                burst_pct = float(entry_region.bursting_columns.sum()) / max(
+                    entry_region.n_columns, 1
+                )
+                elapsed = time.monotonic() - start
+                print(
+                    f"  [interleaved] babble={total_babble:,} "
+                    f"listen={total_listen:,} "
+                    f"r={avg_r:+.3f} "
+                    f"noise={noise:.2f} "
+                    f"burst={burst_pct:.1%} "
+                    f"unique={n_unique} "
+                    f"vocab={len(babble_unique_tokens)} "
+                    f"out={sample} "
+                    f"({elapsed:.1f}s)"
+                )
+
+        # Store babble metrics on hooks so finalize() can include them
+        hooks._babble_rewards = babble_rewards
+        hooks._babble_tokens_produced = babble_tokens_produced
+        hooks._babble_unique_tokens = sorted(babble_unique_tokens)
+        hooks._total_listen_steps = total_listen
+        hooks._total_babble_steps = total_babble
 
     # ------------------------------------------------------------------
     # Babbling loop (Stages 2-3)
@@ -736,144 +914,40 @@ class Circuit:
         babble_chunk: int = 50,
         log_interval: int = 100,
     ) -> dict:
-        """Interleaved listening and babbling — like a baby's day.
+        """Deprecated: use run(babble_ratio=...) instead.
 
-        Alternates between:
-        - Listening: corpus tokens through full hierarchy, M1 observes
-        - Babbling: autoregressive M1→S1→M1 loop with reward
-
-        The listening phases continually reinforce L5 token mappings,
-        preventing the drift that occurs in pure babbling runs.
-
-        Args:
-            tokens: Corpus tokens for listening phases.
-            n_babble_steps: Total babble steps (controls run length).
-            listen_chunk: Corpus tokens per listening episode.
-            babble_chunk: Babble steps per babbling episode.
-            log_interval: Steps between log lines.
+        Wrapper that converts n_babble_steps into a babble_ratio and
+        delegates to run(). Returns a dict for backward compatibility.
         """
-        if self._entry_name is None:
-            raise ValueError("No entry region.")
+        import warnings
 
-        entry_name = self._entry_name
-        entry_state = self._regions[entry_name]
-        entry_region = entry_state.region
+        warnings.warn(
+            "run_interleaved() is deprecated. Use run(babble_ratio=...) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-        motor_state = None
-        motor_region: MotorRegion | None = None
-        for _name, s in self._regions.items():
-            if s.motor:
-                assert isinstance(s.region, MotorRegion)
-                motor_state = s
-                motor_region = s.region
-                break
-        if motor_state is None or motor_region is None:
-            raise ValueError("No motor region for interleaved training.")
+        # Convert n_babble_steps to a ratio: ratio = babble / (listen + babble)
+        n_listen = len(tokens)
+        total = n_listen + n_babble_steps
+        babble_ratio = n_babble_steps / total if total > 0 else 0.0
 
-        # Adaptive noise state
-        noise_floor = 0.05
-        noise_ceiling = motor_region.babbling_noise
-        noise = noise_ceiling
-        reward_ema = 0.0
-        reward_ema_slow = 0.0
-        noise_adapt_rate = 0.001
+        result = self.run(
+            tokens,
+            babble_ratio=babble_ratio,
+            babble_chunk=babble_chunk,
+            listen_chunk=listen_chunk,
+            log_interval=log_interval,
+        )
 
-        # Metrics
-        rewards = []
-        tokens_produced = []
-        unique_tokens = set()
-        total_listen = 0
-        total_babble = 0
-        corpus_pos = 0
-
-        start = time.monotonic()
-
-        while total_babble < n_babble_steps:
-            # -- LISTEN episode: process corpus tokens --
-            chunk_end = min(corpus_pos + listen_chunk, len(tokens))
-            if corpus_pos >= len(tokens):
-                corpus_pos = 0  # Loop corpus
-                chunk_end = min(listen_chunk, len(tokens))
-
-            listen_tokens = tokens[corpus_pos:chunk_end]
-            corpus_pos = chunk_end
-
-            # Process listening tokens through standard run loop
-            # (M1 learning_enabled means it processes + learns)
-            import contextlib
-            import io
-
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.run(listen_tokens, log_interval=999999)
-            total_listen += len(listen_tokens)
-
-            # -- BABBLE episode: autoregressive M1 loop --
-            seed_char = " "
-            current_token_str = seed_char
-
-            for _b in range(babble_chunk):
-                if total_babble >= n_babble_steps:
-                    break
-
-                # Adaptive noise
-                if total_babble > 100:
-                    reward_delta = reward_ema - reward_ema_slow
-                    noise -= noise_adapt_rate * reward_delta
-                    if abs(reward_delta) < 0.001:
-                        noise += noise_adapt_rate * 0.1
-                    noise = max(noise_floor, min(noise_ceiling, noise))
-                motor_region.babbling_noise = noise
-
-                # Encode + propagate + signals + motor reward
-                encoding = self._encoder.encode(current_token_str)
-                topo_order = self._topo_order()
-                self._propagate_feedforward(topo_order, entry_name, encoding)
-                self._propagate_signals()
-                pop_id, reward = self._step_motor_reward(entry_region)
-                m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
-                reward_ema = 0.99 * reward_ema + 0.01 * reward
-                reward_ema_slow = 0.999 * reward_ema_slow + 0.001 * reward
-                rewards.append(reward)
-                if m_char:
-                    tokens_produced.append(m_char)
-                    unique_tokens.add(m_char)
-                    current_token_str = m_char
-
-                total_babble += 1
-                self._total_steps += 1
-
-            # Logging at end of each babble episode
-            if total_babble % log_interval < babble_chunk:
-                recent_r = rewards[-babble_chunk:]
-                avg_r = sum(recent_r) / max(len(recent_r), 1)
-                recent_tok = tokens_produced[-babble_chunk:]
-                n_unique = len(set(recent_tok))
-                tail = "".join(recent_tok[-30:])
-                sample = repr(tail) if tail else "(empty)"
-                burst_pct = float(entry_region.bursting_columns.sum()) / max(
-                    entry_region.n_columns, 1
-                )
-                elapsed = time.monotonic() - start
-                print(
-                    f"  [interleaved] babble={total_babble:,} "
-                    f"listen={total_listen:,} "
-                    f"r={avg_r:+.3f} "
-                    f"noise={noise:.2f} "
-                    f"burst={burst_pct:.1%} "
-                    f"unique={n_unique} "
-                    f"vocab={len(unique_tokens)} "
-                    f"out={sample} "
-                    f"({elapsed:.1f}s)"
-                )
-
-        elapsed = time.monotonic() - start
+        # Convert CortexResult to legacy dict format
         return {
-            "rewards": rewards,
-            "tokens_produced": tokens_produced,
-            "unique_tokens": sorted(unique_tokens),
-            "total_listen": total_listen,
-            "total_babble": total_babble,
-            "elapsed_seconds": elapsed,
+            "rewards": result.babble_rewards,
+            "tokens_produced": result.babble_tokens_produced,
+            "unique_tokens": result.babble_unique_tokens,
+            "total_listen": result.total_listen_steps,
+            "total_babble": result.total_babble_steps,
+            "elapsed_seconds": result.elapsed_seconds,
         }
 
     # ------------------------------------------------------------------
