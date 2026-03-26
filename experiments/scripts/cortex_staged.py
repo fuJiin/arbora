@@ -23,6 +23,7 @@ import os
 from dataclasses import replace
 
 import step.env  # noqa: F401
+from step.agent import ChatAgent
 from step.cortex.canonical import build_canonical_circuit
 from step.cortex.stages import (
     BABBLING_STAGE,
@@ -31,7 +32,9 @@ from step.cortex.stages import (
 )
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
+from step.environment import ChatEnv
 from step.runs import save_run
+from step.train import train
 
 CKPT_DIR = "experiments/checkpoints"
 
@@ -106,6 +109,7 @@ def resolve_checkpoint(name):
 
 def run_stage(
     cortex,
+    encoder,
     stage,
     tokens,
     *,
@@ -136,14 +140,10 @@ def run_stage(
             cortex._reward_source.seed_vocabulary(vocab)
             print(f"  Seeded caregiver with {len(vocab)} words from corpus")
 
-    # Choose run mode: babbling (interleaved) or corpus-driven
+    # Build environment and agent
     is_babbling = stage.babbling_noise > 0 or stage.force_motor_active
 
     if is_babbling:
-        # Interleaved: alternate listening (corpus) and babbling (autoregressive)
-        # babble_ratio: fraction of total steps that are babbling
-        # n_babble_target = len(tokens) * ratio / (1 - ratio) = stage.n_tokens
-        # => ratio = n_tokens / (n_tokens + len(tokens))
         n_listen = len(tokens)
         total = n_listen + stage.n_tokens
         babble_ratio = stage.n_tokens / total if total > 0 else 0.0
@@ -151,21 +151,18 @@ def run_stage(
             f"  Mode: interleaved listen+babble "
             f"(noise={stage.babbling_noise}, ratio={babble_ratio:.2f})"
         )
-        result = cortex.run(
-            tokens,
-            babble_ratio=babble_ratio,
-            log_interval=log_interval,
-        )
+        env = ChatEnv(tokens, babble_ratio=babble_ratio)
     else:
-        # Corpus-driven: standard token-by-token processing
         stage_tokens = tokens[: stage.n_tokens]
         if len(stage_tokens) < stage.n_tokens:
             print(
                 f"  Warning: only {len(stage_tokens):,} tokens available "
                 f"(requested {stage.n_tokens:,})"
             )
+        env = ChatEnv(stage_tokens)
 
-        result = cortex.run(stage_tokens, log_interval=log_interval)
+    agent = ChatAgent(encoder=encoder, circuit=cortex)
+    result = train(env, agent, log_interval=log_interval)
 
     print(f"\nStage '{stage.name}' completed in {result.elapsed_seconds:.1f}s")
 
@@ -277,7 +274,7 @@ def main():
 
     # Run stages
     for stage in stages:
-        run_stage(cortex, stage, tokens, log_interval=args.log_interval)
+        run_stage(cortex, encoder, stage, tokens, log_interval=args.log_interval)
 
     print("\nAll stages complete.")
 
