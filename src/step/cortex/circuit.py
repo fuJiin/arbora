@@ -365,6 +365,7 @@ class Circuit:
             tgt_region.init_apical_segments(
                 source_dim=source.n_total,
                 source_name=source_name,
+                target_lamina=target_lamina,
             )
 
         # Allocate temporal buffer for feedforward connections

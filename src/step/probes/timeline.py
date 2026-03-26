@@ -54,7 +54,9 @@ class Timeline:
         n_apical_pred = 0
         if region.has_apical and region._apical_sources:
             # Count L5 neurons predicted by apical segments
-            n_apical_pred = int(region._predict_l5_from_segments().sum())
+            from step.cortex.lamina import LaminaID
+
+            n_apical_pred = int(region._predict_from_apical_segments(LaminaID.L5).sum())
 
         self.frames.append(
             TimelineFrame(

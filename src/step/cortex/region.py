@@ -580,34 +580,43 @@ class CorticalRegion:
             self.l5_seg_indices = np.zeros((n5, 0, n_syn), dtype=np.int32)
             self.l5_seg_perm = np.zeros((n5, 0, n_syn))
 
-    def init_apical_context(self, source_dim: int, source_name: str = ""):
+    def init_apical_context(
+        self,
+        source_dim: int,
+        source_name: str = "",
+        *,
+        target_lamina: LaminaID = LaminaID.L5,
+    ):
         """Initialize apical feedback from a higher region.
 
-        Uses L5 dendritic segments for context-specific gating.
-        Models biological BAC (backpropagation-activated calcium) firing:
-        apical input lowers firing threshold without directly causing
-        spikes. L5 fires only when a specific top-down pattern matches.
+        Creates dendritic segments on the target lamina for
+        context-specific gating. Models biological apical dendrites:
+        top-down input modulates firing threshold without directly
+        causing spikes.
 
         Args:
-            source_dim: Dimensionality of the source region's L2/3.
-            source_name: Identifier for this source (e.g., "S2", "M1").
+            source_dim: Dimensionality of the source signal.
+            source_name: Identifier for this source (e.g., "S2").
+            target_lamina: Which lamina receives the apical input.
+                L5 (default) and L2/3 are biologically motivated.
         """
         name = source_name or f"src_{len(self._apical_sources)}"
+        tgt_lam = self.get_lamina(target_lamina)
+        n_neurons = tgt_lam.n_total
 
-        # L5 apical segments: sparse pattern-matching on top-down input
-        n_l5 = self.n_l5_total
         n_seg = self.n_apical_segments
         n_syn = self.n_synapses_per_segment
-        seg_indices = np.zeros((n_l5, n_seg, n_syn), dtype=np.int32)
-        seg_perm = np.zeros((n_l5, n_seg, n_syn))
+        seg_indices = np.zeros((n_neurons, n_seg, n_syn), dtype=np.int32)
+        seg_perm = np.zeros((n_neurons, n_seg, n_syn))
         source_pool = np.arange(source_dim)
-        for i in range(n_l5):
+        for i in range(n_neurons):
             for s in range(n_seg):
                 seg_indices[i, s] = self._rng.choice(
                     source_pool, n_syn, replace=len(source_pool) < n_syn
                 )
         self._apical_sources[name] = {
             "dim": source_dim,
+            "target_lamina": target_lamina,
             "context": np.zeros(source_dim, dtype=np.float64),
             "seg_indices": seg_indices,
             "seg_perm": seg_perm,
@@ -620,10 +629,16 @@ class CorticalRegion:
             src = self._apical_sources[name]
             self._apical_context = src["context"]
 
-    # Keep old name as alias for backward compat (circuit.connect uses it)
-    def init_apical_segments(self, source_dim: int, source_name: str = ""):
-        """Backward-compatible alias for init_apical_context."""
-        self.init_apical_context(source_dim, source_name)
+    # Alias for circuit.connect()
+    def init_apical_segments(
+        self,
+        source_dim: int,
+        source_name: str = "",
+        *,
+        target_lamina: LaminaID = LaminaID.L5,
+    ):
+        """Alias for init_apical_context."""
+        self.init_apical_context(source_dim, source_name, target_lamina=target_lamina)
 
     def register_lamina(self, lam: Lamina) -> None:
         """Register a lamina with this region."""
@@ -810,9 +825,9 @@ class CorticalRegion:
         if self.learning_enabled:
             self._learn()
 
-            # 8b. Apical segment learning
+            # 8b. Apical segment learning (L5 and L2/3 targets)
             if self.has_apical:
-                self._learn_l5_apical()
+                self._learn_apical()
 
         # 9. Update eligibility traces for newly active neurons
         self._update_traces()
@@ -890,9 +905,10 @@ class CorticalRegion:
             self.l5.predicted[:] = self._predict_l5_lateral_from_segments()
         else:
             self.l5.predicted[:] = False
-        # L5 prediction from apical segments (additive with lateral)
+        # Apical predictions (additive with lateral)
         if self._apical_sources:
-            self.l5.predicted |= self._predict_l5_from_segments()
+            self.l5.predicted |= self._predict_from_apical_segments(LaminaID.L5)
+            self.l23.predicted |= self._predict_from_apical_segments(LaminaID.L23)
 
     def _predict_l5_lateral_from_segments(self) -> np.ndarray:
         """Check which L5 neurons have active lateral dendritic segments.
@@ -909,17 +925,20 @@ class CorticalRegion:
         )
         return predicted
 
-    def _predict_l5_from_segments(self) -> np.ndarray:
-        """Check which L5 neurons have active apical dendritic segments.
+    def _predict_from_apical_segments(self, target_lamina: LaminaID) -> np.ndarray:
+        """Check which neurons have active apical dendritic segments.
 
-        Each apical source contributes independently. An L5 neuron is
-        predicted if any of its apical segments (across all sources) has
-        enough connected synapses with active context neurons.
+        Filters apical sources by target lamina. Each matching source
+        contributes independently. A neuron is predicted if any of
+        its segments has enough connected synapses with active context.
 
-        Returns boolean mask of shape (n_l5_total,).
+        Returns boolean mask of shape (n_total,) for the target lamina.
         """
-        predicted = np.zeros(self.n_l5_total, dtype=np.bool_)
+        tgt_lam = self.get_lamina(target_lamina)
+        predicted = np.zeros(tgt_lam.n_total, dtype=np.bool_)
         for src in self._apical_sources.values():
+            if src.get("target_lamina") != target_lamina:
+                continue
             seg_idx = src.get("seg_indices")
             seg_p = src.get("seg_perm")
             if seg_idx is None:
@@ -927,7 +946,6 @@ class CorticalRegion:
             ctx = src["context"]
             if not ctx.any():
                 continue
-            # Threshold continuous firing rate to boolean for segments
             self._check_segments(ctx > 0.01, seg_idx, seg_p, predicted)
         return predicted
 
@@ -1064,13 +1082,13 @@ class CorticalRegion:
             l5_winners = l5_scores.argmax(axis=1)
             self.l5.active[precise_cols * self.n_l5 + l5_winners] = True
 
-    def _learn_l5_apical(self):
-        """Update L5 apical segment permanences based on prediction outcomes.
+    def _learn_apical(self):
+        """Update apical segment permanences on all target laminae.
 
-        Same grow/reinforce/punish pattern as L4 and L2/3 segments:
-        - Active column, L5 predicted → reinforce matching segments
-        - Active column, L5 NOT predicted → grow segment on L5 winner
-        - L5 predicted but column not active → punish false positives
+        Per-source, per-target-lamina grow/reinforce/punish:
+        - Active column, neuron predicted → reinforce matching segments
+        - Active column, neuron NOT predicted → grow on winner
+        - Predicted but not active → punish false positives
         """
         active_cols = np.nonzero(self.active_columns)[0]
 
@@ -1078,36 +1096,32 @@ class CorticalRegion:
             seg_idx = src.get("seg_indices")
             seg_perm = src.get("seg_perm")
             pool = src.get("source_pool")
+            tgt_lid = src.get("target_lamina", LaminaID.L5)
             if seg_idx is None:
                 continue
             ctx = src["context"]
             if not ctx.any():
                 continue
-            # Boolean context for segment ops.
-            # Apical context comes from external sources (e.g. S2's L2/3).
-            # Traces for external context would need per-connection traces
-            # — deferred to STEP-62 (uniform learning).
             ctx_bool = ctx > 0.01
 
-            l5_by_col = self.l5.active.reshape(self.n_columns, self.n_l5)
-            pred_by_col = self.l5.predicted.reshape(self.n_columns, self.n_l5)
+            tgt_lam = self.get_lamina(tgt_lid)
+            n_per = tgt_lam.n_per_col
+            active_by_col = tgt_lam.active.reshape(self.n_columns, n_per)
+            pred_by_col = tgt_lam.predicted.reshape(self.n_columns, n_per)
 
-            # Per active column: reinforce or grow
             reinforce_neurons = []
             grow_neurons = []
-            for col in active_cols if len(active_cols) > 0 else []:
-                active_in_col = np.nonzero(l5_by_col[col])[0]
+            for col in active_cols:
+                active_in_col = np.nonzero(active_by_col[col])[0]
                 if len(active_in_col) == 0:
                     continue
-                predicted_in_col = l5_by_col[col] & pred_by_col[col]
+                predicted_in_col = active_by_col[col] & pred_by_col[col]
                 if predicted_in_col.any():
-                    # Reinforce predicted + active L5 neurons
                     for local_idx in np.nonzero(predicted_in_col)[0]:
-                        reinforce_neurons.append(col * self.n_l5 + local_idx)
+                        reinforce_neurons.append(col * n_per + local_idx)
                 else:
-                    # Grow segment on L5 winner (first active)
                     winner = active_in_col[0]
-                    grow_neurons.append(col * self.n_l5 + winner)
+                    grow_neurons.append(col * n_per + winner)
 
             if reinforce_neurons:
                 self._adapt_segments_batch(
@@ -1120,11 +1134,15 @@ class CorticalRegion:
             for neuron in grow_neurons:
                 self._grow_segment(neuron, seg_idx, seg_perm, ctx_bool, pool)
 
-            # Punish false positives: predicted but not active
-            false_pred = np.nonzero(self.l5.predicted & ~self.l5.active)[0]
+            # Punish false positives
+            false_pred = np.nonzero(tgt_lam.predicted & ~tgt_lam.active)[0]
             if len(false_pred) > 0:
                 self._adapt_segments_batch(
-                    false_pred, seg_idx, seg_perm, ctx_bool, reinforce=False
+                    false_pred,
+                    seg_idx,
+                    seg_perm,
+                    ctx_bool,
+                    reinforce=False,
                 )
 
     def _learn(self):
