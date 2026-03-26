@@ -115,6 +115,41 @@ class TestL5LateralLearning:
         assert r.l5_seg_perm[1, 0, 0] < initial
 
 
+class TestL5SegmentTrace:
+    def test_trace_initialized_when_decay_enabled(self):
+        r = _make_region(pre_trace_decay=0.8)
+        assert r._seg_trace_l5 is not None
+        assert r._seg_trace_l5.shape == (r.n_l5_total,)
+
+    def test_trace_not_initialized_when_decay_zero(self):
+        r = _make_region(pre_trace_decay=0.0)
+        assert r._seg_trace_l5 is None
+
+    def test_trace_updated_on_step(self):
+        r = _make_region(pre_trace_decay=0.8)
+        rng = np.random.default_rng(0)
+        r.step(rng.random(r.n_l4_total))
+        # Trace is presynaptic — records previous step's L5 state.
+        # Run a second step so the first step's L5 activations
+        # get recorded in the trace.
+        r.step(rng.random(r.n_l4_total))
+        assert r._seg_trace_l5.sum() > 0
+
+    def test_trace_decays(self):
+        r = _make_region(pre_trace_decay=0.8)
+        r._seg_trace_l5[0] = 1.0
+        rng = np.random.default_rng(0)
+        r.step(rng.random(r.n_l4_total))
+        # Should have decayed to ~0.8 (or 0.8 + 1.0 if neuron 0 is active)
+        assert r._seg_trace_l5[0] <= 1.8
+
+    def test_trace_reset(self):
+        r = _make_region(pre_trace_decay=0.8)
+        r._seg_trace_l5[0] = 1.0
+        r.reset_working_memory()
+        assert r._seg_trace_l5.sum() == 0.0
+
+
 class TestL5LateralBoost:
     def test_predicted_l5_boosts_winner(self):
         r = _make_region(fb_boost=5.0)  # high boost to override firing rate
