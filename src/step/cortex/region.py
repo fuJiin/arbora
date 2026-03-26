@@ -1047,13 +1047,16 @@ class CorticalRegion:
     def _activate_l5(self, top_cols: np.ndarray):
         """Activate L5 output neurons in active columns.
 
-        L5 receives intra-columnar drive from L2/3 activity. One winner
-        per active column, selected by L2/3 firing rate plus optional
-        apical segment boost (BAC firing: predicted L5 neurons get a
-        voltage advantage in the competition).
+        Intra-columnar L2/3 → L5 feedforward drive. L5 is downstream
+        of L2/3 within the column: L2/3 firing rate is used as a proxy
+        for what proper L2/3→L5 ff weights would learn.
 
-        Burst columns: all L5 neurons fire (mirrors L2/3 burst behavior).
-        Precise columns: single L5 winner (highest score in column).
+        TODO: Replace with learned ff weights (L2/3→L5 within region)
+        so L5 goes through the same process pipeline as L4. Currently
+        L5 is a readout layer, not a proper learning layer.
+
+        Burst columns: all L5 neurons fire (mirrors L2/3 burst).
+        Precise columns: single L5 winner by L2/3 rate + apical boost.
         """
         self.l5.active[:] = False
         if len(top_cols) == 0:
