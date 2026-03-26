@@ -52,7 +52,7 @@ class CortexConfig:
     seg_activation_threshold: int = 2
     prediction_gain: float = 2.5
     n_apical_segments: int = 4
-    n_l5_segments: int = 0  # 0 = disabled (enable when tuning L5 lateral)
+    n_l5_segments: int = 4  # L5 lateral sequence prediction
     l23_prediction_boost: float = 0.0
     pre_trace_decay: float = 0.8
     plasticity_rule: PlasticityRule = PlasticityRule.HEBBIAN
