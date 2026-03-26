@@ -966,25 +966,35 @@ class Circuit:
         curriculum: bool = False,
         echo_reward_kwargs: dict | None = None,
     ) -> dict:
-        """Echo training: hear a word, reproduce it.
+        """
+                import warnings
 
-        For each episode:
-        1. Listen: process chars of a word through hierarchy, PFC open
-        2. PFC snapshots goal and closes gate
-        3. Speak: M1 produces chars, rewarded for matching heard word
-        4. Reset for next word
+                warnings.warn(
+                    "run_echo() is deprecated. Echo training will be reimplemented "
+                    "as PFC goal injection in the Environment "
+                    "abstraction (STEP-67/69).",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+        Echo training: hear a word, reproduce it.
 
-        Args:
-            tokens: Corpus for extracting words.
-            n_episodes: Number of listen→echo episodes.
-            max_word_len: Max word length to echo (start small).
-            min_word_len: Min word length to echo.
-            log_interval: Episodes between log lines.
-            batch_reward: If True, accumulate reward over episode and
-                apply once at end (normalized by word length). Prevents
-                per-step weight oscillation.
-            curriculum: If True, start with short words (2-3 chars) and
-                gradually increase max length as performance improves.
+                For each episode:
+                1. Listen: process chars of a word through hierarchy, PFC open
+                2. PFC snapshots goal and closes gate
+                3. Speak: M1 produces chars, rewarded for matching heard word
+                4. Reset for next word
+
+                Args:
+                    tokens: Corpus for extracting words.
+                    n_episodes: Number of listen→echo episodes.
+                    max_word_len: Max word length to echo (start small).
+                    min_word_len: Min word length to echo.
+                    log_interval: Episodes between log lines.
+                    batch_reward: If True, accumulate reward over episode and
+                        apply once at end (normalized by word length). Prevents
+                        per-step weight oscillation.
+                    curriculum: If True, start with short words (2-3 chars) and
+                        gradually increase max length as performance improves.
         """
         from step.cortex.pfc import PFCRegion
         from step.cortex.reward import EchoReward
@@ -1181,182 +1191,6 @@ class Circuit:
             "matches": matches,
             "avg_match": sum(matches) / max(len(matches), 1),
             "echo_summary": echo_reward.summary(),
-            "elapsed_seconds": elapsed,
-        }
-
-    # ------------------------------------------------------------------
-    # Dialogue training (listen → PFC holds → M1 responds)
-    # ------------------------------------------------------------------
-
-    def run_dialogue(
-        self,
-        tokens: list[tuple[int, str]],
-        n_turns: int,
-        *,
-        max_utterance_len: int = 30,
-        max_response_len: int = 15,
-        log_interval: int = 50,
-    ) -> dict:
-        """Dialogue training: alternate listening and responding.
-
-        Each turn:
-        1. Listen to a corpus utterance (up to boundary/max_len)
-        2. PFC gate closes — holds context from what was heard
-        3. M1 produces response with PFC goal drive
-        4. Reward: echo match on first word of utterance (bootstrap)
-           + curiosity for natural transitions
-        5. PFC learning modulated by reward
-        6. Reset for next turn
-
-        This is the first structured conversational training — the
-        precursor to actual dialogue.
-        """
-        from step.cortex.pfc import PFCRegion
-        from step.cortex.reward import EchoReward
-
-        assert self._entry_name is not None
-        entry_name = self._entry_name
-        entry_region = self._regions[entry_name].region
-
-        pfc_region = None
-        motor_region: MotorRegion | None = None
-        for _name, s in self._regions.items():
-            if isinstance(s.region, PFCRegion):
-                pfc_region = s.region
-            if s.motor:
-                assert isinstance(s.region, MotorRegion)
-                motor_region = s.region
-
-        if pfc_region is None or motor_region is None:
-            raise ValueError("Need PFC and motor regions for dialogue.")
-
-        if motor_region._goal_weights is None:
-            motor_region.init_goal_drive(pfc_region.n_l23_total)
-
-        echo_reward = EchoReward()
-        old_reward = self._reward_source
-        self._reward_source = echo_reward
-
-        # Extract utterances from corpus (split on boundaries)
-        utterances = []
-        current = []
-        for token_id, ch in tokens:
-            if token_id < 0:  # STORY_BOUNDARY
-                if current:
-                    utterances.append(current[:])
-                    current.clear()
-            else:
-                current.append(ch)
-                if len(current) >= max_utterance_len or ch in (".", "!", "?"):
-                    utterances.append(current[:])
-                    current.clear()
-        if not utterances:
-            raise ValueError("No utterances found.")
-
-        rewards = []
-        matches = []
-        start = time.monotonic()
-
-        for turn in range(n_turns):
-            utt = utterances[turn % len(utterances)]
-            echo_reward.reset()
-
-            # -- LISTEN phase --
-            pfc_region.gate_open = True
-            heard_word = []  # Track first word for echo reward
-
-            for ch in utt:
-                encoding = self._encoder.encode(ch)
-                topo_order = self._topo_order()
-                self._propagate_feedforward(topo_order, entry_name, encoding)
-                self._propagate_signals()
-
-                # Track first word
-                if ch in (" ", ".", ",", "!", "?", "-"):
-                    if not heard_word:
-                        pass  # Haven't started a word yet
-                elif not any(c in (" ", ".", "!", "?") for c in heard_word):
-                    heard_word.append(ch)
-
-                echo_reward.hear(ch)
-
-            # PFC holds context
-            pfc_region.snapshot_goal()
-            pfc_region.gate_open = False
-
-            # -- RESPOND phase --
-            echo_reward.start_speak()
-            self.force_gate_open = True
-            motor_region.babbling_noise = 0.2
-            episode_reward = 0.0
-            produced = []
-
-            for _step_i in range(max_response_len):
-                motor_region.set_goal_drive(pfc_region.l23.firing_rate)
-
-                seed = produced[-1] if produced else " "
-                encoding = self._encoder.encode(seed)
-                topo_order = self._topo_order()
-                self._propagate_feedforward(topo_order, entry_name, encoding)
-                self._propagate_signals()
-
-                pop_id, reward = self._step_motor_reward(entry_region)
-                episode_reward += reward
-
-                m_char = chr(pop_id) if pop_id >= 0 and 32 <= pop_id < 127 else None
-                if m_char:
-                    produced.append(m_char)
-
-                self._total_steps += 1
-
-            self.force_gate_open = False
-
-            # Score against first word of utterance
-            first_word = "".join(c for c in heard_word[:6] if c.isalpha())
-            response = "".join(produced[: len(first_word)])
-            n_match = sum(
-                1
-                for i, ch in enumerate(response)
-                if i < len(first_word) and ch == first_word[i]
-            )
-            match_rate = n_match / max(len(first_word), 1)
-            rewards.append(episode_reward)
-            matches.append(match_rate)
-
-            # PFC three-factor consolidation (no replay needed)
-            avg_r = episode_reward / max(max_response_len, 1)
-            if hasattr(pfc_region, "apply_reward"):
-                pfc_region.apply_reward(avg_r)
-
-            # Reset
-            for s in self._regions.values():
-                s.region.reset_working_memory()
-
-            # Logging
-            if (turn + 1) % log_interval == 0:
-                recent_r = rewards[-log_interval:]
-                recent_m = matches[-log_interval:]
-                avg_r = sum(recent_r) / len(recent_r)
-                avg_m = sum(recent_m) / len(recent_m)
-                heard = "".join(utt[:20])
-                said = "".join(produced[:20])
-                elapsed = time.monotonic() - start
-                print(
-                    f"  [dialogue] turn={turn + 1:,} "
-                    f"r={avg_r:+.3f} "
-                    f"match={avg_m:.0%} "
-                    f"heard={heard!r} "
-                    f"said={said!r} "
-                    f"({elapsed:.1f}s)"
-                )
-
-        self._reward_source = old_reward
-        elapsed = time.monotonic() - start
-
-        return {
-            "rewards": rewards,
-            "matches": matches,
-            "avg_match": sum(matches) / max(len(matches), 1),
             "elapsed_seconds": elapsed,
         }
 
