@@ -336,8 +336,6 @@ class RunHooks:
         metrics: dict[str, RunMetrics],
     ) -> None:
         """Motor metrics + reward (extracted from run() lines 762-893)."""
-        entry_name = self._entry_name
-        entry_region = circuit._regions[entry_name].region
         m1_active = self._m1_active
         prev_motor_l23 = self._prev_motor_l23
         _max_speak_steps = self.MAX_SPEAK_STEPS
@@ -346,28 +344,18 @@ class RunHooks:
             if s.motor:
                 assert isinstance(s.region, MotorRegion)
                 motor_region = s.region
-                # observe_token only during active phase (M1 processed)
-                if m1_active:
-                    motor_region.observe_token(token_id)
                 if circuit._total_steps > 0:
-                    # BG gating: always step (learns from both phases)
-                    gate = 1.0
+                    # BG gating + output readout already done by process()
+                    # via _step_motor_inline. Read results from motor_region.
+                    gate = motor_region.last_gate
+
                     if s.basal_ganglia is not None:
-                        precision = (~entry_region.bursting_columns).astype(np.float64)
-                        prec_frac = precision.sum() / max(
-                            entry_region.n_columns,
-                            1,
-                        )
-                        ctx = circuit._build_bg_ctx(precision, prec_frac)
-                        gate = s.basal_ganglia.step(ctx)
-                        if circuit.force_gate_open:
-                            gate = 1.0
-                        motor_region.output_scores *= gate
                         metrics[_name].bg_gate_values.append(gate)
 
                     if m1_active:
-                        # M1 processed this step -- compute output + metrics
-                        pop_id, pop_conf = motor_region.get_population_output()
+                        # Read output computed by _step_motor_inline
+                        m_id, m_conf = motor_region.last_output
+                        pop_id, pop_conf = m_id, m_conf
                         if s.motor_decoder is not None:
                             dec_id, _dec_conf = motor_region.get_decoded_output(
                                 s.motor_decoder,
@@ -395,40 +383,12 @@ class RunHooks:
                             1.0 if dec_id == token_id else 0.0,
                         )
 
-                    # -- Motor reward --
-                    spoke = m_id >= 0
-                    if circuit._reward_source is not None:
-                        m_char = chr(m_id) if spoke and 32 <= m_id < 127 else None
-                        reward = circuit._compute_pluggable_reward(
-                            m_char,
-                            entry_region,
-                        )
-                    else:
-                        reward = circuit._compute_turn_reward(
-                            spoke,
-                            circuit._in_eom,
-                            circuit._eom_steps,
-                            _max_speak_steps,
-                        )
+                    # Reward already computed by _step_motor_inline in process()
+                    reward = motor_region.last_reward
                     metrics[_name].motor_rewards.append(reward)
 
-                    # Expose last-step state for interactive use
-                    motor_region.last_output = (m_id, m_conf)
-                    motor_region.last_gate = gate
-                    motor_region.last_reward = reward
-
-                    # BG reward: send computed reward to update gate weights
-                    if s.basal_ganglia is not None:
-                        if circuit._reward_source is not None:
-                            # Pluggable reward: send directly to BG
-                            s.basal_ganglia.reward(reward)
-                        else:
-                            # Default: turn-taking gate error
-                            gate_target = 1.0 if circuit._in_eom else 0.0
-                            gate_error = gate_target - s.basal_ganglia.gate_value
-                            s.basal_ganglia.reward(gate_error)
-
                     # -- Turn-taking behavioral counters --
+                    spoke = m_id >= 0
                     m = metrics[_name]
                     if circuit._in_eom:
                         m.turn_eom_steps += 1
@@ -446,20 +406,16 @@ class RunHooks:
                         else:
                             m.turn_correct_silent += 1
 
-                    # Apply reward through connections with reward modulators
+                    # Reward modulators already updated by _step_motor_inline;
+                    # just record the values for metrics.
                     for conn in circuit._connections:
                         if conn.source == _name and conn.reward_modulator is not None:
-                            mod = conn.reward_modulator.update(reward)
                             tgt = circuit._regions[conn.target].region
-                            tgt.reward_modulator = mod
-                            self._reward_modulators[conn.target].append(mod)
+                            self._reward_modulators[conn.target].append(
+                                tgt.reward_modulator
+                            )
 
-                    # Efference copy: only during generation (gate forced open)
-                    if m_id >= 0 and circuit.force_gate_open:
-                        ef_encoding = circuit._encoder.encode(
-                            chr(m_id) if m_id < 128 else "",
-                        )
-                        entry_region.set_efference_copy(ef_encoding)
+                    # Efference copy already handled by _step_motor_inline.
 
                     # Train motor decoder: previous M1 L2/3 -> current token
                     if s.motor_decoder is not None and _name in prev_motor_l23:
