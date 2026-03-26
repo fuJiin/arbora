@@ -595,13 +595,11 @@ class Circuit:
                 "l5_seg_indices": r.l5_seg_indices,
                 "l5_seg_perm": r.l5_seg_perm,
             }
-            # Apical per-source state (weights or segments)
+            # Apical per-source segment state
             if r._apical_sources:
                 apical_data = {}
                 for name, src in r._apical_sources.items():
-                    if "weights" in src:
-                        apical_data[name] = {"weights": src["weights"].copy()}
-                    elif "seg_indices" in src:
+                    if "seg_indices" in src:
                         apical_data[name] = {
                             "seg_indices": src["seg_indices"].copy(),
                             "seg_perm": src["seg_perm"].copy(),
@@ -688,29 +686,19 @@ class Circuit:
                 r.l5_seg_indices[:] = region_data["l5_seg_indices"]
                 r.l5_seg_perm[:] = region_data["l5_seg_perm"]
 
-            # Load apical state (per-source weights or segments)
+            # Load apical state (per-source segments)
             if "apical_sources" in region_data:
                 for src_name, saved in region_data["apical_sources"].items():
                     if src_name not in r._apical_sources:
                         continue
                     src = r._apical_sources[src_name]
-                    if isinstance(saved, dict):
-                        # New format: dict with weights or seg_indices/seg_perm
-                        if "weights" in saved and "weights" in src:
-                            src["weights"][:] = saved["weights"]
-                        if "seg_indices" in saved and "seg_indices" in src:
-                            src["seg_indices"][:] = saved["seg_indices"]
-                            src["seg_perm"][:] = saved["seg_perm"]
-                    else:
-                        # Legacy format: bare weight array
-                        if "weights" in src:
-                            src["weights"][:] = saved
-            elif (
-                "apical_gain_weights" in region_data
-                and r._apical_gain_weights is not None
-            ):
-                # Legacy: single-source checkpoint
-                r._apical_gain_weights[:] = region_data["apical_gain_weights"]
+                    if (
+                        isinstance(saved, dict)
+                        and "seg_indices" in saved
+                        and "seg_indices" in src
+                    ):
+                        src["seg_indices"][:] = saved["seg_indices"]
+                        src["seg_perm"][:] = saved["seg_perm"]
 
             # Restore ff_eligibility for any region that uses three-factor learning
             if "ff_eligibility" in region_data and r._ff_eligibility is not None:
