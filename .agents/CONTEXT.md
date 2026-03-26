@@ -8,51 +8,51 @@ Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + thr
 
 ## Architecture
 ```
-Experiment (params, logging, metrics)
-  └── Environment (token source, feedback loop, timing)
-        └── Circuit (step: encoding_in → encoding_out)
-              └── Regions + Connections (internal wiring)
+TrainRunner / ReplRunner (hooks, metrics, param sweeps) — future
+  └── Environment.step(action) -> (obs, reward)       — ChatEnv
+        └── Agent.act(obs, reward) -> action           — ChatAgent
+              └── Circuit.process(encoding) -> ndarray — pure neural
 
 Layers: L4 (input) → L2/3 (associative) → L5 (output)
   Lamina class, direct access (region.l4.voltage), all fields non-optional
 
 Connections: ConnectionRole (FEEDFORWARD, APICAL), source/target lamina
 Learning: PlasticityRule (HEBBIAN, THREE_FACTOR), orthogonal to STDP traces
-Execution: step() is primitive, run(babble_ratio=...) is unified training loop
 ```
 
 ## File organization
-- `canonical.py` — build_canonical_circuit() factory (single source of truth)
-- `circuit.py` — Circuit class (builder + step + run + checkpoint)
-- `circuit_types.py` — Connection, ConnectionRole, CortexResult, RunMetrics
-- `circuit_hooks.py` — StepHooks protocol, RunHooks
-- `stages.py` — configure functions (configure_sensory, configure_babbling, etc.)
-- `lamina.py` — Lamina, LaminaID
-- `region.py` — CorticalRegion with Lamina composition
+- `environment.py` — Observation protocol, ChatObs, Environment protocol, ChatEnv
+- `agent.py` — Agent protocol, ChatAgent (encoder + circuit + decoder)
+- `train.py` — train() loop bridging ChatEnv + ChatAgent with RunHooks
+- `cortex/circuit.py` — Circuit class (process + builder + checkpoint)
+- `cortex/circuit_types.py` — Connection, ConnectionRole, CortexResult, RunMetrics
+- `cortex/circuit_hooks.py` — StepHooks protocol, RunHooks
+- `cortex/canonical.py` — build_canonical_circuit() factory
+- `cortex/stages.py` — configure functions (configure_sensory, configure_babbling, etc.)
+- `cortex/lamina.py` — Lamina, LaminaID
+- `cortex/region.py` — CorticalRegion with Lamina composition
 
-## Completed (25 PRs, 2026-03-24/25/26)
-- Cycle 1 cleanup: STEP-19, 24, 25, 26, 29, 49
-- Architecture: STEP-33, 31, 32, 43, 35
-- Lamina: STEP-44 (phases 1-3), STEP-49 (alias removal)
-- Circuit split: STEP-28 (types, hooks, rename)
-- Canonical: STEP-59 factory, STEP-60 curriculum (stages, unified run, echo/dialogue)
+## Session: 2026-03-26
 
-## Design direction
+### Completed (30 PRs total)
+- Previous: 25 PRs (Cycle 1, architecture, lamina, circuit split, canonical)
+- **STEP-69** (PR #26): Circuit.process(encoding) -> ndarray. Pure neural computation. step() kept as compat wrapper.
+- **STEP-70** (PRs #27-30): Environment + Agent abstractions
+  - PR #27: ChatEnv + ChatAgent + 18 tests
+  - PR #28: train() function, migrate cortex_staged.py
+  - PR #29: Migrate runner.py + cortex_repl.py
+  - PR #30 (open): Deprecation warnings + motor_active param decouples EOM from process()
+- **STEP-71** cancelled: encoder/decoder are Agent attributes, not Circuit
 
-### Target architecture (next major work)
-- STEP-69: step(encoding) → encoding | None. Modality-agnostic circuit.
-- STEP-70: Environment abstraction (token source, feedback, encoder/decoder)
-- STEP-71: Encoder/decoder as circuit attributes (learnable)
-
-### Other vision items
-- STEP-61: Adaptive gating — circuit self-regulates training phases (XL)
-- STEP-62: Uniform learning — all connections use segments/traces/penalties (L)
-- STEP-63: Probe protocol — clean measurement at all levels (M)
+### Key decisions
+- **Naming**: `Circuit.process()` (neural), `Agent.act()` (obs→action), `Environment.step()` (action→obs,reward)
+- **Observation**: Generic `Observation` protocol, concrete `ChatObs` with token_id, token_str, is_boundary, is_eom
+- **Streaming**: ChatEnv takes iterable, consumes lazily. Interleaved is default mode (babble_ratio=0 = pure listen)
+- **motor_active param**: process() accepts explicit motor_active flag, decoupling from _in_eom/force_gate_open
+- **EOM/boundary**: Still on Circuit for deprecated methods; Agent sets motor_active explicitly for new path
+- **Turn-taking reward + babble chunking**: TODO to move to BasalGanglia (learned gating)
 
 ## Remaining tickets
-- [ ] STEP-69 Redesign step() interface (L)
-- [ ] STEP-70 Extract Environment abstraction (L)
-- [ ] STEP-71 Move encoder/decoder to Circuit (M)
 - [ ] STEP-30 Region Protocol typing (M)
 - [ ] STEP-48 Checkpoint validation (S)
 - [ ] STEP-64 Redesign connect() for Lamina objects (M)
@@ -61,3 +61,6 @@ Execution: step() is primitive, run(babble_ratio=...) is unified training loop
 - [ ] STEP-62 Uniform learning mechanics (L)
 - [ ] STEP-61 Adaptive gating (XL)
 - [ ] STEP-20 Cerebellar forward model (XL)
+- [ ] Migrate remaining 15 experiment scripts to ChatEnv + ChatAgent
+- [ ] Extract TrainRunner / ReplRunner from train() + cortex_repl.py
+- [ ] Remove _in_eom/force_gate_open/mark_eom from Circuit entirely
