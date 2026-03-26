@@ -58,7 +58,6 @@ class Snapshot:
     n_predicted_l23: int = 0
 
 
-
 @dataclass
 class CortexDiagnostics:
     """Collects diagnostics from a running cortex region."""
