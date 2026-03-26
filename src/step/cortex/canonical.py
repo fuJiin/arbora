@@ -157,51 +157,42 @@ def build_canonical_circuit(
     circuit.add_region("PFC", pfc)
     circuit.add_region("M2", m2)
 
-    # --- Feedforward connections ---
-    # All default to source_lamina=L23, target_lamina=L4 (corticocortical).
-    # Future: connect(s1.l23, s2.l4) when connect() accepts Lamina objects (STEP-64).
-
+    # --- Feedforward connections (L2/3 -> L4, corticocortical) ---
     circuit.connect(
-        "S1",
-        "S2",
+        s1.l23,
+        s2.l4,
         ConnectionRole.FEEDFORWARD,
         buffer_depth=s1_s2_buffer_depth,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
     )
     circuit.connect(
-        "S2",
-        "S3",
+        s2.l23,
+        s3.l4,
         ConnectionRole.FEEDFORWARD,
         buffer_depth=s2_s3_buffer_depth,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
     )
-    circuit.connect("S2", "PFC", ConnectionRole.FEEDFORWARD)
-    circuit.connect("S3", "PFC", ConnectionRole.FEEDFORWARD)
-    circuit.connect("S2", "M2", ConnectionRole.FEEDFORWARD)
-    circuit.connect("PFC", "M2", ConnectionRole.FEEDFORWARD)
-    circuit.connect("M2", "M1", ConnectionRole.FEEDFORWARD)
+    circuit.connect(s2.l23, pfc.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s3.l23, pfc.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s2.l23, m2.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(pfc.l23, m2.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(m2.l23, m1.l4, ConnectionRole.FEEDFORWARD)
 
-    # --- Apical feedback ---
-    # All default to source_lamina=L23, target_lamina=L4 (linear gain mode).
-    # With use_l5_apical_segments=True, apical targets L5 segments instead.
-
-    # Sensory hierarchy (top-down context)
-    circuit.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    circuit.connect("S3", "S2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    # Motor hierarchy (bottom-up monitoring)
-    circuit.connect("M1", "M2", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    circuit.connect("M2", "PFC", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-    # Cross-hierarchy (S1->M1 carries surprise)
+    # --- Apical feedback (L2/3 -> L4, top-down context) ---
+    circuit.connect(s2.l23, s1.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    circuit.connect(s3.l23, s2.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    circuit.connect(m1.l23, m2.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    circuit.connect(m2.l23, pfc.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
     circuit.connect(
-        "S1",
-        "M1",
+        s1.l23,
+        m1.l4,
         ConnectionRole.APICAL,
         thalamic_gate=ThalamicGate(),
         surprise_tracker=SurpriseTracker(),
     )
-    circuit.connect("M1", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
+    circuit.connect(m1.l23, s1.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
 
     if finalize:
         circuit.finalize()

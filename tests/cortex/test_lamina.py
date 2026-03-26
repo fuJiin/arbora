@@ -178,13 +178,69 @@ class TestConnectionLaminaFields:
         cortex = Circuit(encoder)
         cortex.add_region("S1", r1, entry=True)
         cortex.add_region("S2", r2)
-        cortex.connect(
-            "S1",
-            "S2",
-            ConnectionRole.FEEDFORWARD,
-            source_lamina=LaminaID.L23,
-            target_lamina=LaminaID.L4,
-        )
+        cortex.connect(r1.l23, r2.l4, ConnectionRole.FEEDFORWARD)
         conn = cortex._connections[0]
+        assert conn.source == "S1"
+        assert conn.target == "S2"
         assert conn.source_lamina == LaminaID.L23
+        assert conn.target_lamina == LaminaID.L4
+
+    def test_connect_with_lamina_objects(self):
+        from step.cortex.circuit import Circuit, ConnectionRole
+        from step.cortex.region import CorticalRegion
+        from step.encoders.positional import PositionalCharEncoder
+
+        encoder = PositionalCharEncoder("abc", max_positions=4)
+        r1 = CorticalRegion(
+            input_dim=encoder.input_dim,
+            n_columns=8,
+            n_l4=4,
+            n_l23=4,
+            k_columns=2,
+        )
+        r2 = CorticalRegion(
+            input_dim=r1.n_l23_total,
+            n_columns=8,
+            n_l4=4,
+            n_l23=4,
+            k_columns=2,
+        )
+        cortex = Circuit(encoder)
+        cortex.add_region("S1", r1, entry=True)
+        cortex.add_region("S2", r2)
+        # Connect using Lamina objects instead of strings
+        cortex.connect(r1.l23, r2.l4, ConnectionRole.FEEDFORWARD)
+        conn = cortex._connections[0]
+        assert conn.source == "S1"
+        assert conn.target == "S2"
+        assert conn.source_lamina == LaminaID.L23
+        assert conn.target_lamina == LaminaID.L4
+
+    def test_connect_lamina_l5_to_l4(self):
+        from step.cortex.circuit import Circuit, ConnectionRole
+        from step.cortex.region import CorticalRegion
+        from step.encoders.positional import PositionalCharEncoder
+
+        encoder = PositionalCharEncoder("abc", max_positions=4)
+        r1 = CorticalRegion(
+            input_dim=encoder.input_dim,
+            n_columns=8,
+            n_l4=4,
+            n_l23=4,
+            k_columns=2,
+        )
+        r2 = CorticalRegion(
+            input_dim=r1.n_l5_total,
+            n_columns=8,
+            n_l4=4,
+            n_l23=4,
+            k_columns=2,
+        )
+        cortex = Circuit(encoder)
+        cortex.add_region("S1", r1, entry=True)
+        cortex.add_region("S2", r2)
+        # L5 -> L4 connection via Lamina objects
+        cortex.connect(r1.l5, r2.l4, ConnectionRole.FEEDFORWARD)
+        conn = cortex._connections[0]
+        assert conn.source_lamina == LaminaID.L5
         assert conn.target_lamina == LaminaID.L4

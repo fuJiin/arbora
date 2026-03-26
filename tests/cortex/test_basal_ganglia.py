@@ -113,7 +113,7 @@ class TestBasalGangliaIntegration:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         result = run_circuit(cortex, tokens)
         m = result.per_region["M1"]
         assert len(m.bg_gate_values) > 0
@@ -136,7 +136,7 @@ class TestBasalGangliaIntegration:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         result = run_circuit(cortex, tokens)
         assert len(result.per_region["M1"].bg_gate_values) > 0
 
@@ -152,7 +152,7 @@ class TestBasalGangliaIntegration:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         run_circuit(cortex, tokens)
         # After run, BG should have been reset at boundary
         # (we can't directly observe mid-run, but no crash = good)
@@ -163,6 +163,6 @@ class TestBasalGangliaIntegration:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
-        cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
+        cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         result = run_circuit(cortex, tokens)
         assert result.per_region["M1"].bg_gate_values == []
