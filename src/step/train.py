@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from step.cortex.circuit_hooks import RunHooks
 from step.cortex.circuit_types import CortexResult
+from step.cortex.motor import MotorRegion
 from step.environment import ChatEnv
 
 if TYPE_CHECKING:
@@ -89,15 +90,16 @@ def train(
             ef = agent.encoder.encode(action_char)
             entry.set_efference_copy(ef)
 
-        # Update circuit turn-taking state (pragmatic coupling)
-        circuit.force_gate_open = agent.force_gate_open
-
-        # Neural processing
-        output = circuit.process(encoding)
+        # Neural processing — pass motor_active explicitly
+        motor_active = agent._motor_active or agent.force_gate_open
+        output = circuit.process(encoding, motor_active=motor_active)
         agent.last_output = output
 
         # Token-level motor learning
-        circuit._observe_token_on_motor(obs.token_id)
+        if motor_active:
+            for s in circuit._regions.values():
+                if s.motor and isinstance(s.region, MotorRegion):
+                    s.region.observe_token(obs.token_id)
 
         # Hooks: after
         hooks.on_after_step(circuit, t, obs.token_id, encoding)
