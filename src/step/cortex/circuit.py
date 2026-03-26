@@ -401,68 +401,56 @@ class Circuit:
             if s.diagnostics is not None
         }
 
+    @property
+    def encoder(self) -> Encoder:
+        return self._encoder
+
     def region(self, name: str) -> CorticalRegion:
         return self._regions[name].region
 
     # ------------------------------------------------------------------
-    # Single-token step (lightweight, no metrics overhead)
+    # Core processing
     # ------------------------------------------------------------------
 
-    def step(
+    def process(
         self,
-        token_id: int,
-        token_str: str,
+        encoding: np.ndarray,
         *,
+        token_id: int = -1,
         hooks: StepHooks | None = None,
         t: int = 0,
-    ) -> None:
-        """Process one token through the hierarchy.
+    ) -> np.ndarray:
+        """Process one encoded input through the hierarchy.
 
-        Lightweight alternative to run() for interactive use and probing.
-        Handles EOM/boundary tokens, feedforward processing, inter-region
-        signals, motor output, and BG gating — but skips metrics
-        accumulation, logging, BPC, and diagnostics.
+        Pure neural processing: takes an encoding vector, propagates
+        through regions in topo order, runs inter-region signals, and
+        returns the motor output vector (M1 L5 firing rate).
+
+        Encoding/decoding between environment tokens and vectors is the
+        caller's responsibility. Boundary and EOM handling use
+        reset() and mark_eom() respectively.
 
         When *hooks* is provided, callbacks are invoked at key points to
         enable metrics collection, logging, and other instrumentation
-        without baking that logic into step() itself.
+        without baking that logic into process() itself.
+
+        Args:
+            encoding: Input vector (from encoder or previous circuit output).
+            token_id: Token index for motor learning (observe_token).
+                Pass -1 when not applicable (e.g. babble feedback).
+            hooks: Optional StepHooks for metrics/logging.
+            t: Step counter (for hooks).
+
+        Returns:
+            Motor output vector (M1 L5 firing rate). Callers can decode
+            this into an action via a decoder. If no motor region exists,
+            returns the L2/3 firing rate of the last region in topo order.
         """
         if self._entry_name is None:
             raise ValueError("No entry region. Call add_region(..., entry=True).")
 
         entry_name = self._entry_name
-        entry_state = self._regions[entry_name]
-        entry_region = entry_state.region
-
-        # -- Story boundary --
-        if token_id == STORY_BOUNDARY:
-            # Hooks get first crack (BPC probe boundaries, rep_tracker reset, etc.)
-            if hooks is not None:
-                hooks.on_boundary(self)
-            for s in self._regions.values():
-                s.region.reset_working_memory()
-                if s.basal_ganglia is not None:
-                    s.basal_ganglia.reset()
-            for conn in self._connections:
-                if conn._buffer is not None:
-                    conn._buffer[:] = 0.0
-                    conn._buffer_pos = 0
-                if conn.thalamic_gate is not None:
-                    conn.thalamic_gate.reset()
-                if conn.reward_modulator is not None:
-                    conn.reward_modulator.reset()
-            _reset = getattr(self._encoder, "reset", None)
-            if _reset is not None:
-                _reset()
-            self._in_eom = False
-            self._eom_steps = 0
-            return
-
-        # -- EOM token --
-        if token_id == EOM_TOKEN:
-            self._in_eom = True
-            self._eom_steps = 0
-            return
+        entry_region = self._regions[entry_name].region
 
         # -- Turn-taking state --
         if self._in_eom:
@@ -472,10 +460,9 @@ class Circuit:
 
         # -- Hooks: before step --
         if hooks is not None:
-            hooks.on_before_step(self, t, token_id, token_str)
+            hooks.on_before_step(self, t, token_id, encoding)
 
         # -- Process in topo order (multi-ff supported) --
-        encoding = self._encoder.encode(token_str)
         topo_order = self._topo_order()
         self._propagate_feedforward(topo_order, entry_name, encoding)
 
@@ -488,9 +475,74 @@ class Circuit:
 
         # -- Hooks: after step (before _total_steps increment) --
         if hooks is not None:
-            hooks.on_after_step(self, t, token_id, token_str)
+            hooks.on_after_step(self, t, token_id, encoding)
 
         self._total_steps += 1
+
+        # -- Return output vector --
+        return self._get_output_vector(topo_order)
+
+    def reset(self, *, hooks: StepHooks | None = None) -> None:
+        """Reset working memory and transient state (story/dialogue boundary).
+
+        Clears neural activations, connection buffers, modulator state,
+        and encoder position tracking. Does NOT reset learned weights —
+        this is a "sleep", not amnesia.
+
+        Called by the environment or runner at dialogue/story boundaries.
+        """
+        if hooks is not None:
+            hooks.on_boundary(self)
+        for s in self._regions.values():
+            s.region.reset_working_memory()
+            if s.basal_ganglia is not None:
+                s.basal_ganglia.reset()
+        for conn in self._connections:
+            if conn._buffer is not None:
+                conn._buffer[:] = 0.0
+                conn._buffer_pos = 0
+            if conn.thalamic_gate is not None:
+                conn.thalamic_gate.reset()
+            if conn.reward_modulator is not None:
+                conn.reward_modulator.reset()
+        _reset = getattr(self._encoder, "reset", None)
+        if _reset is not None:
+            _reset()
+        self._in_eom = False
+        self._eom_steps = 0
+
+    def mark_eom(self) -> None:
+        """Signal end-of-message (turn boundary).
+
+        Sets the circuit into EOM mode where motor regions become active.
+        Called by the environment when the input stream signals a turn
+        boundary (e.g. EOM token in chat).
+        """
+        self._in_eom = True
+        self._eom_steps = 0
+
+    # Backward compat: step() delegates to process() with internal encoding.
+    def step(
+        self,
+        token_id: int,
+        token_str: str,
+        *,
+        hooks: StepHooks | None = None,
+        t: int = 0,
+    ) -> np.ndarray:
+        """Deprecated: use process() instead.
+
+        Encodes token_str internally and delegates to process().
+        Handles STORY_BOUNDARY and EOM_TOKEN for backward compatibility.
+        """
+        if token_id == STORY_BOUNDARY:
+            self.reset(hooks=hooks)
+            return np.zeros(0)
+        if token_id == EOM_TOKEN:
+            self.mark_eom()
+            return np.zeros(0)
+        encoding = self._encoder.encode(token_str)
+        return self.process(encoding, token_id=token_id, hooks=hooks, t=t)
 
     def _step_motor_inline(self, entry_region: CorticalRegion, token_id: int) -> None:
         """Lightweight motor processing for step() without hooks.
@@ -609,9 +661,17 @@ class Circuit:
         )
 
         if babble_ratio <= 0:
-            # Pure listening (existing behavior)
+            # Pure listening
             for t, (token_id, token_str) in enumerate(tokens):
-                self.step(token_id, token_str, hooks=hooks, t=t)
+                if token_id == STORY_BOUNDARY:
+                    self.reset(hooks=hooks)
+                    continue
+                if token_id == EOM_TOKEN:
+                    self.mark_eom()
+                    continue
+                hooks._current_token_str = token_str
+                encoding = self._encoder.encode(token_str)
+                self.process(encoding, token_id=token_id, hooks=hooks, t=t)
         else:
             self._run_interleaved_impl(
                 tokens,
@@ -684,7 +744,15 @@ class Circuit:
                 chunk_end = min(listen_chunk, len(tokens))
 
             for token_id, token_str in tokens[corpus_pos:chunk_end]:
-                self.step(token_id, token_str, hooks=hooks, t=t)
+                if token_id == STORY_BOUNDARY:
+                    self.reset(hooks=hooks)
+                    continue
+                if token_id == EOM_TOKEN:
+                    self.mark_eom()
+                    continue
+                hooks._current_token_str = token_str
+                encoding = self._encoder.encode(token_str)
+                self.process(encoding, token_id=token_id, hooks=hooks, t=t)
                 t += 1
                 total_listen += 1
             corpus_pos = chunk_end
@@ -708,7 +776,9 @@ class Circuit:
 
                 # Process babble token through the circuit with hooks
                 token_id = ord(current_char) if len(current_char) == 1 else 32
-                self.step(token_id, current_char, hooks=hooks, t=t)
+                hooks._current_token_str = current_char
+                encoding = self._encoder.encode(current_char)
+                self.process(encoding, token_id=token_id, hooks=hooks, t=t)
                 t += 1
 
                 # Read M1's output for next babble input
@@ -838,16 +908,14 @@ class Circuit:
                 noise = max(noise_floor, min(noise_ceiling, noise))
             motor_region.babbling_noise = noise
 
-            # 1-3. Encode + propagate through hierarchy
+            # Encode + process through hierarchy (incl. motor via _step_motor_inline)
             encoding = self._encoder.encode(current_token_str)
-            topo_order = self._topo_order()
-            self._propagate_feedforward(topo_order, entry_name, encoding)
+            token_id = ord(current_token_str) if len(current_token_str) == 1 else 32
+            self.process(encoding, token_id=token_id)
 
-            # 4. Inter-region signals
-            self._propagate_signals()
-
-            # 5-9. Motor output + reward + L5 learning
-            pop_id, reward = self._step_motor_reward(entry_region)
+            # Read motor output + reward set by _step_motor_inline
+            pop_id = motor_region.last_output[0]
+            reward = motor_region.last_reward
 
             # Update reward EMAs for adaptive noise
             reward_ema = 0.99 * reward_ema + 0.01 * reward  # fast
@@ -860,12 +928,10 @@ class Circuit:
                 tokens_produced.append(m_char)
                 unique_tokens.add(m_char)
 
-            # 10. Feed M1's output back as next input
+            # Feed M1's output back as next input
             if m_char:
                 current_token_str = m_char
             # else: keep previous token (M1 was silent)
-
-            self._total_steps += 1
 
             # Logging
             if t > 0 and t % log_interval == 0:
@@ -1070,9 +1136,8 @@ class Circuit:
 
             for ch in word:
                 encoding = self._encoder.encode(ch)
-                topo_order = self._topo_order()
-                self._propagate_feedforward(topo_order, entry_name, encoding)
-                self._propagate_signals()
+                token_id = ord(ch) if len(ch) == 1 else 32
+                self.process(encoding, token_id=token_id)
                 echo_reward.hear(ch)
 
             # PFC snapshots and closes gate
@@ -1088,9 +1153,9 @@ class Circuit:
             produced: list[str] = []
 
             for _step_i in range(len(word) + 2):
-                # PFC→M2→M1 flows through normal ff propagation
-                # (PFC gate closed, so it maintains goal pattern;
-                #  its firing_rate_l23 feeds M2 via PFC→M2 ff connection)
+                # Speak phase uses lower-level calls because batch_reward
+                # needs _step_motor_reward_no_apply. Will be refactored
+                # into Environment/Runner (STEP-70+).
 
                 # Feed last produced char (or space as seed)
                 seed = produced[-1] if produced else " "
@@ -1671,11 +1736,24 @@ class Circuit:
         conn._buffer_pos = (conn._buffer_pos + 1) % conn.buffer_depth
         return np.roll(conn._buffer, -conn._buffer_pos, axis=0).flatten()
 
+    def _get_output_vector(self, topo_order: list[str]) -> np.ndarray:
+        """Return the circuit's output vector after processing.
+
+        If a motor region exists, returns its L5 firing rate (motor
+        command vector). Otherwise returns L2/3 firing rate of the
+        last region in topo order (highest-level sensory representation).
+        """
+        for name in reversed(topo_order):
+            s = self._regions[name]
+            if s.motor:
+                return s.region.l5.firing_rate
+        # No motor region — return last region's L2/3
+        last_name = topo_order[-1]
+        return self._regions[last_name].region.l23.firing_rate
+
     def _topo_order(self) -> list[str]:
         """Return cached topological order. Auto-finalizes if needed."""
         if not self._finalized:
             self.finalize()
         assert self._topo_cache is not None
         return self._topo_cache
-
-    # _log_step has been moved to RunHooks._log_step

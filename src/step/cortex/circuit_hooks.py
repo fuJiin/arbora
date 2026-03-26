@@ -26,18 +26,18 @@ if TYPE_CHECKING:
 
 
 class StepHooks(Protocol):
-    """Protocol for observing step() execution.
+    """Protocol for observing process() execution.
 
     All methods are optional no-ops. Implement any subset to observe
     or instrument the training loop.
     """
 
     def on_before_step(
-        self, circuit: Circuit, t: int, token_id: int, token_str: str
+        self, circuit: Circuit, t: int, token_id: int, encoding: np.ndarray
     ) -> None: ...
 
     def on_after_step(
-        self, circuit: Circuit, t: int, token_id: int, token_str: str
+        self, circuit: Circuit, t: int, token_id: int, encoding: np.ndarray
     ) -> None: ...
 
     def on_boundary(self, circuit: Circuit) -> None: ...
@@ -112,6 +112,10 @@ class RunHooks:
         self._m1_active: bool = False
         self._prev_motor_l23: dict[str, np.ndarray] = {}
 
+        # Current token string — set by run() loop for word decoders.
+        # RunHooks is a "friend class" that reads this from the caller.
+        self._current_token_str: str = ""
+
         # Babble metrics (set by Circuit._run_interleaved_impl)
         self._babble_rewards: list[float] = []
         self._babble_tokens_produced: list[str] = []
@@ -145,7 +149,7 @@ class RunHooks:
                 _rs_reset()
 
     def on_before_step(
-        self, circuit: Circuit, t: int, token_id: int, token_str: str
+        self, circuit: Circuit, t: int, token_id: int, encoding: np.ndarray
     ) -> None:
         """Snapshot L2/3 state before processing."""
         entry_region = circuit._regions[self._entry_name].region
@@ -171,7 +175,7 @@ class RunHooks:
                     self._prev_motor_l23[_mn] = _ms.region.l23.active.copy()
 
     def on_after_step(
-        self, circuit: Circuit, t: int, token_id: int, token_str: str
+        self, circuit: Circuit, t: int, token_id: int, encoding: np.ndarray
     ) -> None:
         """All per-step metrics, decoder training, logging."""
         entry_name = self._entry_name
@@ -216,6 +220,7 @@ class RunHooks:
                 )
 
         # -- Motor metrics + reward --
+        token_str = self._current_token_str
         self._process_motor_metrics(circuit, t, token_id, token_str, metrics)
 
         # -- Entry metrics (expensive decodes sampled at metric intervals) --
@@ -234,8 +239,8 @@ class RunHooks:
             self._centroid_probe.step(token_id, prev_l23)
         self._centroid_probe.observe(token_id, prev_l23)
 
-        # -- Decoder training (every step -- cheap, drives learning) --
-        self._train_decoders(circuit, t, token_id, token_str, prev_l23)
+        # -- Decoder training (every step — cheap, drives learning) --
+        self._train_decoders(circuit, t, token_id, encoding, prev_l23)
 
         # -- Logging --
         if (
@@ -535,14 +540,14 @@ class RunHooks:
         circuit: Circuit,
         t: int,
         token_id: int,
-        token_str: str,
+        encoding: np.ndarray,
         prev_l23: np.ndarray,
     ) -> None:
-        """Decoder training (every step -- cheap, drives learning)."""
+        """Decoder training (every step — cheap, drives learning)."""
         entry_name = self._entry_name
         entry_state = circuit._regions[entry_name]
         entry_region = entry_state.region
-        encoding = circuit._encoder.encode(token_str)
+        token_str = self._current_token_str
 
         assert entry_state.decode_index is not None
         assert entry_state.syn_decoder is not None

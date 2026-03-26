@@ -104,7 +104,8 @@ def warmup(cortex, tokens, log_interval=2000):
 
 def step_token(cortex, token_id, token_str):
     """Process one token through the full hierarchy, return motor output."""
-    cortex.step(token_id, token_str)
+    encoding = cortex.encoder.encode(token_str)
+    cortex.process(encoding, token_id=token_id)
 
 
 def decode_prediction(
@@ -312,9 +313,10 @@ def run_babble(cortex, encoder, region1, motor, n_chars=200):
     word_buf = []
 
     for _i in range(n_chars):
-        # Use circuit's step() for proper propagation
+        # Use circuit's process() for proper propagation
         token_id = ord(current_char) if current_char else ord(" ")
-        cortex.step(token_id, current_char)
+        encoding = cortex.encoder.encode(current_char)
+        cortex.process(encoding, token_id=token_id)
 
         # M1 output
         pop_id, pop_conf = motor.get_population_output()
