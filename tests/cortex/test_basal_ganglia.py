@@ -9,6 +9,7 @@ from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
 from step.data import EOM_TOKEN, STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
+from tests.conftest import run_circuit
 
 
 @pytest.fixture()
@@ -113,7 +114,7 @@ class TestBasalGangliaIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         m = result.per_region["M1"]
         assert len(m.bg_gate_values) > 0
         assert all(0 <= v <= 1 for v in m.bg_gate_values)
@@ -136,7 +137,7 @@ class TestBasalGangliaIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert len(result.per_region["M1"].bg_gate_values) > 0
 
     def test_bg_resets_at_boundary(self, region1, motor, encoder):
@@ -152,7 +153,7 @@ class TestBasalGangliaIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
-        cortex.run(tokens, log_interval=1000)
+        run_circuit(cortex, tokens)
         # After run, BG should have been reset at boundary
         # (we can't directly observe mid-run, but no crash = good)
 
@@ -163,5 +164,5 @@ class TestBasalGangliaIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect("S1", "M1", ConnectionRole.FEEDFORWARD)
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert result.per_region["M1"].bg_gate_values == []

@@ -6,6 +6,7 @@ from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
+from tests.conftest import run_circuit
 
 
 @pytest.fixture()
@@ -46,7 +47,7 @@ class TestSingleRegion:
         tokens = [(0, "a"), (1, "b"), (2, "c"), (0, "a"), (1, "b")]
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
         assert len(result.per_region["S1"].overlaps) == 4  # t > 0
 
@@ -60,7 +61,7 @@ class TestSingleRegion:
         ]
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert len(result.per_region["S1"].overlaps) == 3
 
 
@@ -81,7 +82,7 @@ class TestHierarchy:
         cortex.connect(
             "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
         )
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
         assert "S2" in result.surprise_modulators
         assert len(result.surprise_modulators["S2"]) > 0
@@ -94,7 +95,7 @@ class TestHierarchy:
         cortex.connect(
             "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
         )
-        cortex.run(tokens, log_interval=1000)
+        run_circuit(cortex, tokens)
         assert region2.active_columns.sum() > 0
 
     def test_hierarchy_with_buffer_runs(self, region1, encoder):
@@ -121,7 +122,7 @@ class TestHierarchy:
             buffer_depth=buf_depth,
             surprise_tracker=SurpriseTracker(),
         )
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
         assert region2.active_columns.sum() > 0
 
@@ -143,7 +144,7 @@ class TestValidation:
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1)
         with pytest.raises(ValueError, match="No entry region"):
-            cortex.run([(0, "a")])
+            cortex.process(encoder.encode("a"))
 
     def test_duplicate_region_raises(self, region1, encoder):
         cortex = Circuit(encoder)
@@ -180,14 +181,14 @@ class TestAccessors:
     def test_timelines(self, region1, encoder):
         cortex = Circuit(encoder, enable_timeline=True)
         cortex.add_region("S1", region1, entry=True)
-        cortex.run([(0, "a"), (1, "b")], log_interval=1000)
+        run_circuit(cortex, [(0, "a"), (1, "b")])
         assert "S1" in cortex.timelines
         assert len(cortex.timelines["S1"].frames) > 0
 
     def test_diagnostics(self, region1, encoder):
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
-        cortex.run([(0, "a"), (1, "b")], log_interval=1000)
+        run_circuit(cortex, [(0, "a"), (1, "b")])
         assert "S1" in cortex.diagnostics
 
     def test_region_accessor(self, region1, encoder):
@@ -210,7 +211,7 @@ class TestTemporalBuffer:
             buffer_depth=1,
             surprise_tracker=SurpriseTracker(),
         )
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
 
     def test_buffer_concatenates_snapshots(self, region1, encoder):
@@ -238,7 +239,7 @@ class TestTemporalBuffer:
         assert ff_conn._buffer.shape == (buf_depth, region1.n_l23_total)
 
         # Run and verify S2 gets a signal of the right length
-        cortex.run(tokens, log_interval=1000)
+        run_circuit(cortex, tokens)
         assert region2.active_columns.sum() >= 0  # ran without error
 
     def test_buffer_zero_pads_initially(self, region1, encoder):
@@ -299,7 +300,7 @@ class TestTemporalBuffer:
             buffer_depth=buf_depth,
             surprise_tracker=SurpriseTracker(),
         )
-        cortex.run(tokens, log_interval=1000)
+        run_circuit(cortex, tokens)
 
         ff_conn = cortex._connections[0]
         # After the run, buffer_pos should reflect post-boundary state
@@ -370,7 +371,7 @@ class TestBurstGating:
             burst_gate=True,
             surprise_tracker=SurpriseTracker(),
         )
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
 
 
@@ -405,7 +406,7 @@ class TestResultsMatchRunner:
         )
         cortex = Circuit(encoder)
         cortex.add_region("S1", r2, entry=True)
-        new_result = cortex.run(tokens, log_interval=1000)
+        new_result = run_circuit(cortex, tokens)
         new_metrics = new_result.per_region["S1"]
 
         np.testing.assert_allclose(old_metrics.overlaps, new_metrics.overlaps)
@@ -456,7 +457,7 @@ class TestThalamicGateIntegration:
             "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
         )
         cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=ThalamicGate())
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert "S2->S1" in result.thalamic_readiness
         assert len(result.thalamic_readiness["S2->S1"]) > 0
 
@@ -475,7 +476,7 @@ class TestThalamicGateIntegration:
             "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
         )
         cortex.connect("S2", "S1", ConnectionRole.APICAL, thalamic_gate=gate)
-        cortex.run(tokens, log_interval=1000)
+        run_circuit(cortex, tokens)
         # After boundary + 5 tokens, gate should be partially open but not fully
         # (it was reset at the boundary, so readiness should be modest)
         assert gate.readiness < 0.5
@@ -490,5 +491,5 @@ class TestThalamicGateIntegration:
             "S1", "S2", ConnectionRole.FEEDFORWARD, surprise_tracker=SurpriseTracker()
         )
         cortex.connect("S2", "S1", ConnectionRole.APICAL)
-        result = cortex.run(tokens, log_interval=1000)
+        result = run_circuit(cortex, tokens)
         assert result.thalamic_readiness == {}
