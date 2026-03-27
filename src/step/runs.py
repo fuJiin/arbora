@@ -50,15 +50,15 @@ def save_run(
     if meta_extra:
         meta.update(meta_extra)
 
-    # Extract summary stats for index display
+    # Extract summary stats from probe snapshots for index display
     summary: dict[str, dict[str, object]] = {}
-    for region_name, metrics in result.per_region.items():
-        rep = metrics.representation
-        if rep:
-            summary[region_name] = {
-                "ctx_disc": rep.get("context_discrimination", 0),
-                "selectivity": rep.get("column_selectivity_mean", 0),
-            }
+    chat_lamina = result.probe_snapshots.get("chat_lamina", {})
+    for region_name, snap in chat_lamina.items():
+        l23 = snap.get("l23", {})
+        summary[region_name] = {
+            "ctx_disc": l23.get("ctx_disc", 0),
+            "linear_probe": l23.get("linear_probe", 0),
+        }
     if summary:
         meta["summary"] = summary
 
