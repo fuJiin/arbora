@@ -10,49 +10,47 @@ Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + thr
 ```
 Environment.step(action) -> (obs, reward)       — ChatEnv
   └── Agent.act(obs, reward) -> action           — ChatAgent
-        └── Circuit.process(encoding) -> ndarray — pure neural (908 LOC)
+        └── Circuit.process(encoding) -> ndarray — pure neural
 
 Topo: S1 → S2 → S3 → PFC → M2 → M1
-Layers: L4 (input) → L2/3 (associative) → L5 (output)
+Layers: L4 (input) → L2/3 (associative) → L5 (output/feedback)
 
-Feedforward: L5 → L4 (corticocortical, all inter-region)
-Apical: L5 → {L2/3, L5} (top-down context, dual target)
-Intra-region: L4 → L2/3 → L5 (within column)
+Feedforward: L2/3 → L4 (canonical, Felleman & Van Essen 1991)
+Apical: L5 → {L2/3, L5} (top-down context via L1)
+Intra-region: L4 → L2/3 → L5 (per-column learned weights)
 
-Learning: segments everywhere (lateral, feedback, apical)
-  Per-connection traces (temporal credit, decay=0.8)
-  Hebbian (sensory) vs three-factor (motor/PFC)
+Learning: segments for prediction, per-connection traces, Hebbian/3-factor
   Surprise modulates FF only, not segments
 ```
 
-## Session: 2026-03-26 (38 PRs total)
+## Session: 2026-03-26/27 (40 PRs total)
 
-### Completed
-- STEP-69: Circuit.process(encoding) -> ndarray
-- STEP-70: ChatEnv + ChatAgent + train(), full migration
-- STEP-72: Remove deprecated methods (circuit.py 1780→908)
+### Completed this session
+- STEP-69/70/72: Environment/Agent/Circuit architecture + migration
 - STEP-64: connect() takes Lamina objects only
-- STEP-54: L5 continuous traces for lateral segments
-- STEP-62: Uniform learning (per-connection traces, remove linear gain, apical→{L2/3,L5}, limit surprise)
-- STEP-73: L5 as universal corticocortical output
-- Pruned 14 broken experiment scripts
+- STEP-54: L5 continuous traces
+- STEP-62: Uniform learning (traces, remove linear gain, apical→{L2/3,L5})
+- STEP-73: L5 as corticocortical output (then reverted FF to L2/3)
+- STEP-74: Per-column L4→L2/3 and L2/3→L5 ff weights
+- STEP-75: Remove fb_seg + revert FF to L2/3 + rename lat→l4_lat
+- Biology audit: confirmed L2/3=FF source, L5=feedback/subcortical
+- Baseline run (STEP-73 config): BPC 10.98 at 300k tokens
 
-### Key decisions
-- L5 is the universal corticocortical output (FF source + apical source)
-- Apical segments only mode (linear gain removed)
-- Per-connection traces on all pathways
-- L2/3→L5 intra-region uses firing rate proxy (STEP-74: proper ff weights)
-- Segments everywhere, optimize later (sparse weights as perf lever)
-
-### In progress
-- Baseline training run (300k tokens sensory stage)
+### Baselines
+| Config | BPC (300k) | Notes |
+|--------|-----------|-------|
+| STEP-73 (L5 FF, proxy weights) | 10.98 | L5 as FF source, firing rate proxy |
+| Current (L2/3 FF, per-col weights, no fb_seg) | TBD | Running next |
 
 ## Remaining tickets
-- [ ] STEP-74 L2/3→L5 intra-region ff weights (M, high priority)
-- [ ] STEP-50 Generate clean baseline (XS, in progress)
+- [ ] STEP-50 Baseline with current architecture (in progress)
 - [ ] STEP-61 Adaptive gating — learned interleaving (XL)
 - [ ] STEP-30 Region Protocol typing (M)
 - [ ] STEP-48 Checkpoint validation (S)
 - [ ] STEP-58 RunHooks verbosity cleanup (S)
 - [ ] STEP-20 Cerebellar forward model (XL)
-- [ ] Remove _in_eom/force_gate_open/mark_eom from Circuit
+- [ ] Remove _in_eom/force_gate_open from Circuit
+- [ ] Agranular motor/PFC regions (no true L4)
+- [ ] L6 layer (thalamic gain control)
+
+See .agents/BIOLOGY_AUDIT.md for full connection accuracy audit.
