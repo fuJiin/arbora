@@ -65,7 +65,8 @@ def train(
 
     while not env.done:
         if obs.is_boundary:
-            circuit.reset(hooks=hooks)
+            hooks.on_boundary(circuit)
+            circuit.reset()
             agent._motor_active = False
             agent.last_action = None
             for probe in probes:
@@ -75,7 +76,6 @@ def train(
             continue
 
         if obs.is_eom:
-            circuit.mark_eom()
             agent._motor_active = True
             obs, _reward = env.step(None)
             continue
@@ -86,8 +86,11 @@ def train(
         agent.last_token_str = obs.token_str
         hooks._current_token_str = obs.token_str
 
-        # Hooks: before
-        hooks.on_before_step(circuit, t, obs.token_id, encoding)
+        # Hooks: before (motor_active resolved here, passed to hooks)
+        motor_active = agent._motor_active or agent.force_gate_open
+        hooks.on_before_step(
+            circuit, t, obs.token_id, encoding, motor_active=motor_active
+        )
 
         # Efference copy (before process so it's available this step)
         if agent.last_action is not None and agent.force_gate_open:
@@ -96,8 +99,7 @@ def train(
             ef = agent.encoder.encode(action_char)
             entry.set_efference_copy(ef)
 
-        # Neural processing — pass motor_active explicitly
-        motor_active = agent._motor_active or agent.force_gate_open
+        # Neural processing
         output = circuit.process(encoding, motor_active=motor_active)
         agent.last_output = output
 
@@ -109,7 +111,12 @@ def train(
 
         # Probes: observe circuit state after processing
         for probe in probes:
-            probe.observe(circuit, stimulus_id=obs.token_id)
+            probe.observe(
+                circuit,
+                stimulus_id=obs.token_id,
+                in_eom=env.in_eom,
+                eom_steps=env.eom_steps,
+            )
 
         # Hooks: after
         hooks.on_after_step(circuit, t, obs.token_id, encoding)

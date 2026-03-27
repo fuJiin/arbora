@@ -242,8 +242,13 @@ class ChatMotorProbe:
         self._turn_rambles: dict[str, int] = defaultdict(int)
 
     def observe(self, circuit: Circuit, **kwargs) -> None:
-        """Read motor state from circuit after process()."""
+        """Read motor state from circuit after process().
+
+        Expects kwargs: stimulus_id, in_eom, eom_steps (from train loop).
+        """
         stimulus_id = kwargs.get("stimulus_id")
+        in_eom = kwargs.get("in_eom", False)
+        eom_steps = kwargs.get("eom_steps", 0)
 
         for name, s in circuit._regions.items():
             if not s.motor:
@@ -269,12 +274,12 @@ class ChatMotorProbe:
             # Reward
             self._motor_rewards[name].append(motor.last_reward)
 
-            # Turn-taking
+            # Turn-taking (reads EOM state from kwargs, not circuit)
             spoke = m_id >= 0
-            if circuit._in_eom:
+            if in_eom:
                 self._turn_eom_steps[name] += 1
                 if spoke:
-                    if circuit._eom_steps > self.MAX_SPEAK_STEPS:
+                    if eom_steps > self.MAX_SPEAK_STEPS:
                         self._turn_rambles[name] += 1
                     else:
                         self._turn_correct_speak[name] += 1
