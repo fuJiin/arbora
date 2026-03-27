@@ -136,9 +136,6 @@ class RunHooks:
             self._bpc_probe.dialogue_boundary()
         self._centroid_probe.dialogue_boundary()
 
-        for s in circuit._regions.values():
-            s.rep_tracker.reset_context()
-
         for conn in circuit._connections:
             if conn.reward_modulator is not None:
                 conn.reward_modulator.reset()
@@ -206,10 +203,6 @@ class RunHooks:
         # -- Per-region bookkeeping (sampled to reduce overhead) --
         is_metric_step = (t % self._metric_interval == 0) or (t < 100)
         for _name, s in circuit._regions.items():
-            if is_metric_step:
-                s.rep_tracker.observe(
-                    token_id, s.region.active_columns, s.region.l4.active
-                )
             if s.diagnostics is not None and is_metric_step:
                 s.diagnostics.step(t, s.region)
             if s.timeline is not None and t % circuit._timeline_interval == 0:
@@ -275,14 +268,10 @@ class RunHooks:
 
         elapsed = time.monotonic() - self._start
 
-        # -- Finalize per-region representation summaries --
-        for name, s in circuit._regions.items():
+        # -- Finalize per-region elapsed time --
+        for name in circuit._regions:
             m = metrics[name]
             m.elapsed_seconds = elapsed
-            rep_summ = s.rep_tracker.summary(s.region.ff_weights)
-            sel = s.rep_tracker.column_selectivity()
-            rep_summ["column_selectivity_per_col"] = sel["per_column"]
-            m.representation = rep_summ
 
         # Store BPC in entry metrics
         if self._bpc_probe is not None:
@@ -300,15 +289,6 @@ class RunHooks:
         entry_m = metrics[entry_name]
         entry_m.centroid_bpc = self._centroid_probe.bpc
         entry_m.centroid_bpc_recent = self._centroid_probe.recent_bpc
-
-        # Print representation reports
-        if len(circuit._regions) == 1:
-            entry_state = circuit._regions[entry_name]
-            entry_state.rep_tracker.print_report(entry_state.region.ff_weights)
-        else:
-            for name, s in circuit._regions.items():
-                print(f"\n--- {name} ---")
-                s.rep_tracker.print_report(s.region.ff_weights)
 
         return CortexResult(
             per_region=metrics,
