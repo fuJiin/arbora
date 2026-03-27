@@ -594,3 +594,94 @@ class TestSensoryRegion:
         )
         s.process(encoding)
         assert s.active_columns.sum() == 3
+
+
+# ---------------------------------------------------------------------------
+# L4 firing_rate drives L2/3 activation (regression: STEP-78)
+# ---------------------------------------------------------------------------
+
+
+class TestL4FiringRateDrivesL23:
+    """L4 firing_rate must be updated before _activate_l23 so per-column
+    l4_to_l23_weights actually affect L2/3 neuron selection."""
+
+    @pytest.fixture()
+    def region(self):
+        return CorticalRegion(
+            8, n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42
+        )
+
+    def test_l4_firing_rate_nonzero_after_step(self, region):
+        """L4 firing_rate must be updated each step."""
+        drive = col_drive([1.0, 0.8, 0.6] + [0.0] * 13, 4)
+        region.step(drive)
+        assert region.l4.firing_rate.sum() > 0, (
+            "L4 firing_rate is zero after step — "
+            "l4_to_l23_weights have no effect on L2/3"
+        )
+
+    def test_l4_firing_rate_reflects_active_neurons(self, region):
+        """Active L4 neurons should have higher firing_rate than inactive."""
+        drive = col_drive([1.0, 0.8, 0.6] + [0.0] * 13, 4)
+        region.step(drive)
+        active_fr = region.l4.firing_rate[region.l4.active]
+        inactive_fr = region.l4.firing_rate[~region.l4.active]
+        assert active_fr.min() > inactive_fr.max(), (
+            "Active L4 neurons should have higher firing_rate than inactive"
+        )
+
+    def test_l4_to_l23_weights_affect_l23_winner(self, region):
+        """Manipulating l4_to_l23_weights should change which L2/3 neuron wins."""
+        drive = col_drive([1.0] + [0.0] * 15, 4)
+
+        # Run once to get baseline L2/3 winner
+        region.step(drive)
+        col0_l23 = region.l23.active[:4].copy()
+        assert col0_l23.any(), "Column 0 L2/3 should be active"
+
+        # Reset and bias weights heavily toward L2/3 neuron 3 in column 0
+        region.reset_working_memory()
+        region.l4_to_l23_weights[0, :, :] = 0.0
+        region.l4_to_l23_weights[0, :, 3] = 10.0
+
+        region.step(drive)
+        assert region.l23.active[3], (
+            "L2/3 neuron 3 should win when l4_to_l23_weights are biased "
+            "toward it — weights must influence L2/3 selection"
+        )
+
+
+# ---------------------------------------------------------------------------
+# n_l5=0 support (STEP-78)
+# ---------------------------------------------------------------------------
+
+
+class TestNL5Zero:
+    """Regions with n_l5=0 should work without errors."""
+
+    @pytest.fixture()
+    def region(self):
+        return CorticalRegion(
+            8, n_columns=16, n_l4=4, n_l23=4, n_l5=0, k_columns=3, seed=42
+        )
+
+    def test_process_no_crash(self, region):
+        drive = col_drive([1.0, 0.8, 0.6] + [0.0] * 13, 4)
+        region.step(drive)
+        assert region.active_columns.sum() == 3
+
+    def test_l5_arrays_empty(self, region):
+        assert region.n_l5_total == 0
+        assert region.l5.active.shape == (0,)
+
+    def test_multiple_steps(self, region):
+        """Multiple steps without crash or warning."""
+        drive = col_drive([1.0, 0.8, 0.6] + [0.0] * 13, 4)
+        for _ in range(10):
+            region.step(drive)
+        assert region.active_columns.sum() == 3
+
+    def test_output_scores_zero(self, region):
+        drive = col_drive([1.0, 0.8, 0.6] + [0.0] * 13, 4)
+        region.step(drive)
+        assert (region.output_scores == 0.0).all()
