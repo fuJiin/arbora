@@ -595,7 +595,8 @@ class Circuit:
             r = s.region
             region_data: dict = {
                 "ff_weights": r.ff_weights,
-                # l23_lateral_weights removed — L2/3 lateral uses segments only
+                "l4_to_l23_weights": r.l4_to_l23_weights,
+                "l23_to_l5_weights": r.l23_to_l5_weights,
                 "fb_seg_indices": r.fb_seg_indices,
                 "fb_seg_perm": r.fb_seg_perm,
                 "lat_seg_indices": r.lat_seg_indices,
@@ -684,6 +685,10 @@ class Circuit:
             r = s.region
 
             r.ff_weights[:] = region_data["ff_weights"]
+            if "l4_to_l23_weights" in region_data:
+                r.l4_to_l23_weights[:] = region_data["l4_to_l23_weights"]
+            if "l23_to_l5_weights" in region_data:
+                r.l23_to_l5_weights[:] = region_data["l23_to_l5_weights"]
             # Old checkpoints may have l23_lateral_weights — skip it.
             # L2/3 lateral now uses segments only.
             r.fb_seg_indices[:] = region_data["fb_seg_indices"]
