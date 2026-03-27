@@ -108,6 +108,12 @@ class TestL5ApicalBACFiring:
         src["context"][:] = 0.0
         src["context"][0] = 1.0
 
+        # Zero out all state so prediction boost is the only differentiator
+        r.l23.firing_rate[:] = 0.01
+        r.l5.voltage[:] = 0.0
+        r.l5.excitability[:] = 0.0
+        r.l23_to_l5_weights[:] = 0.1
+
         # Run prediction
         r._compute_predictions()
         assert r.l5.predicted[target_neuron]
