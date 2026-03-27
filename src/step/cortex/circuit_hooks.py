@@ -33,7 +33,13 @@ class StepHooks(Protocol):
     """
 
     def on_before_step(
-        self, circuit: Circuit, t: int, token_id: int, encoding: np.ndarray
+        self,
+        circuit: Circuit,
+        t: int,
+        token_id: int,
+        encoding: np.ndarray,
+        *,
+        motor_active: bool = False,
     ) -> None: ...
 
     def on_after_step(
@@ -146,7 +152,13 @@ class RunHooks:
                 _rs_reset()
 
     def on_before_step(
-        self, circuit: Circuit, t: int, token_id: int, encoding: np.ndarray
+        self,
+        circuit: Circuit,
+        t: int,
+        token_id: int,
+        encoding: np.ndarray,
+        *,
+        motor_active: bool = False,
     ) -> None:
         """Snapshot L2/3 state before processing."""
         entry_region = circuit._regions[self._entry_name].region
@@ -154,10 +166,10 @@ class RunHooks:
         # Snapshot L2/3 binary state before processing (for dendritic decoder)
         self._prev_l23 = entry_region.l23.active.copy()
 
-        # Motor regions process when: EOM phase, gate forced open, or
-        # learning enabled (listening phase -- M1 observes to build
+        # Motor active when: explicitly active, or motor region is in
+        # learning mode (listening phase — M1 observes to build
         # internal representations before babbling).
-        m1_active = circuit._in_eom or circuit.force_gate_open
+        m1_active = motor_active
         for _mn, _ms in circuit._regions.items():
             if _ms.motor and _ms.region.learning_enabled:
                 m1_active = True

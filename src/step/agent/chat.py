@@ -63,7 +63,7 @@ class ChatAgent:
     (observe_token, decoder training) happens here, not in the circuit.
 
     The circuit's process() is pure neural computation. The agent
-    handles everything else: encoding, decoding, boundary/EOM dispatch,
+    handles everything else: encoding, decoding, boundary dispatch,
     motor learning, efference copy, and force-gate policy.
 
     Args:
@@ -121,9 +121,8 @@ class ChatAgent:
             self.last_action = None
             return None
 
-        # EOM: signal turn boundary
+        # EOM: activate motor output
         if obs.is_eom:
-            self._circuit.mark_eom()
             self._motor_active = True
             return None
 
