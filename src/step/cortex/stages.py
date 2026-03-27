@@ -77,11 +77,14 @@ def _apply_learning_regions(circuit, regions: list[str]) -> None:
 def _apply_motor_settings(
     circuit, babbling_noise: float, force_motor_active: bool
 ) -> None:
-    """Configure motor babbling noise and gate forcing."""
+    """Configure motor babbling noise.
+
+    force_motor_active is stored on TrainingStage as metadata —
+    the harness reads it and sets agent.force_gate_open.
+    """
     for _name, state in circuit._regions.items():
         if state.motor:
             state.region.babbling_noise = babbling_noise
-    circuit.force_gate_open = force_motor_active
 
 
 def _apply_reward_source(circuit, reward_source: str) -> None:

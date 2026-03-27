@@ -66,11 +66,6 @@ class Circuit:
         self._finalized: bool = False
         self._topo_cache: list[str] | None = None
 
-        # Persistent turn-taking state (survives across run() calls)
-        self._in_eom = False
-        self._eom_steps = 0
-        # When True, BG gate is forced to 1.0 (open) — for interactive use
-        self.force_gate_open = False
         # Tracks total steps across run() calls (BG skips t=0 globally)
         self._total_steps = 0
         # Pluggable reward source (None = use default turn-taking reward)
@@ -428,50 +423,29 @@ class Circuit:
     # ------------------------------------------------------------------
 
     def process(
-        self, encoding: np.ndarray, *, motor_active: bool | None = None
+        self, encoding: np.ndarray, *, motor_active: bool = False
     ) -> np.ndarray:
         """Process one encoded input through the hierarchy.
 
-        Pure neural processing: takes an encoding vector, propagates
+        Pure neural computation: takes an encoding vector, propagates
         through regions in topo order, runs inter-region signals, and
-        returns the motor output vector (M1 L5 firing rate).
-
-        Encoding/decoding between environment tokens and vectors is the
-        caller's responsibility. Boundary and EOM handling use
-        reset() and mark_eom() respectively.
-
-        Token-level concerns (observe_token, decoder training, metrics)
-        belong at the Agent or Runner level — process() only does
-        neural computation.
+        returns the output vector.
 
         Args:
             encoding: Input vector (from encoder or previous circuit output).
             motor_active: Whether motor regions produce output this step.
-                If None (default), falls back to self._in_eom or
-                self.force_gate_open for backward compatibility.
-                Callers should pass this explicitly — the fallback
-                will be removed when EOM state moves out of Circuit.
+                Caller (train loop / harness) decides based on environment
+                state. Default False (sensory-only circuits).
 
         Returns:
-            Motor output vector (M1 L5 firing rate). Callers can decode
-            this into an action via a decoder. If no motor region exists,
-            returns the L2/3 firing rate of the last region in topo order.
+            Output vector. If motor region exists, M1 L5 firing rate.
+            Otherwise, L2/3 firing rate of the last region in topo order.
         """
         if self._entry_name is None:
             raise ValueError("No entry region. Call add_region(..., entry=True).")
 
         entry_name = self._entry_name
         entry_region = self._regions[entry_name].region
-
-        # -- Turn-taking state (deprecated — will move to Environment) --
-        if self._in_eom:
-            self._eom_steps += 1
-            if self._eom_steps > 20:
-                self._in_eom = False
-
-        # Resolve motor_active from legacy state if not passed explicitly
-        if motor_active is None:
-            motor_active = self._in_eom or self.force_gate_open
 
         # -- Process in topo order (multi-ff supported) --
         topo_order = self._topo_order()
@@ -490,17 +464,15 @@ class Circuit:
         # -- Return output vector --
         return self._get_output_vector(topo_order)
 
-    def reset(self, *, hooks: StepHooks | None = None) -> None:
+    def reset(self) -> None:
         """Reset working memory and transient state (story/dialogue boundary).
 
         Clears neural activations, connection buffers, modulator state,
         and encoder position tracking. Does NOT reset learned weights —
         this is a "sleep", not amnesia.
 
-        Called by the environment or runner at dialogue/story boundaries.
+        Called by the harness/runner at dialogue/story boundaries.
         """
-        if hooks is not None:
-            hooks.on_boundary(self)
         for s in self._regions.values():
             s.region.reset_working_memory()
             if s.basal_ganglia is not None:
@@ -518,18 +490,6 @@ class Circuit:
         _reset = getattr(self._encoder, "reset", None)
         if _reset is not None:
             _reset()
-        self._in_eom = False
-        self._eom_steps = 0
-
-    def mark_eom(self) -> None:
-        """Signal end-of-message (turn boundary).
-
-        Sets the circuit into EOM mode where motor regions become active.
-        Called by the environment when the input stream signals a turn
-        boundary (e.g. EOM token in chat).
-        """
-        self._in_eom = True
-        self._eom_steps = 0
 
     def _step_motor_inline(
         self, entry_region: CorticalRegion, *, motor_active: bool = False
