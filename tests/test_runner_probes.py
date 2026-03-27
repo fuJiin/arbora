@@ -204,8 +204,8 @@ class TestTrainProbeWiring:
 
 
 class TestRunCortexProbes:
-    def test_probe_snapshots_on_run_metrics(self):
-        """run_cortex() stores probe snapshots on returned RunMetrics."""
+    def test_probes_threaded_through_run_cortex(self):
+        """run_cortex() passes probes to train(); spy records observations."""
         encoder = PositionalCharEncoder("abcdefgh", max_positions=1)
         region = CorticalRegion(
             encoder.input_dim, n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42
@@ -213,10 +213,10 @@ class TestRunCortexProbes:
         tokens = _make_tokens("abcdef")
         spy = SpyProbe()
 
-        metrics = run_cortex(region, encoder, tokens, log_interval=9999, probes=[spy])
+        run_cortex(region, encoder, tokens, log_interval=9999, probes=[spy])
 
-        assert "spy" in metrics.probe_snapshots
-        assert metrics.probe_snapshots["spy"]["observe_count"] == 6
+        # Probe was called for each character
+        assert spy.observe_count == 6
 
 
 # ---------------------------------------------------------------------------

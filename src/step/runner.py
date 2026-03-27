@@ -87,10 +87,7 @@ def run_cortex(
         probes=probes,
     )
     _copy_diag(cortex, "S1", diagnostics)
-    # Attach probe snapshots to the per-region metrics for caller access
-    metrics = result.per_region["S1"]
-    metrics.probe_snapshots = result.probe_snapshots
-    return metrics
+    return result.per_region["S1"]
 
 
 @dataclass
@@ -99,7 +96,6 @@ class HierarchyMetrics:
     region2: RunMetrics = field(default_factory=RunMetrics)
     surprise_modulators: list[float] = field(default_factory=list)
     elapsed_seconds: float = 0.0
-    probe_snapshots: dict[str, dict] = field(default_factory=dict)
 
 
 def run_hierarchy(
@@ -177,5 +173,4 @@ def run_hierarchy(
     metrics.region2 = result.per_region["S2"]
     metrics.surprise_modulators = result.surprise_modulators.get("S2", [])
     metrics.elapsed_seconds = result.elapsed_seconds
-    metrics.probe_snapshots = result.probe_snapshots
     return metrics
