@@ -607,9 +607,7 @@ class TestL4FiringRateDrivesL23:
 
     @pytest.fixture()
     def region(self):
-        return CorticalRegion(
-            8, n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42
-        )
+        return CorticalRegion(8, n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42)
 
     def test_l4_firing_rate_nonzero_after_step(self, region):
         """L4 firing_rate must be updated each step."""
