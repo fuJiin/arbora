@@ -12,13 +12,10 @@ from collections import deque
 import numpy as np
 
 from step.cortex.basal_ganglia import BasalGanglia
-from step.cortex.circuit_hooks import RunHooks, StepHooks
 from step.cortex.circuit_types import (
     Connection,
     ConnectionRole,
-    CortexResult,
     Encoder,
-    RunMetrics,
     _RegionState,
 )
 from step.cortex.lamina import Lamina
@@ -35,11 +32,7 @@ __all__ = [
     "Circuit",
     "Connection",
     "ConnectionRole",
-    "CortexResult",
     "Encoder",
-    "RunHooks",
-    "RunMetrics",
-    "StepHooks",
 ]
 
 
@@ -471,7 +464,7 @@ class Circuit:
         and encoder position tracking. Does NOT reset learned weights —
         this is a "sleep", not amnesia.
 
-        Called by the harness/runner at dialogue/story boundaries.
+        Called by the harness at dialogue/story boundaries.
         """
         for s in self._regions.values():
             s.region.reset_working_memory()

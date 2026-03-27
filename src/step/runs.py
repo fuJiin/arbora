@@ -5,9 +5,9 @@ import pickle
 from datetime import UTC, datetime
 from pathlib import Path
 
-from step.cortex.circuit import CortexResult
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.timeline import Timeline
+from step.train import TrainResult
 
 RUNS_DIR = Path("experiments/runs")
 
@@ -17,7 +17,7 @@ def save_run(
     name: str,
     timelines: dict[str, Timeline],
     diagnostics: dict[str, CortexDiagnostics],
-    result: CortexResult,
+    result: TrainResult,
     region_configs: dict[str, dict],
     meta_extra: dict | None = None,
 ) -> Path:
