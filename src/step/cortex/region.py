@@ -805,6 +805,10 @@ class CorticalRegion:
         top_cols = self._select_columns(scores_l4)
         self._activate_l4_burst(top_cols, scores_l4)
 
+        # 6b. Update L4 firing rate (EMA) so L4→L2/3 weights see non-zero drive
+        self.l4.firing_rate *= self.voltage_decay
+        self.l4.firing_rate[self.l4.active] += 1.0 - self.voltage_decay
+
         # 7. Activate L2/3: L4 feedforward + lateral context
         self._activate_l23(top_cols)
 
@@ -840,9 +844,12 @@ class CorticalRegion:
         self.l5.firing_rate[self.l5.active] += 1.0 - self.voltage_decay
 
         # 14. Update L5 output scores (per-column mean L5 firing rate)
-        self.output_scores[:] = self.l5.firing_rate.reshape(
-            self.n_columns, self.n_l5
-        ).mean(axis=1)
+        if self.n_l5 > 0:
+            self.output_scores[:] = self.l5.firing_rate.reshape(
+                self.n_columns, self.n_l5
+            ).mean(axis=1)
+        else:
+            self.output_scores[:] = 0.0
 
         return np.nonzero(self.l4.active)[0]
 
@@ -1045,6 +1052,8 @@ class CorticalRegion:
 
     def _activate_l5(self, top_cols: np.ndarray):
         """Activate L5 via L2/3 → L5 per-column weights."""
+        if self.n_l5 == 0:
+            return
         self._activate_downstream(top_cols, self.l23, self.l5, self.l23_to_l5_weights)
 
     def _learn_apical(self):
@@ -1146,16 +1155,17 @@ class CorticalRegion:
             ltp_rate,
             ltd_rate,
         )
-        self._learn_column_weights(
-            active_cols,
-            self.l23_to_l5_weights,
-            self.l23.firing_rate,
-            self.l5.active,
-            self.n_l23,
-            self.n_l5,
-            ltp_rate,
-            ltd_rate,
-        )
+        if self.n_l5 > 0:
+            self._learn_column_weights(
+                active_cols,
+                self.l23_to_l5_weights,
+                self.l23.firing_rate,
+                self.l5.active,
+                self.n_l23,
+                self.n_l5,
+                ltp_rate,
+                ltd_rate,
+            )
 
     def _learn_column_weights(
         self,
