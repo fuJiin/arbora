@@ -16,23 +16,21 @@ import json
 import sys
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from step.data import STORY_BOUNDARY, prepare_tokens_tinydialogues
 from step.cortex.sensory import SensoryRegion
+from step.data import STORY_BOUNDARY, prepare_tokens_tinydialogues
 from step.decoders.dendritic import DendriticDecoder
 from step.probes.bpc import BPCProbe
 from step.probes.diagnostics import CortexDiagnostics
 
-
 # --- Encoder (matches canonical S1) ---
 
 DEFAULT_CHARS = (
-    " abcdefghijklmnopqrstuvwxyz.?,!'\"\n-:;()0123456789"
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    " abcdefghijklmnopqrstuvwxyz.?,!'\"\n-:;()0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
 
 
@@ -59,13 +57,16 @@ class CharbitEncoder:
 
 
 class L23ContextTracker:
-    """Track L2/3 context discrimination: same token, different contexts → different patterns."""
+    """Track L2/3 context discrimination.
+
+    Same token, different contexts should produce different patterns.
+    """
 
     def __init__(self):
         self._prev_token: int | None = None
-        # (prev_token, token) → list of L2/3 neuron sets
-        self._bigram_patterns: dict[tuple[int, int], list[frozenset[int]]] = defaultdict(
-            list
+        # (prev_token, token) -> list of L2/3 neuron sets
+        self._bigram_patterns: dict[tuple[int, int], list[frozenset[int]]] = (
+            defaultdict(list)
         )
         # token → set of preceding tokens
         self._token_contexts: dict[int, set[int]] = defaultdict(set)
@@ -90,7 +91,7 @@ class L23ContextTracker:
                 continue
             # Collect all patterns for this token across contexts
             patterns = []
-            for (prev, t), pats in self._bigram_patterns.items():
+            for (_prev, t), pats in self._bigram_patterns.items():
                 if t == tid:
                     patterns.extend(pats)
             if len(patterns) < min_contexts:
@@ -123,15 +124,16 @@ def participation_ratio(activations: list[np.ndarray]) -> float:
     X -= X.mean(axis=0)
     # Use SVD for numerical stability (avoids explicit covariance)
     _, s, _ = np.linalg.svd(X, full_matrices=False)
-    lambdas = s ** 2 / (len(activations) - 1)
+    lambdas = s**2 / (len(activations) - 1)
     sum_l = lambdas.sum()
-    sum_l2 = (lambdas ** 2).sum()
+    sum_l2 = (lambdas**2).sum()
     if sum_l2 < 1e-12:
         return 0.0
-    return float(sum_l ** 2 / sum_l2)
+    return float(sum_l**2 / sum_l2)
 
 
 # --- Run a single config ---
+
 
 @dataclass
 class Result:
@@ -247,9 +249,9 @@ def run_config(
         # L4 population sparseness (Treves-Rolls)
         r = region.l4.active.astype(np.float64)
         mean_r = r.mean()
-        mean_r2 = (r ** 2).mean()
+        mean_r2 = (r**2).mean()
         if mean_r2 > 0:
-            l4_sparseness_values.append(mean_r ** 2 / mean_r2)
+            l4_sparseness_values.append(mean_r**2 / mean_r2)
 
         # L2/3 context discrimination
         ctx_tracker.observe(token_id, region.l23.active)
@@ -322,9 +324,7 @@ def run_config(
         l23_ctx_disc=l23_ctx,
         l23_eff_dim=l23_dim,
         # Supporting diagnostics
-        den_pct=(snap.n_active_lat_segments / max(region.n_l4_total, 1))
-        if snap
-        else 0,
+        den_pct=(snap.n_active_lat_segments / max(region.n_l4_total, 1)) if snap else 0,
         lat_connected_frac=snap.lat_seg_connected_frac if snap else 0,
         lat_perm_p50=float(p50),
         l23_connected_frac=snap.l23_seg_connected_frac if snap else 0,
@@ -340,6 +340,7 @@ def run_config(
 
 
 # --- Sweep configs ---
+
 
 def build_configs() -> list[tuple[str, dict]]:
     """Parameter grid for S1 sweep."""
@@ -373,10 +374,12 @@ def build_configs() -> list[tuple[str, dict]]:
     # More aggressive pruning
     configs.append(("pdec=0.1", {"perm_decrement": 0.1}))
     # Combined: fast growth + aggressive pruning
-    configs.append((
-        "fast_perm",
-        {"perm_increment": 0.3, "perm_decrement": 0.1, "perm_init": 0.7},
-    ))
+    configs.append(
+        (
+            "fast_perm",
+            {"perm_increment": 0.3, "perm_decrement": 0.1, "perm_init": 0.7},
+        )
+    )
 
     # === Group 6: Neuron counts (asymmetric) ===
     # Biology: L4 thickest in sensory, L5 thinnest
@@ -397,41 +400,47 @@ def build_configs() -> list[tuple[str, dict]]:
     configs.append(("gain=4.0", {"prediction_gain": 4.0}))
 
     # === Group 9: Combined "best guess" configs ===
-    configs.append((
-        "combo_seg",
-        {
-            "seg_activation_threshold": 4,
-            "n_synapses_per_segment": 12,
-            "n_l4_lat_segments": 8,
-            "perm_increment": 0.3,
-            "perm_decrement": 0.1,
-        },
-    ))
-    configs.append((
-        "combo_neuron",
-        {
-            "n_l4": 6,
-            "n_l23": 4,
-            "n_l5": 2,
-            "n_l4_lat_segments": 8,
-            "seg_activation_threshold": 4,
-        },
-    ))
-    configs.append((
-        "combo_all",
-        {
-            "n_l4": 6,
-            "n_l23": 4,
-            "n_l5": 2,
-            "n_l4_lat_segments": 8,
-            "n_l23_segments": 8,
-            "n_synapses_per_segment": 12,
-            "seg_activation_threshold": 4,
-            "perm_increment": 0.3,
-            "perm_decrement": 0.1,
-            "pre_trace_decay": 0.9,
-        },
-    ))
+    configs.append(
+        (
+            "combo_seg",
+            {
+                "seg_activation_threshold": 4,
+                "n_synapses_per_segment": 12,
+                "n_l4_lat_segments": 8,
+                "perm_increment": 0.3,
+                "perm_decrement": 0.1,
+            },
+        )
+    )
+    configs.append(
+        (
+            "combo_neuron",
+            {
+                "n_l4": 6,
+                "n_l23": 4,
+                "n_l5": 2,
+                "n_l4_lat_segments": 8,
+                "seg_activation_threshold": 4,
+            },
+        )
+    )
+    configs.append(
+        (
+            "combo_all",
+            {
+                "n_l4": 6,
+                "n_l23": 4,
+                "n_l5": 2,
+                "n_l4_lat_segments": 8,
+                "n_l23_segments": 8,
+                "n_synapses_per_segment": 12,
+                "seg_activation_threshold": 4,
+                "perm_increment": 0.3,
+                "perm_decrement": 0.1,
+                "pre_trace_decay": 0.9,
+            },
+        )
+    )
 
     return configs
 
@@ -443,11 +452,19 @@ def save_results(results: list[Result], out_dir: Path):
     # CSV
     csv_path = out_dir / "sweep_results.csv"
     fieldnames = [
-        "name", "elapsed",
-        "l4_pred_recall", "l4_pred_precision", "l4_pop_sparseness",
-        "l23_bpc", "l23_ctx_disc", "l23_eff_dim",
-        "den_pct", "lat_connected_frac", "lat_perm_p50",
-        "l23_connected_frac", "column_entropy_ratio",
+        "name",
+        "elapsed",
+        "l4_pred_recall",
+        "l4_pred_precision",
+        "l4_pop_sparseness",
+        "l23_bpc",
+        "l23_ctx_disc",
+        "l23_eff_dim",
+        "den_pct",
+        "lat_connected_frac",
+        "lat_perm_p50",
+        "l23_connected_frac",
+        "column_entropy_ratio",
     ]
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -502,21 +519,32 @@ def print_summary(results: list[Result]):
     print("=" * 140)
     best = results_sorted[0]
     print(f"\nBest L2/3 BPC: {best.name} ({best.l23_bpc:.2f})")
-    print(f"  l4_recall={best.l4_pred_recall:.1%} precision={best.l4_pred_precision:.1%} "
-          f"ctx_disc={best.l23_ctx_disc:.3f} eff_dim={best.l23_eff_dim:.1f}")
+    print(
+        f"  l4_recall={best.l4_pred_recall:.1%} "
+        f"precision={best.l4_pred_precision:.1%} "
+        f"ctx_disc={best.l23_ctx_disc:.3f} eff_dim={best.l23_eff_dim:.1f}"
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description="Sweep S1 parameters")
-    parser.add_argument("--tokens", type=int, default=30000,
-                        help="Tokens per config for initial sweep")
-    parser.add_argument("--confirm-tokens", type=int, default=0,
-                        help="If >0, re-run top 3 configs at this token count")
+    parser.add_argument(
+        "--tokens", type=int, default=30000, help="Tokens per config for initial sweep"
+    )
+    parser.add_argument(
+        "--confirm-tokens",
+        type=int,
+        default=0,
+        help="If >0, re-run top 3 configs at this token count",
+    )
     parser.add_argument("--log-interval", type=int, default=5000)
-    parser.add_argument("--config", type=str, default=None,
-                        help="Run only this config name (for debugging)")
-    parser.add_argument("--out-dir", type=str,
-                        default="experiments/runs/sweep_s1")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Run only this config name (for debugging)",
+    )
+    parser.add_argument("--out-dir", type=str, default="experiments/runs/sweep_s1")
     args = parser.parse_args()
 
     # Load data
@@ -535,14 +563,12 @@ def main():
             sys.exit(1)
 
     sweep_tokens = tokens[: args.tokens]
-    print(f"\nSweeping {len(all_configs)} configs × {args.tokens:,} tokens\n")
+    print(f"\nSweeping {len(all_configs)} configs x {args.tokens:,} tokens\n")
 
     # Run sweep
     results = []
     for name, overrides in all_configs:
-        result = run_config(
-            name, sweep_tokens, encoder, args.log_interval, **overrides
-        )
+        result = run_config(name, sweep_tokens, encoder, args.log_interval, **overrides)
         results.append(result)
 
     # Summary
@@ -556,9 +582,9 @@ def main():
     # Confirmation runs
     if args.confirm_tokens > 0 and len(results) > 1:
         top3 = sorted(results, key=lambda r: r.l23_bpc)[:3]
-        print(f"\n\n{'='*60}")
+        print(f"\n\n{'=' * 60}")
         print(f"Confirming top 3 at {args.confirm_tokens:,} tokens...")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         confirm_tokens = tokens[: args.confirm_tokens]
         confirm_results = []
