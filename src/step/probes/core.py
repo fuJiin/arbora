@@ -72,12 +72,10 @@ class LaminaProbe:
             region = state.region
 
             if region.n_l4 > 0:
-                _observe_l4(region, region_name, self)
+                self._observe_l4(region, region_name)
 
-            if region.n_l23 > 0 and self._step_count % self._l23_sample_interval == 0:
-                self._l23_samples[region_name].append(
-                    region.l23.active.astype(np.float64)
-                )
+            if region.n_l23 > 0:
+                self._observe_l23(region, region_name)
 
     def snapshot(self) -> dict:
         """Compute current KPI values."""
@@ -88,75 +86,77 @@ class LaminaProbe:
         )
 
         for name in sorted(all_regions):
-            l4_kpis = _snapshot_l4(name, self)
-            l23_kpis = _snapshot_l23(name, self)
+            l4_kpis = self._snapshot_l4(name)
+            l23_kpis = self._snapshot_l23(name)
             result[name] = {"l4": l4_kpis, "l23": l23_kpis}
 
         return result
 
+    # -----------------------------------------------------------------------
+    # Per-lamina observe
+    # -----------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Per-lamina observe helpers
-# ---------------------------------------------------------------------------
+    def _observe_l4(self, region, region_name: str) -> None:
+        """Accumulate L4 prediction recall, precision, and sparseness."""
+        l4 = region.l4
+        predicted = l4.predicted
+        active = l4.active
 
+        # Recall: of active neurons, how many were predicted?
+        n_active = int(active.sum())
+        if n_active > 0:
+            n_predicted_and_active = int((predicted & active).sum())
+            self._l4_active_total[region_name] += n_active
+            self._l4_active_predicted[region_name] += n_predicted_and_active
 
-def _observe_l4(region, region_name: str, probe: LaminaProbe) -> None:
-    """Accumulate L4 prediction recall, precision, and sparseness."""
-    l4 = region.l4
-    predicted = l4.predicted
-    active = l4.active
+        # Precision: of predicted neurons, how many fired?
+        n_predicted = int(predicted.sum())
+        if n_predicted > 0:
+            n_correct = int((predicted & active).sum())
+            self._l4_predicted_total[region_name] += n_predicted
+            self._l4_predicted_correct[region_name] += n_correct
 
-    # Recall: of active neurons, how many were predicted?
-    n_active = int(active.sum())
-    if n_active > 0:
-        n_predicted_and_active = int((predicted & active).sum())
-        probe._l4_active_total[region_name] += n_active
-        probe._l4_active_predicted[region_name] += n_predicted_and_active
+        # Population sparseness (Treves-Rolls)
+        r = active.astype(np.float64)
+        mean_r = r.mean()
+        mean_r2 = (r**2).mean()
+        if mean_r2 > 0:
+            self._l4_sparseness[region_name].append(float(mean_r**2 / mean_r2))
 
-    # Precision: of predicted neurons, how many fired?
-    n_predicted = int(predicted.sum())
-    if n_predicted > 0:
-        n_correct = int((predicted & active).sum())
-        probe._l4_predicted_total[region_name] += n_predicted
-        probe._l4_predicted_correct[region_name] += n_correct
+    def _observe_l23(self, region, region_name: str) -> None:
+        """Sample L2/3 activations at configured interval."""
+        if self._step_count % self._l23_sample_interval == 0:
+            self._l23_samples[region_name].append(region.l23.active.astype(np.float64))
 
-    # Population sparseness (Treves-Rolls)
-    r = active.astype(np.float64)
-    mean_r = r.mean()
-    mean_r2 = (r**2).mean()
-    if mean_r2 > 0:
-        probe._l4_sparseness[region_name].append(float(mean_r**2 / mean_r2))
+    # -----------------------------------------------------------------------
+    # Per-lamina snapshot
+    # -----------------------------------------------------------------------
 
+    def _snapshot_l4(self, name: str) -> dict:
+        """Compute L4 KPI dict from accumulated state."""
+        kpis: dict[str, float] = {}
 
-# ---------------------------------------------------------------------------
-# Per-lamina snapshot helpers
-# ---------------------------------------------------------------------------
+        total = self._l4_active_total.get(name, 0)
+        kpis["recall"] = (
+            self._l4_active_predicted.get(name, 0) / total if total > 0 else 0.0
+        )
 
+        pred_total = self._l4_predicted_total.get(name, 0)
+        kpis["precision"] = (
+            self._l4_predicted_correct.get(name, 0) / pred_total
+            if pred_total > 0
+            else 0.0
+        )
 
-def _snapshot_l4(name: str, probe: LaminaProbe) -> dict:
-    """Compute L4 KPI dict from accumulated state."""
-    kpis: dict[str, float] = {}
+        vals = self._l4_sparseness.get(name, [])
+        kpis["sparseness"] = float(np.mean(vals)) if vals else 0.0
 
-    total = probe._l4_active_total.get(name, 0)
-    kpis["recall"] = (
-        probe._l4_active_predicted.get(name, 0) / total if total > 0 else 0.0
-    )
+        return kpis
 
-    pred_total = probe._l4_predicted_total.get(name, 0)
-    kpis["precision"] = (
-        probe._l4_predicted_correct.get(name, 0) / pred_total if pred_total > 0 else 0.0
-    )
-
-    vals = probe._l4_sparseness.get(name, [])
-    kpis["sparseness"] = float(np.mean(vals)) if vals else 0.0
-
-    return kpis
-
-
-def _snapshot_l23(name: str, probe: LaminaProbe) -> dict:
-    """Compute L2/3 KPI dict from accumulated state."""
-    samples = probe._l23_samples.get(name, [])
-    return {"eff_dim": _participation_ratio(samples)}
+    def _snapshot_l23(self, name: str) -> dict:
+        """Compute L2/3 KPI dict from accumulated state."""
+        samples = self._l23_samples.get(name, [])
+        return {"eff_dim": _participation_ratio(samples)}
 
 
 # ---------------------------------------------------------------------------

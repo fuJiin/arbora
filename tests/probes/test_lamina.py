@@ -3,39 +3,10 @@
 import numpy as np
 import pytest
 
-from step.cortex import CorticalRegion
-from step.cortex.circuit import Circuit
-from step.encoders.positional import PositionalCharEncoder
 from step.probes.chat import ChatLaminaProbe
 from step.probes.core import LaminaProbe, Probe, _participation_ratio
 
-
-def _make_circuit(n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42):
-    """Create a minimal single-region circuit for testing."""
-    encoder = PositionalCharEncoder("abcdefgh", max_positions=1)
-    region = CorticalRegion(
-        encoder.input_dim,
-        n_columns=n_columns,
-        n_l4=n_l4,
-        n_l23=n_l23,
-        k_columns=k_columns,
-        seed=seed,
-    )
-    circuit = Circuit(encoder)
-    circuit.add_region("S1", region, entry=True)
-    circuit.finalize()
-    return circuit, encoder
-
-
-def _step_circuit(circuit, encoder, rng=None):
-    """Process one random encoding through the circuit."""
-    if rng is None:
-        rng = np.random.default_rng(0)
-    chars = "abcdefgh"
-    ch = chars[rng.integers(0, len(chars))]
-    encoding = encoder.encode(ch)
-    circuit.process(encoding)
-
+from .conftest import make_circuit, step_circuit
 
 # ---------------------------------------------------------------------------
 # Protocol conformance
@@ -63,9 +34,9 @@ class TestProtocol:
 
 class TestLaminaProbeReadOnly:
     def test_observe_does_not_modify_circuit(self):
-        circuit, encoder = _make_circuit()
+        circuit, encoder = make_circuit()
         rng = np.random.default_rng(42)
-        _step_circuit(circuit, encoder, rng)
+        step_circuit(circuit, encoder, rng)
 
         # Snapshot circuit state
         region = circuit.region("S1")
@@ -91,12 +62,12 @@ class TestLaminaProbeReadOnly:
 
 class TestL4KPIs:
     def test_recall_after_steps(self):
-        circuit, encoder = _make_circuit()
+        circuit, encoder = make_circuit()
         probe = LaminaProbe()
         rng = np.random.default_rng(42)
 
         for _ in range(100):
-            _step_circuit(circuit, encoder, rng)
+            step_circuit(circuit, encoder, rng)
             probe.observe(circuit)
 
         snap = probe.snapshot()
@@ -104,12 +75,12 @@ class TestL4KPIs:
         assert 0.0 <= snap["S1"]["l4"]["recall"] <= 1.0
 
     def test_precision_after_steps(self):
-        circuit, encoder = _make_circuit()
+        circuit, encoder = make_circuit()
         probe = LaminaProbe()
         rng = np.random.default_rng(42)
 
         for _ in range(100):
-            _step_circuit(circuit, encoder, rng)
+            step_circuit(circuit, encoder, rng)
             probe.observe(circuit)
 
         snap = probe.snapshot()
@@ -117,12 +88,12 @@ class TestL4KPIs:
 
     def test_sparseness_near_target(self):
         """Population sparseness should be near k/N for binary activations."""
-        circuit, encoder = _make_circuit(n_columns=16, n_l4=4, k_columns=3)
+        circuit, encoder = make_circuit(n_columns=16, n_l4=4, k_columns=3)
         probe = LaminaProbe()
         rng = np.random.default_rng(42)
 
         for _ in range(100):
-            _step_circuit(circuit, encoder, rng)
+            step_circuit(circuit, encoder, rng)
             probe.observe(circuit)
 
         snap = probe.snapshot()
@@ -133,7 +104,7 @@ class TestL4KPIs:
 
     def test_recall_precision_hand_computed(self):
         """Verify recall/precision on manually set state."""
-        circuit, _encoder = _make_circuit()
+        circuit, _encoder = make_circuit()
         region = circuit.region("S1")
         probe = LaminaProbe()
 
@@ -161,12 +132,12 @@ class TestL4KPIs:
 
 class TestL23KPIs:
     def test_eff_dim_nonzero_after_steps(self):
-        circuit, encoder = _make_circuit()
+        circuit, encoder = make_circuit()
         probe = LaminaProbe(l23_sample_interval=1)  # sample every step
         rng = np.random.default_rng(42)
 
         for _ in range(50):
-            _step_circuit(circuit, encoder, rng)
+            step_circuit(circuit, encoder, rng)
             probe.observe(circuit)
 
         snap = probe.snapshot()
@@ -187,7 +158,7 @@ class TestLinearProbe:
     def test_linear_probe_above_chance(self):
         """Linear probe should converge above random for separable patterns."""
         pytest.importorskip("sklearn")
-        circuit, encoder = _make_circuit(n_columns=32, n_l4=4, n_l23=4, k_columns=4)
+        circuit, encoder = make_circuit(n_columns=32, n_l4=4, n_l23=4, k_columns=4)
         probe = ChatLaminaProbe(
             linear_probe_fit_interval=500,
             linear_probe_window=1000,
@@ -214,7 +185,7 @@ class TestLinearProbe:
 
 class TestContextDiscrimination:
     def test_ctx_disc_nonzero(self):
-        circuit, encoder = _make_circuit()
+        circuit, encoder = make_circuit()
         probe = ChatLaminaProbe(ctx_disc_min_contexts=2)
 
         # Feed varied bigram contexts
@@ -245,12 +216,12 @@ class TestContextDiscrimination:
 class TestNoStimulusId:
     def test_observe_without_stimulus_id(self):
         """ChatLaminaProbe should work without stimulus_id (L4 KPIs only)."""
-        circuit, encoder = _make_circuit()
+        circuit, encoder = make_circuit()
         probe = ChatLaminaProbe()
         rng = np.random.default_rng(42)
 
         for _ in range(50):
-            _step_circuit(circuit, encoder, rng)
+            step_circuit(circuit, encoder, rng)
             probe.observe(circuit)  # no stimulus_id
 
         snap = probe.snapshot()
