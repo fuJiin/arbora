@@ -13,12 +13,14 @@ Usage::
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from step.cortex.circuit_hooks import RunHooks
 from step.cortex.circuit_types import CortexResult
 from step.cortex.motor import MotorRegion
 from step.environment import ChatEnv
+from step.probes.core import Probe
 
 if TYPE_CHECKING:
     from step.agent import ChatAgent
@@ -32,6 +34,7 @@ def train(
     rolling_window: int = 100,
     show_predictions: int = 0,
     metric_interval: int = 0,
+    probes: Sequence[Probe] = (),
 ) -> CortexResult:
     """Run training loop: ChatEnv provides observations, ChatAgent acts.
 
@@ -65,6 +68,9 @@ def train(
             circuit.reset(hooks=hooks)
             agent._motor_active = False
             agent.last_action = None
+            for probe in probes:
+                if hasattr(probe, "boundary"):
+                    probe.boundary()
             obs, _reward = env.step(None)
             continue
 
@@ -101,6 +107,10 @@ def train(
                 if s.motor and isinstance(s.region, MotorRegion):
                     s.region.observe_token(obs.token_id)
 
+        # Probes: observe circuit state after processing
+        for probe in probes:
+            probe.observe(circuit, stimulus_id=obs.token_id)
+
         # Hooks: after
         hooks.on_after_step(circuit, t, obs.token_id, encoding)
 
@@ -112,4 +122,7 @@ def train(
         obs, _reward = env.step(action)
         t += 1
 
-    return hooks.finalize()
+    result = hooks.finalize()
+    for probe in probes:
+        result.probe_snapshots[probe.name] = probe.snapshot()
+    return result
