@@ -128,3 +128,5 @@ class CortexResult:
     babble_unique_tokens: list[str] = field(default_factory=list)
     total_listen_steps: int = 0
     total_babble_steps: int = 0
+    # Per-probe snapshots keyed by probe.name
+    probe_snapshots: dict[str, dict] = field(default_factory=dict)
