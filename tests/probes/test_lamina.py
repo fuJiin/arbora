@@ -5,8 +5,7 @@ import pytest
 
 from step.probes.chat import ChatLaminaProbe
 from step.probes.core import LaminaProbe, Probe, _participation_ratio
-
-from .conftest import make_circuit, step_circuit
+from tests.conftest import make_circuit, step_circuit
 
 # ---------------------------------------------------------------------------
 # Protocol conformance
