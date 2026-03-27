@@ -1,11 +1,13 @@
 """Tests for LaminaProbe and ChatLaminaProbe."""
 
 import numpy as np
+import pytest
 
 from step.cortex import CorticalRegion
 from step.cortex.circuit import Circuit
 from step.encoders.positional import PositionalCharEncoder
-from step.probes.lamina import ChatLaminaProbe, LaminaProbe, Probe, _participation_ratio
+from step.probes.chat import ChatLaminaProbe
+from step.probes.core import LaminaProbe, Probe, _participation_ratio
 
 
 def _make_circuit(n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42):
@@ -184,6 +186,7 @@ class TestL23KPIs:
 class TestLinearProbe:
     def test_linear_probe_above_chance(self):
         """Linear probe should converge above random for separable patterns."""
+        pytest.importorskip("sklearn")
         circuit, encoder = _make_circuit(n_columns=32, n_l4=4, n_l23=4, k_columns=4)
         probe = ChatLaminaProbe(
             linear_probe_fit_interval=500,
