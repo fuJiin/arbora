@@ -7,7 +7,7 @@ from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
-from step.probes.motor import ChatMotorProbe
+from step.probes.chat import ChatMotorProbe
 from tests.conftest import run_circuit
 
 

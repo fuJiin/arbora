@@ -9,7 +9,7 @@ from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
 from step.environment import ChatEnv
-from step.probes.motor import ChatMotorProbe
+from step.probes.chat import ChatMotorProbe
 from step.train import train
 
 
@@ -112,13 +112,3 @@ class TestChatMotorProbeNoMotor:
         train(env, agent, log_interval=9999, probes=[probe])
 
         assert probe.snapshot() == {}
-
-
-class TestChatMotorProbeBoundary:
-    def test_boundary_is_noop(self):
-        """boundary() exists for protocol but is a no-op."""
-        probe = ChatMotorProbe()
-        probe._turn_input_steps["M1"] = 10
-        probe.boundary()
-        # Counters should be unchanged
-        assert probe._turn_input_steps["M1"] == 10

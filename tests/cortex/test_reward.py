@@ -10,7 +10,7 @@ from step.cortex.sensory import SensoryRegion
 from step.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
 from step.encoders.charbit import CharbitEncoder
 from step.environment import ChatEnv
-from step.probes.motor import ChatMotorProbe
+from step.probes.chat import ChatMotorProbe
 from tests.conftest import run_circuit
 
 
