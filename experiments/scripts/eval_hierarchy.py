@@ -17,12 +17,16 @@ import time
 import numpy as np
 
 import step.env  # noqa: F401
+from step.agent import ChatAgent
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker
 from step.cortex.sensory import SensoryRegion
 from step.data import prepare_tokens
 from step.encoders.charbit import CharbitEncoder
+from step.environment import ChatEnv
 from step.probes.diagnostics import CortexDiagnostics
-from step.runner import run_cortex, run_hierarchy
+from step.runner import run_cortex
+from step.train import train
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -119,23 +123,29 @@ def main():
         seed=123,
     )
     surprise = SurpriseTracker()
-    diag1 = CortexDiagnostics(snapshot_interval=args.log_interval)
-    diag2 = CortexDiagnostics(snapshot_interval=args.log_interval)
 
-    start_hier = time.monotonic()
-    metrics_hier = run_hierarchy(
-        region1,
-        region2,
-        encoder,
-        tokens,
+    cortex = Circuit(encoder, diagnostics_interval=args.log_interval)
+    cortex.add_region("S1", region1, entry=True)
+    cortex.add_region("S2", region2)
+    cortex.connect(
+        region1.l23,
+        region2.l4,
+        ConnectionRole.FEEDFORWARD,
         surprise_tracker=surprise,
         buffer_depth=args.buffer_depth,
         burst_gate=args.burst_gate,
-        log_interval=args.log_interval,
-        diagnostics1=diag1,
-        diagnostics2=diag2,
     )
+
+    env = ChatEnv(tokens)
+    agent = ChatAgent(encoder=encoder, circuit=cortex)
+
+    start_hier = time.monotonic()
+    result_hier = train(env, agent, log_interval=args.log_interval)
     elapsed_hier = time.monotonic() - start_hier
+
+    # Extract diagnostics from Circuit
+    diag1 = cortex.diagnostics.get("S1")
+    diag2 = cortex.diagnostics.get("S2")
 
     # --- Comparison ---
     print("\n" + "=" * 60)
@@ -151,12 +161,12 @@ def main():
     if metrics_solo.synaptic_accuracies:
         tail = metrics_solo.synaptic_accuracies[-100:]
         print(f"\nSingle region syn accuracy (last 100): {sum(tail) / len(tail):.4f}")
-    if metrics_hier.region1.synaptic_accuracies:
-        tail = metrics_hier.region1.synaptic_accuracies[-100:]
+    if result_hier.per_region["S1"].synaptic_accuracies:
+        tail = result_hier.per_region["S1"].synaptic_accuracies[-100:]
         print(f"Hierarchy S1 syn accuracy (last 100):  {sum(tail) / len(tail):.4f}")
 
     # Surprise modulator distribution
-    mods = metrics_hier.surprise_modulators
+    mods = result_hier.surprise_modulators.get("S2", [])
     if mods:
         mods_arr = np.array(mods)
         print(
@@ -168,7 +178,7 @@ def main():
         )
 
     # S2 representation summary
-    r2_rep = metrics_hier.region2.representation
+    r2_rep = cortex._regions["S2"].rep_tracker.summary()
     if r2_rep:
         print("\nS2 representation:")
         print(

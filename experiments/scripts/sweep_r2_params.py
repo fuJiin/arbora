@@ -18,12 +18,14 @@ import time
 import numpy as np
 
 import step.env  # noqa: F401
+from step.agent import ChatAgent
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker
 from step.cortex.sensory import SensoryRegion
 from step.data import prepare_tokens
 from step.encoders.charbit import CharbitEncoder
-from step.probes.diagnostics import CortexDiagnostics
-from step.runner import run_hierarchy
+from step.environment import ChatEnv
+from step.train import train
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -56,23 +58,28 @@ def run_one(tokens, encoder, input_dim, r2_lr, r2_ltd, log_interval):
         seed=123,
     )
     surprise = SurpriseTracker()
-    diag2 = CortexDiagnostics(snapshot_interval=log_interval)
+
+    cortex = Circuit(encoder, diagnostics_interval=log_interval)
+    cortex.add_region("S1", region1, entry=True)
+    cortex.add_region("S2", region2)
+    cortex.connect(
+        region1.l23,
+        region2.l4,
+        ConnectionRole.FEEDFORWARD,
+        surprise_tracker=surprise,
+    )
+
+    env = ChatEnv(tokens)
+    agent = ChatAgent(encoder=encoder, circuit=cortex)
 
     start = time.monotonic()
-    metrics = run_hierarchy(
-        region1,
-        region2,
-        encoder,
-        tokens,
-        surprise_tracker=surprise,
-        log_interval=log_interval,
-        diagnostics2=diag2,
-    )
+    result = train(env, agent, log_interval=log_interval)
     elapsed = time.monotonic() - start
 
-    r2_rep = metrics.region2.representation
+    r2_rep = cortex._regions["S2"].rep_tracker.summary()
+    diag2 = cortex.diagnostics.get("S2")
     summ2 = diag2.summary()
-    mods = np.array(metrics.surprise_modulators)
+    mods = np.array(result.surprise_modulators.get("S2", []))
 
     return {
         "r2_lr": r2_lr,
@@ -83,7 +90,7 @@ def run_one(tokens, encoder, input_dim, r2_lr, r2_ltd, log_interval):
         "r2_cross_cos": r2_rep.get("ff_cross_col_cosine", 0),
         "r2_ff_sparsity": r2_rep.get("ff_sparsity", 0),
         "r2_similarity": r2_rep.get("similarity_mean", 0),
-        "mod_mean": float(mods.mean()),
+        "mod_mean": float(mods.mean()) if len(mods) > 0 else 0.0,
         "elapsed": elapsed,
     }
 

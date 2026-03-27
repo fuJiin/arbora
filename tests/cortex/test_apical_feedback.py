@@ -1,11 +1,15 @@
 import numpy as np
 import pytest
 
+from step.agent import ChatAgent
 from step.cortex import SensoryRegion
+from step.cortex.circuit import Circuit, ConnectionRole
+from step.cortex.modulators import SurpriseTracker
 from step.cortex.region import CorticalRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
-from step.runner import run_hierarchy
+from step.environment import ChatEnv
+from step.train import train
 
 # ---------------------------------------------------------------------------
 # Apical context initialization
@@ -160,7 +164,6 @@ class TestHierarchyApical:
             k_columns=2,
             seed=123,
         )
-        r1.init_apical_context(source_dim=r2.n_l23_total)
         return r1, r2
 
     def test_hierarchy_with_apical_runs(self, regions, encoder):
@@ -174,28 +177,38 @@ class TestHierarchyApical:
             (0, "a"),
             (1, "b"),
         ]
-        metrics = run_hierarchy(
-            r1,
-            r2,
-            encoder,
-            tokens,
-            enable_apical_feedback=True,
-            log_interval=1000,
+        circuit = Circuit(encoder)
+        circuit.add_region("S1", r1, entry=True)
+        circuit.add_region("S2", r2)
+        circuit.connect(
+            r1.l23,
+            r2.l4,
+            ConnectionRole.FEEDFORWARD,
+            surprise_tracker=SurpriseTracker(),
         )
-        assert metrics.elapsed_seconds > 0
+        circuit.connect(r2.l23, r1.l4, ConnectionRole.APICAL)
+        env = ChatEnv(tokens)
+        agent = ChatAgent(encoder=encoder, circuit=circuit)
+        result = train(env, agent, log_interval=1000)
+        assert result.elapsed_seconds > 0
 
     def test_apical_context_flows(self, regions, encoder):
         """After processing tokens, S1 apical context should be non-zero."""
         r1, r2 = regions
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
-        run_hierarchy(
-            r1,
-            r2,
-            encoder,
-            tokens,
-            enable_apical_feedback=True,
-            log_interval=1000,
+        circuit = Circuit(encoder)
+        circuit.add_region("S1", r1, entry=True)
+        circuit.add_region("S2", r2)
+        circuit.connect(
+            r1.l23,
+            r2.l4,
+            ConnectionRole.FEEDFORWARD,
+            surprise_tracker=SurpriseTracker(),
         )
+        circuit.connect(r2.l23, r1.l4, ConnectionRole.APICAL)
+        env = ChatEnv(tokens)
+        agent = ChatAgent(encoder=encoder, circuit=circuit)
+        train(env, agent, log_interval=1000)
         assert r1._apical_context.any()
 
     def test_no_apical_without_init(self, encoder):
@@ -219,6 +232,17 @@ class TestHierarchyApical:
             seed=123,
         )
         tokens = [(0, "a"), (1, "b"), (2, "c")]
-        metrics = run_hierarchy(r1, r2, encoder, tokens, log_interval=1000)
-        assert metrics.elapsed_seconds > 0
+        circuit = Circuit(encoder)
+        circuit.add_region("S1", r1, entry=True)
+        circuit.add_region("S2", r2)
+        circuit.connect(
+            r1.l23,
+            r2.l4,
+            ConnectionRole.FEEDFORWARD,
+            surprise_tracker=SurpriseTracker(),
+        )
+        env = ChatEnv(tokens)
+        agent = ChatAgent(encoder=encoder, circuit=circuit)
+        result = train(env, agent, log_interval=1000)
+        assert result.elapsed_seconds > 0
         assert not r1.has_apical

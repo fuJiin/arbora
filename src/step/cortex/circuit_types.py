@@ -39,21 +39,6 @@ class RunMetrics:
     synaptic_accuracies: list[float] = field(default_factory=list)
     column_accuracies: list[float] = field(default_factory=list)
     dendritic_accuracies: list[float] = field(default_factory=list)
-    motor_accuracies: list[float] = field(default_factory=list)
-    motor_decoder_accuracies: list[float] = field(default_factory=list)
-    motor_population_accuracies: list[float] = field(default_factory=list)
-    motor_confidences: list[float] = field(default_factory=list)
-    motor_rewards: list[float] = field(default_factory=list)
-    # Basal ganglia gate values (when BG is wired)
-    bg_gate_values: list[float] = field(default_factory=list)
-    # Turn-taking behavioral metrics (Stage 1 RL)
-    turn_interruptions: int = 0  # Spoke during input phase
-    turn_unresponsive: int = 0  # Silent during EOM phase
-    turn_correct_speak: int = 0  # Spoke during EOM phase
-    turn_correct_silent: int = 0  # Silent during input phase
-    turn_rambles: int = 0  # Spoke past max_speak_steps
-    turn_eom_steps: int = 0  # Total steps in EOM phase
-    turn_input_steps: int = 0  # Total steps in input phase
     # Bits-per-character (entry region only, uses dendritic decoder)
     bpc: float = 0.0
     bpc_recent: float = 0.0
@@ -65,7 +50,6 @@ class RunMetrics:
     centroid_bpc: float = 0.0
     centroid_bpc_recent: float = 0.0
     elapsed_seconds: float = 0.0
-    representation: dict = field(default_factory=dict)
 
 
 @dataclass

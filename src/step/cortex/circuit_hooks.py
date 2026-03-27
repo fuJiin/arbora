@@ -315,87 +315,27 @@ class RunHooks:
         token_str: str,
         metrics: dict[str, RunMetrics],
     ) -> None:
-        """Motor metrics + reward (extracted from run() lines 762-893)."""
-        m1_active = self._m1_active
+        """Motor reward modulator recording + decoder training.
+
+        Motor metrics (accuracy, gate, turn-taking) moved to ChatMotorProbe.
+        """
         prev_motor_l23 = self._prev_motor_l23
-        _max_speak_steps = self.MAX_SPEAK_STEPS
 
         for _name, s in circuit._regions.items():
             if s.motor:
                 assert isinstance(s.region, MotorRegion)
-                motor_region = s.region
                 if circuit._total_steps > 0:
-                    # BG gating + output readout already done by process()
-                    # via _step_motor_inline. Read results from motor_region.
-                    gate = motor_region.last_gate
+                    # Motor metrics (accuracy, gate, turn-taking) now
+                    # handled by ChatMotorProbe. RunHooks keeps only:
+                    # reward modulator recording and decoder training.
 
-                    if s.basal_ganglia is not None:
-                        metrics[_name].bg_gate_values.append(gate)
-
-                    if m1_active:
-                        # Read output computed by _step_motor_inline
-                        m_id, m_conf = motor_region.last_output
-                        pop_id, pop_conf = m_id, m_conf
-                        if s.motor_decoder is not None:
-                            dec_id, _dec_conf = motor_region.get_decoded_output(
-                                s.motor_decoder,
-                            )
-                        else:
-                            dec_id = -1
-                        m_id, m_conf = pop_id, pop_conf
-                    else:
-                        # M1 idle during input -- silent output
-                        m_id, m_conf = -1, 0.0
-                        pop_id, dec_id = -1, -1
-
-                    metrics[_name].motor_confidences.append(m_conf)
-                    if m_id >= 0:
-                        metrics[_name].motor_accuracies.append(
-                            1.0 if m_id == token_id else 0.0
-                        )
-                    # Track both methods independently
-                    if pop_id >= 0:
-                        metrics[_name].motor_population_accuracies.append(
-                            1.0 if pop_id == token_id else 0.0,
-                        )
-                    if dec_id >= 0:
-                        metrics[_name].motor_decoder_accuracies.append(
-                            1.0 if dec_id == token_id else 0.0,
-                        )
-
-                    # Reward already computed by _step_motor_inline in process()
-                    reward = motor_region.last_reward
-                    metrics[_name].motor_rewards.append(reward)
-
-                    # -- Turn-taking behavioral counters --
-                    spoke = m_id >= 0
-                    m = metrics[_name]
-                    if circuit._in_eom:
-                        m.turn_eom_steps += 1
-                        if spoke:
-                            if circuit._eom_steps > _max_speak_steps:
-                                m.turn_rambles += 1
-                            else:
-                                m.turn_correct_speak += 1
-                        else:
-                            m.turn_unresponsive += 1
-                    else:
-                        m.turn_input_steps += 1
-                        if spoke:
-                            m.turn_interruptions += 1
-                        else:
-                            m.turn_correct_silent += 1
-
-                    # Reward modulators already updated by _step_motor_inline;
-                    # just record the values for metrics.
+                    # Record reward modulators for CortexResult
                     for conn in circuit._connections:
                         if conn.source == _name and conn.reward_modulator is not None:
                             tgt = circuit._regions[conn.target].region
                             self._reward_modulators[conn.target].append(
                                 tgt.reward_modulator
                             )
-
-                    # Efference copy already handled by _step_motor_inline.
 
                     # Train motor decoder: previous M1 L2/3 -> current token
                     if s.motor_decoder is not None and _name in prev_motor_l23:
@@ -573,46 +513,8 @@ class RunHooks:
                     tag = f"rew({tgt})" if multi else "rew"
                     reward_str += f" {tag}={avg_rew:.2f}"
 
-        # Motor accuracy
+        # Motor logging deferred to Phase 4 Reporter (reads from ChatMotorProbe)
         motor_str = ""
-        for _name, s in circuit._regions.items():
-            if s.motor:
-                m = metrics[_name]
-                if m.motor_accuracies:
-                    tail_m = m.motor_accuracies[-rolling_window:]
-                    roll_m = sum(tail_m) / len(tail_m)
-                    # Silence rate: steps with confidence 0 / total steps
-                    tail_c = m.motor_confidences[-rolling_window:]
-                    silence = sum(1 for c in tail_c if c == 0.0) / max(len(tail_c), 1)
-                    motor_str += f" M1={roll_m:.4f} sil={silence:.0%}"
-                    # Compare decoder vs population accuracy
-                    if m.motor_decoder_accuracies:
-                        tail_dec = m.motor_decoder_accuracies[-rolling_window:]
-                        roll_dec = sum(tail_dec) / len(tail_dec)
-                        motor_str += f" dec={roll_dec:.4f}"
-                    if m.motor_population_accuracies:
-                        tail_pop = m.motor_population_accuracies[-rolling_window:]
-                        roll_pop = sum(tail_pop) / len(tail_pop)
-                        motor_str += f" pop={roll_pop:.4f}"
-                    # Average reward
-                    if m.motor_rewards:
-                        tail_r = m.motor_rewards[-rolling_window:]
-                        avg_r = sum(tail_r) / len(tail_r)
-                        motor_str += f" r={avg_r:+.3f}"
-                    # Turn-taking rates
-                    if m.turn_eom_steps > 0 or m.turn_input_steps > 0:
-                        eom_t = m.turn_eom_steps
-                        inp_t = m.turn_input_steps
-                        intr = m.turn_interruptions / inp_t if inp_t > 0 else 0
-                        unre = m.turn_unresponsive / eom_t if eom_t > 0 else 0
-                        motor_str += f" int={intr:.0%} unr={unre:.0%}"
-                        if m.turn_rambles > 0:
-                            motor_str += f" ram={m.turn_rambles}"
-                    # BG gate value
-                    if m.bg_gate_values:
-                        tail_g = m.bg_gate_values[-rolling_window:]
-                        avg_g = sum(tail_g) / len(tail_g)
-                        motor_str += f" bg={avg_g:.2f}"
 
         # BPC info
         bpc_str = ""
