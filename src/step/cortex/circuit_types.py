@@ -66,8 +66,6 @@ class RunMetrics:
     centroid_bpc_recent: float = 0.0
     elapsed_seconds: float = 0.0
     representation: dict = field(default_factory=dict)
-    # Per-probe snapshots keyed by probe.name (populated by runner)
-    probe_snapshots: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
