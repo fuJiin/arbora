@@ -1,7 +1,7 @@
 """Cortical region with L4 (input), L2/3 (associative), and L5 (output) layers.
 
 Three-layer architecture modeled on neocortical minicolumns:
-- L4 (input): receives feedforward drive, modulated by feedback context
+- L4 (input): receives feedforward drive, modulated by lateral context
 - L2/3 (associative): receives L4 feedforward + lateral context from
   other L2/3 neurons, enabling associative binding and pattern completion
 - L5 (output): receives intra-columnar L2/3 drive, projects subcortically
@@ -12,7 +12,6 @@ dendritic branches that recognize specific patterns of source activity.
 A segment fires when enough connected synapses have active sources.
 
 L4 segment types:
-- Feedback segments (L2/3 → L4): context from associative layer
 - Lateral segments (L4 → L4): context from same-layer temporal patterns
 
 L2/3 segment types:
@@ -75,8 +74,7 @@ class CorticalRegion:
         fb_boost: float = 0.4,
         burst_learning_scale: float = 3.0,
         # Dendritic segment parameters
-        n_fb_segments: int = 4,
-        n_lat_segments: int = 4,
+        n_l4_lat_segments: int = 4,
         n_l23_segments: int = 4,
         n_synapses_per_segment: int = 24,
         perm_threshold: float = 0.5,
@@ -107,8 +105,7 @@ class CorticalRegion:
         self.max_excitability = max_excitability
         self.fb_boost = fb_boost
         self.burst_learning_scale = burst_learning_scale
-        self.n_fb_segments = n_fb_segments
-        self.n_lat_segments = n_lat_segments
+        self.n_l4_lat_segments = n_l4_lat_segments
         self.n_l23_segments = n_l23_segments
         self.n_synapses_per_segment = n_synapses_per_segment
         self.perm_threshold = perm_threshold
@@ -158,8 +155,7 @@ class CorticalRegion:
         self.n_l5_total = self.l5.n_total
 
         # Pre-allocated source pools for segment growth (avoids per-call arange)
-        self._fb_source_pool = np.arange(self.n_l23_total)
-        self._lat_source_pool = np.arange(self.n_l4_total)
+        self._l4_lat_source_pool = np.arange(self.n_l4_total)
         self._l23_source_pool = np.arange(self.n_l23_total)
 
         # Column-level state (not per-lamina)
@@ -536,24 +532,16 @@ class CorticalRegion:
         n = self.n_l4_total
         n_syn = self.n_synapses_per_segment
 
-        # Feedback segments: L2/3 → L4
-        self.fb_seg_indices = np.zeros((n, self.n_fb_segments, n_syn), dtype=np.int32)
-        self.fb_seg_perm = np.zeros((n, self.n_fb_segments, n_syn))
-
         # Lateral segments: L4 → L4
-        self.lat_seg_indices = np.zeros((n, self.n_lat_segments, n_syn), dtype=np.int32)
-        self.lat_seg_perm = np.zeros((n, self.n_lat_segments, n_syn))
+        n_lat = self.n_l4_lat_segments
+        self.l4_lat_seg_indices = np.zeros((n, n_lat, n_syn), dtype=np.int32)
+        self.l4_lat_seg_perm = np.zeros((n, n_lat, n_syn))
 
-        fb_pool = np.arange(self.n_l23_total)
         lat_pool = np.arange(self.n_l4_total)
 
         for i in range(n):
-            for s in range(self.n_fb_segments):
-                self.fb_seg_indices[i, s] = self._rng.choice(
-                    fb_pool, n_syn, replace=len(fb_pool) < n_syn
-                )
-            for s in range(self.n_lat_segments):
-                self.lat_seg_indices[i, s] = self._rng.choice(
+            for s in range(self.n_l4_lat_segments):
+                self.l4_lat_seg_indices[i, s] = self._rng.choice(
                     lat_pool, n_syn, replace=len(lat_pool) < n_syn
                 )
 
@@ -677,25 +665,19 @@ class CorticalRegion:
         """Whether any apical source has been initialized."""
         return len(self._apical_sources) > 0
 
-    def predict_neuron(self, l4_idx: int, source_idx: int, segment_type: str = "fb"):
+    def predict_neuron(self, l4_idx: int, source_idx: int, segment_type: str = "lat"):
         """Set up a dendritic segment that fires when source_idx is active.
 
         For testing. Fills all synapses in segment 0 with the given source
         index and sets permanences to 1.0, guaranteeing the segment fires
         whenever the source neuron is active.
         """
-        if segment_type == "fb":
-            self.fb_seg_indices[l4_idx, 0, :] = source_idx
-            self.fb_seg_perm[l4_idx, 0, :] = 1.0
-        else:
-            self.lat_seg_indices[l4_idx, 0, :] = source_idx
-            self.lat_seg_perm[l4_idx, 0, :] = 1.0
+        self.l4_lat_seg_indices[l4_idx, 0, :] = source_idx
+        self.l4_lat_seg_perm[l4_idx, 0, :] = 1.0
 
-    def _get_source_pool(self, neuron: int, seg_type: str) -> np.ndarray:
-        """Get valid source neuron indices for growing synapses."""
-        if seg_type == "fb":
-            return self._fb_source_pool
-        return self._lat_source_pool
+    def _get_source_pool(self, neuron: int) -> np.ndarray:
+        """Get valid source neuron indices for growing lateral synapses."""
+        return self._l4_lat_source_pool
 
     def reset_working_memory(self):
         """Reset transient state, preserving learned synaptic weights and segments."""
@@ -768,10 +750,7 @@ class CorticalRegion:
         """
         predicted = np.zeros(self.n_l4_total, dtype=np.bool_)
         self._check_segments(
-            self.l23.active, self.fb_seg_indices, self.fb_seg_perm, predicted
-        )
-        self._check_segments(
-            self.l4.active, self.lat_seg_indices, self.lat_seg_perm, predicted
+            self.l4.active, self.l4_lat_seg_indices, self.l4_lat_seg_perm, predicted
         )
         return predicted
 
@@ -1232,10 +1211,6 @@ class CorticalRegion:
 
         # Context for adapt: use continuous traces (if enabled) for
         # weighted scoring, or boolean context for binary scoring
-        if self._seg_trace_l23 is not None:
-            fb_ctx = self._seg_trace_l23
-        else:
-            fb_ctx = self._pred_context_l23
         if self._seg_trace_l4 is not None:
             lat_ctx = self._seg_trace_l4
         else:
@@ -1250,15 +1225,8 @@ class CorticalRegion:
         if len(reinforce_neurons) > 0:
             self._adapt_segments_batch(
                 reinforce_neurons,
-                self.fb_seg_indices,
-                self.fb_seg_perm,
-                fb_ctx,
-                reinforce=True,
-            )
-            self._adapt_segments_batch(
-                reinforce_neurons,
-                self.lat_seg_indices,
-                self.lat_seg_perm,
+                self.l4_lat_seg_indices,
+                self.l4_lat_seg_perm,
                 lat_ctx,
                 reinforce=True,
             )
@@ -1268,15 +1236,8 @@ class CorticalRegion:
         if len(false_predicted) > 0:
             self._adapt_segments_batch(
                 false_predicted,
-                self.fb_seg_indices,
-                self.fb_seg_perm,
-                fb_ctx,
-                reinforce=False,
-            )
-            self._adapt_segments_batch(
-                false_predicted,
-                self.lat_seg_indices,
-                self.lat_seg_perm,
+                self.l4_lat_seg_indices,
+                self.l4_lat_seg_perm,
                 lat_ctx,
                 reinforce=False,
             )
@@ -1440,69 +1401,42 @@ class CorticalRegion:
     # ------------------------------------------------------------------
 
     def _grow_best_segment(self, neuron: int):
-        """Grow the best-matching L4 segment for a bursting neuron.
+        """Grow the best-matching L4 lateral segment for a bursting neuron.
 
-        Checks both fb (L2/3→L4) and lat (L4→L4) segment types,
-        picks the one with most context overlap. When segment traces
-        are enabled, uses continuous traces (recent history) for
-        overlap scoring and growth — giving segments temporal credit.
+        When segment traces are enabled, uses continuous traces (recent
+        history) for overlap scoring and growth — giving segments
+        temporal credit.
         """
-        best_overlap = -1.0
-        best_type = None
-
         # Use traces if available, else boolean context
-        fb_ctx = self._pred_context_l23
         lat_ctx = self._pred_context_l4
-        if self._seg_trace_l23 is not None:
-            fb_ctx = self._seg_trace_l23
         if self._seg_trace_l4 is not None:
             lat_ctx = self._seg_trace_l4
 
-        for seg_type, seg_indices, ctx in [
-            ("fb", self.fb_seg_indices, fb_ctx),
-            ("lat", self.lat_seg_indices, lat_ctx),
-        ]:
-            if not ctx.any():
-                continue
-            overlaps = ctx[seg_indices[neuron]].sum(axis=1)
-            max_overlap = float(overlaps.max())
-            if max_overlap > best_overlap:
-                best_overlap = max_overlap
-                best_type = seg_type
-
-        if best_type is None or best_overlap <= 0:
+        if not lat_ctx.any():
             return
 
-        if best_type == "fb":
-            seg_indices = self.fb_seg_indices
-            seg_perm = self.fb_seg_perm
-            ctx = fb_ctx
-        else:
-            seg_indices = self.lat_seg_indices
-            seg_perm = self.lat_seg_perm
-            ctx = lat_ctx
-
-        pool = self._get_source_pool(neuron, best_type)
         # Convert continuous trace to boolean for _grow_segment
         # (growth uses active/inactive distinction)
+        ctx = lat_ctx
         if ctx.dtype != np.bool_:
             threshold = self._pre_trace_threshold or 0.01
             ctx = ctx > threshold
-        self._grow_segment(neuron, seg_indices, seg_perm, ctx, pool)
+
+        pool = self._get_source_pool(neuron)
+        self._grow_segment(
+            neuron,
+            self.l4_lat_seg_indices,
+            self.l4_lat_seg_perm,
+            ctx,
+            pool,
+        )
 
     def _adapt_segments(self, neuron: int, reinforce: bool):
-        """Reinforce or punish active L4 segments (both fb and lat)."""
+        """Reinforce or punish active L4 lateral segments."""
         self._adapt_segment_array(
             neuron,
-            self.fb_seg_indices,
-            self.fb_seg_perm,
-            self._pred_context_l23,
-            reinforce,
-        )
-        self._adapt_segment_array(
-            neuron,
-            self.lat_seg_indices,
-            self.lat_seg_perm,
+            self.l4_lat_seg_indices,
+            self.l4_lat_seg_perm,
             self._pred_context_l4,
             reinforce,
         )

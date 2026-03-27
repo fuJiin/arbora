@@ -96,20 +96,20 @@ def build_canonical_circuit(
     )
 
     s2_cfg = _apply_overrides(_default_region2_config(), s2_overrides)
-    s2 = make_sensory_region(s2_cfg, s1.n_l5_total * s1_s2_buffer_depth, seed=123)
+    s2 = make_sensory_region(s2_cfg, s1.n_l23_total * s1_s2_buffer_depth, seed=123)
 
     s3_cfg = _apply_overrides(_default_region3_config(), s3_overrides)
-    s3 = make_sensory_region(s3_cfg, s2.n_l5_total * s2_s3_buffer_depth, seed=789)
+    s3 = make_sensory_region(s3_cfg, s2.n_l23_total * s2_s3_buffer_depth, seed=789)
 
     m2_cfg = _apply_overrides(_default_premotor_config(), m2_overrides)
-    m2_n_l5 = m2_cfg.n_columns * (m2_cfg.n_l5 or m2_cfg.n_l23)
+    m2_n_l23 = m2_cfg.n_columns * m2_cfg.n_l23
 
     m1_cfg = _apply_overrides(_default_motor_config(), m1_overrides)
     output_vocab = [
         ord(ch)
         for ch in encoder._char_to_idx  # type: ignore[attr-defined]
     ]
-    m1 = make_motor_region(m1_cfg, m2_n_l5, seed=456)
+    m1 = make_motor_region(m1_cfg, m2_n_l23, seed=456)
     # Set vocabulary for L5 output mapping
     m1._output_vocab = np.array(output_vocab, dtype=np.int64)
     m1.n_output_tokens = len(output_vocab)
@@ -124,16 +124,16 @@ def build_canonical_circuit(
     pfc_cfg = _apply_overrides(_default_pfc_config(), pfc_overrides)
     pfc = make_pfc_region(
         pfc_cfg,
-        s2.n_l5_total + s3.n_l5_total,
+        s2.n_l23_total + s3.n_l23_total,
         seed=999,
-        source_dims=[s2.n_l5_total, s3.n_l5_total],
+        source_dims=[s2.n_l23_total, s3.n_l23_total],
     )
 
     m2 = make_premotor_region(
         m2_cfg,
-        s2.n_l5_total + pfc.n_l5_total,
+        s2.n_l23_total + pfc.n_l23_total,
         seed=321,
-        source_dims=[s2.n_l5_total, pfc.n_l5_total],
+        source_dims=[s2.n_l23_total, pfc.n_l23_total],
     )
 
     # --- Circuit assembly ---
@@ -157,12 +157,11 @@ def build_canonical_circuit(
     circuit.add_region("PFC", pfc)
     circuit.add_region("M2", m2)
 
-    # --- Feedforward connections (L5 -> L4, corticocortical) ---
-    # L5 is the universal corticocortical output layer. Its firing
-    # rate encodes confidence-weighted representations (BAC gating +
-    # lateral prediction). This replaces the previous L2/3 -> L4 wiring.
+    # --- Feedforward connections (L2/3 -> L4, corticocortical) ---
+    # L2/3 is the canonical feedforward source (Felleman & Van Essen 1991).
+    # L5 is the feedback/subcortical output layer, NOT the FF source.
     circuit.connect(
-        s1.l5,
+        s1.l23,
         s2.l4,
         ConnectionRole.FEEDFORWARD,
         buffer_depth=s1_s2_buffer_depth,
@@ -170,18 +169,18 @@ def build_canonical_circuit(
         surprise_tracker=SurpriseTracker(),
     )
     circuit.connect(
-        s2.l5,
+        s2.l23,
         s3.l4,
         ConnectionRole.FEEDFORWARD,
         buffer_depth=s2_s3_buffer_depth,
         burst_gate=True,
         surprise_tracker=SurpriseTracker(),
     )
-    circuit.connect(s2.l5, pfc.l4, ConnectionRole.FEEDFORWARD)
-    circuit.connect(s3.l5, pfc.l4, ConnectionRole.FEEDFORWARD)
-    circuit.connect(s2.l5, m2.l4, ConnectionRole.FEEDFORWARD)
-    circuit.connect(pfc.l5, m2.l4, ConnectionRole.FEEDFORWARD)
-    circuit.connect(m2.l5, m1.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s2.l23, pfc.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s3.l23, pfc.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s2.l23, m2.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(pfc.l23, m2.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(m2.l23, m1.l4, ConnectionRole.FEEDFORWARD)
 
     # --- Apical feedback (L5 -> {L2/3, L5}, top-down context) ---
     # L5 projects back to lower regions' L2/3 and L5 apical dendrites
