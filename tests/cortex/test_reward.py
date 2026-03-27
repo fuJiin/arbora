@@ -10,6 +10,7 @@ from step.cortex.sensory import SensoryRegion
 from step.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
 from step.encoders.charbit import CharbitEncoder
 from step.environment import ChatEnv
+from step.probes.chat import ChatMotorProbe
 from tests.conftest import run_circuit
 
 
@@ -134,9 +135,10 @@ class TestRewardIntegration:
             ConnectionRole.FEEDFORWARD,
             reward_modulator=RewardModulator(),
         )
-        result = run_circuit(cortex, tokens)
-        m1_metrics = result.per_region["M1"]
-        assert len(m1_metrics.motor_rewards) > 0
+        probe = ChatMotorProbe()
+        result = run_circuit(cortex, tokens, probes=[probe])
+        snap = result.probe_snapshots["motor"]
+        assert len(snap["M1"]["motor_rewards"]) > 0
 
     def test_reward_with_eom_tokens(self, region1, motor, encoder):
         """EOM tokens trigger turn-taking state changes."""
@@ -161,8 +163,10 @@ class TestRewardIntegration:
             ConnectionRole.FEEDFORWARD,
             reward_modulator=RewardModulator(),
         )
-        result = run_circuit(cortex, tokens)
-        assert len(result.per_region["M1"].motor_rewards) > 0
+        probe = ChatMotorProbe()
+        result = run_circuit(cortex, tokens, probes=[probe])
+        snap = result.probe_snapshots["motor"]
+        assert len(snap["M1"]["motor_rewards"]) > 0
 
     def test_reward_modulators_in_result(self, region1, motor, encoder):
         """reward_modulators dict is populated when reward connections exist."""
@@ -291,20 +295,21 @@ class TestTurnTakingCounters:
             ConnectionRole.FEEDFORWARD,
             reward_modulator=RewardModulator(),
         )
-        result = run_circuit(cortex, tokens)
-        m = result.per_region["M1"]
+        probe = ChatMotorProbe()
+        result = run_circuit(cortex, tokens, probes=[probe])
+        m = result.probe_snapshots["motor"]["M1"]
         # Should have counted both phases
-        assert m.turn_input_steps > 0
-        assert m.turn_eom_steps > 0
+        assert m["turn_input_steps"] > 0
+        assert m["turn_eom_steps"] > 0
         # Totals should add up: every motor step is one of the 4 categories
         total = (
-            m.turn_interruptions
-            + m.turn_correct_silent
-            + m.turn_correct_speak
-            + m.turn_unresponsive
-            + m.turn_rambles
+            m["turn_interruptions"]
+            + m["turn_correct_silent"]
+            + m["turn_correct_speak"]
+            + m["turn_unresponsive"]
+            + m["turn_rambles"]
         )
-        assert total == m.turn_input_steps + m.turn_eom_steps
+        assert total == m["turn_input_steps"] + m["turn_eom_steps"]
 
     def test_counters_without_eom(self, region1, motor, encoder):
         """Without EOM, all steps are input phase."""
@@ -319,13 +324,14 @@ class TestTurnTakingCounters:
             ConnectionRole.FEEDFORWARD,
             reward_modulator=RewardModulator(),
         )
-        result = run_circuit(cortex, tokens)
-        m = result.per_region["M1"]
-        assert m.turn_eom_steps == 0
-        assert m.turn_input_steps > 0
-        assert m.turn_unresponsive == 0
-        assert m.turn_correct_speak == 0
-        assert m.turn_rambles == 0
+        probe = ChatMotorProbe()
+        result = run_circuit(cortex, tokens, probes=[probe])
+        m = result.probe_snapshots["motor"]["M1"]
+        assert m["turn_eom_steps"] == 0
+        assert m["turn_input_steps"] > 0
+        assert m["turn_unresponsive"] == 0
+        assert m["turn_correct_speak"] == 0
+        assert m["turn_rambles"] == 0
 
 
 class TestEchoReward:
