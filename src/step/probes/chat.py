@@ -69,26 +69,12 @@ class ChatLaminaProbe(LaminaProbe):
                 continue
 
             l23_active = region.l23.active
-
-            # Linear probe: accumulate (activation, label) pairs
-            self._probe_X[region_name].append(l23_active.astype(np.float32))
-            self._probe_y[region_name].append(stimulus_id)
-            # Cap buffer
-            window = self._probe_window * 2
-            if len(self._probe_X[region_name]) > window:
-                self._probe_X[region_name] = self._probe_X[region_name][
-                    -self._probe_window :
-                ]
-                self._probe_y[region_name] = self._probe_y[region_name][
-                    -self._probe_window :
-                ]
-
-            # Context discrimination: bigram tracking
-            if self._prev_token is not None:
-                neurons = frozenset(int(n) for n in np.nonzero(l23_active)[0])
-                key = (self._prev_token, stimulus_id)
-                self._bigram_patterns[region_name][key].append(neurons)
-                self._token_contexts[region_name][stimulus_id].add(self._prev_token)
+            self._observe_linear_probe(
+                region_name,
+                l23_active,
+                stimulus_id,
+            )
+            self._observe_ctx_disc(region_name, l23_active, stimulus_id)
 
         self._prev_token = stimulus_id
 
@@ -108,15 +94,52 @@ class ChatLaminaProbe(LaminaProbe):
         self._fit_linear_probes()
 
         for region_name in result:
-            # Linear probe accuracy
             result[region_name]["l23"]["linear_probe"] = self._probe_accuracy.get(
                 region_name, 0.0
             )
-
-            # Context discrimination
             result[region_name]["l23"]["ctx_disc"] = self._compute_ctx_disc(region_name)
 
         return result
+
+    # -----------------------------------------------------------------------
+    # Per-region observe helpers
+    # -----------------------------------------------------------------------
+
+    def _observe_linear_probe(
+        self,
+        region_name: str,
+        l23_active: np.ndarray,
+        stimulus_id: int,
+    ) -> None:
+        """Accumulate (activation, label) pairs for linear probe."""
+        self._probe_X[region_name].append(l23_active.astype(np.float32))
+        self._probe_y[region_name].append(stimulus_id)
+        # Cap buffer
+        window = self._probe_window * 2
+        if len(self._probe_X[region_name]) > window:
+            self._probe_X[region_name] = self._probe_X[region_name][
+                -self._probe_window :
+            ]
+            self._probe_y[region_name] = self._probe_y[region_name][
+                -self._probe_window :
+            ]
+
+    def _observe_ctx_disc(
+        self,
+        region_name: str,
+        l23_active: np.ndarray,
+        stimulus_id: int,
+    ) -> None:
+        """Track bigram context patterns for discrimination metric."""
+        if self._prev_token is not None:
+            neurons = frozenset(int(n) for n in np.nonzero(l23_active)[0])
+            key = (self._prev_token, stimulus_id)
+            self._bigram_patterns[region_name][key].append(neurons)
+            self._token_contexts[region_name][stimulus_id].add(self._prev_token)
+
+    # -----------------------------------------------------------------------
+    # Fit / compute
+    # -----------------------------------------------------------------------
 
     def _fit_linear_probes(self) -> None:
         """Fit SGD linear classifiers on accumulated L2/3 data."""
@@ -143,7 +166,10 @@ class ChatLaminaProbe(LaminaProbe):
                 continue
 
             clf = SGDClassifier(
-                loss="modified_huber", max_iter=100, random_state=42, n_jobs=1
+                loss="modified_huber",
+                max_iter=100,
+                random_state=42,
+                n_jobs=1,
             )
             clf.fit(X_train, y_train)
             self._probe_accuracy[region_name] = float(clf.score(X_test, y_test))
