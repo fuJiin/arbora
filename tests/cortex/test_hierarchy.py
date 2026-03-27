@@ -1,14 +1,12 @@
 import numpy as np
 import pytest
 
-from step.agent import ChatAgent
 from step.cortex import SensoryRegion
 from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
-from step.environment import ChatEnv
-from step.train import train
+from tests.conftest import run_circuit
 
 # ---------------------------------------------------------------------------
 # SurpriseTracker
@@ -90,7 +88,7 @@ class TestSurpriseModulatorScalesLearning:
 # ---------------------------------------------------------------------------
 
 
-class TestHierarchyRuns:
+class TestMultiRegionCircuit:
     @pytest.fixture()
     def encoder(self):
         return CharbitEncoder(length=4, width=5, chars="abcd")
@@ -141,9 +139,7 @@ class TestHierarchyRuns:
             ConnectionRole.FEEDFORWARD,
             surprise_tracker=SurpriseTracker(),
         )
-        env = ChatEnv(tokens)
-        agent = ChatAgent(encoder=encoder, circuit=circuit)
-        result = train(env, agent, log_interval=1000)
+        result = run_circuit(circuit, tokens, log_interval=1000)
         assert result.elapsed_seconds > 0
         assert len(result.surprise_modulators.get("S2", [])) > 0
 
@@ -163,8 +159,6 @@ class TestHierarchyRuns:
             ConnectionRole.FEEDFORWARD,
             surprise_tracker=SurpriseTracker(),
         )
-        env = ChatEnv(tokens)
-        agent = ChatAgent(encoder=encoder, circuit=circuit)
-        train(env, agent, log_interval=1000)
+        run_circuit(circuit, tokens, log_interval=1000)
         # Region 2 should have activated at some point
         assert region2.active_columns.sum() > 0

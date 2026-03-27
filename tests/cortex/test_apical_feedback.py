@@ -1,15 +1,13 @@
 import numpy as np
 import pytest
 
-from step.agent import ChatAgent
 from step.cortex import SensoryRegion
 from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker
 from step.cortex.region import CorticalRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
-from step.environment import ChatEnv
-from step.train import train
+from tests.conftest import run_circuit
 
 # ---------------------------------------------------------------------------
 # Apical context initialization
@@ -187,9 +185,7 @@ class TestHierarchyApical:
             surprise_tracker=SurpriseTracker(),
         )
         circuit.connect(r2.l23, r1.l4, ConnectionRole.APICAL)
-        env = ChatEnv(tokens)
-        agent = ChatAgent(encoder=encoder, circuit=circuit)
-        result = train(env, agent, log_interval=1000)
+        result = run_circuit(circuit, tokens, log_interval=1000)
         assert result.elapsed_seconds > 0
 
     def test_apical_context_flows(self, regions, encoder):
@@ -206,9 +202,7 @@ class TestHierarchyApical:
             surprise_tracker=SurpriseTracker(),
         )
         circuit.connect(r2.l23, r1.l4, ConnectionRole.APICAL)
-        env = ChatEnv(tokens)
-        agent = ChatAgent(encoder=encoder, circuit=circuit)
-        train(env, agent, log_interval=1000)
+        run_circuit(circuit, tokens, log_interval=1000)
         assert r1._apical_context.any()
 
     def test_no_apical_without_init(self, encoder):
@@ -241,8 +235,6 @@ class TestHierarchyApical:
             ConnectionRole.FEEDFORWARD,
             surprise_tracker=SurpriseTracker(),
         )
-        env = ChatEnv(tokens)
-        agent = ChatAgent(encoder=encoder, circuit=circuit)
-        result = train(env, agent, log_interval=1000)
+        result = run_circuit(circuit, tokens, log_interval=1000)
         assert result.elapsed_seconds > 0
         assert not r1.has_apical
