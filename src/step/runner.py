@@ -1,5 +1,8 @@
 """Cortex training loop with natural prediction measurement."""
 
+from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from step.agent import ChatAgent
@@ -8,6 +11,7 @@ from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY  # noqa: F401 — re-exported for tests
 from step.environment import ChatEnv
+from step.probes.core import Probe
 from step.probes.diagnostics import CortexDiagnostics
 from step.train import train
 
@@ -59,6 +63,7 @@ def run_cortex(
     rolling_window: int = 100,
     diagnostics: CortexDiagnostics | None = None,
     show_predictions: int = 0,
+    probes: Sequence[Probe] = (),
 ) -> RunMetrics:
     """Run cortex model on a token sequence, measuring prediction quality.
 
@@ -79,9 +84,13 @@ def run_cortex(
         log_interval=log_interval,
         rolling_window=rolling_window,
         show_predictions=show_predictions,
+        probes=probes,
     )
     _copy_diag(cortex, "S1", diagnostics)
-    return result.per_region["S1"]
+    # Attach probe snapshots to the per-region metrics for caller access
+    metrics = result.per_region["S1"]
+    metrics.probe_snapshots = result.probe_snapshots
+    return metrics
 
 
 @dataclass
@@ -90,6 +99,7 @@ class HierarchyMetrics:
     region2: RunMetrics = field(default_factory=RunMetrics)
     surprise_modulators: list[float] = field(default_factory=list)
     elapsed_seconds: float = 0.0
+    probe_snapshots: dict[str, dict] = field(default_factory=dict)
 
 
 def run_hierarchy(
@@ -107,6 +117,7 @@ def run_hierarchy(
     rolling_window: int = 100,
     diagnostics1: CortexDiagnostics | None = None,
     diagnostics2: CortexDiagnostics | None = None,
+    probes: Sequence[Probe] = (),
 ) -> HierarchyMetrics:
     """Run two-region hierarchy: S1 → S2.
 
@@ -155,6 +166,7 @@ def run_hierarchy(
         agent,
         log_interval=log_interval,
         rolling_window=rolling_window,
+        probes=probes,
     )
 
     _copy_diag(cortex, "S1", diagnostics1)
@@ -165,4 +177,5 @@ def run_hierarchy(
     metrics.region2 = result.per_region["S2"]
     metrics.surprise_modulators = result.surprise_modulators.get("S2", [])
     metrics.elapsed_seconds = result.elapsed_seconds
+    metrics.probe_snapshots = result.probe_snapshots
     return metrics
