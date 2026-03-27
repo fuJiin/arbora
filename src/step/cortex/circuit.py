@@ -597,10 +597,8 @@ class Circuit:
                 "ff_weights": r.ff_weights,
                 "l4_to_l23_weights": r.l4_to_l23_weights,
                 "l23_to_l5_weights": r.l23_to_l5_weights,
-                "fb_seg_indices": r.fb_seg_indices,
-                "fb_seg_perm": r.fb_seg_perm,
-                "lat_seg_indices": r.lat_seg_indices,
-                "lat_seg_perm": r.lat_seg_perm,
+                "l4_lat_seg_indices": r.l4_lat_seg_indices,
+                "l4_lat_seg_perm": r.l4_lat_seg_perm,
                 "l23_seg_indices": r.l23_seg_indices,
                 "l23_seg_perm": r.l23_seg_perm,
                 "l5_seg_indices": r.l5_seg_indices,
@@ -691,10 +689,9 @@ class Circuit:
                 r.l23_to_l5_weights[:] = region_data["l23_to_l5_weights"]
             # Old checkpoints may have l23_lateral_weights — skip it.
             # L2/3 lateral now uses segments only.
-            r.fb_seg_indices[:] = region_data["fb_seg_indices"]
-            r.fb_seg_perm[:] = region_data["fb_seg_perm"]
-            r.lat_seg_indices[:] = region_data["lat_seg_indices"]
-            r.lat_seg_perm[:] = region_data["lat_seg_perm"]
+            # Old checkpoints may have fb_seg — skip it (removed).
+            r.l4_lat_seg_indices[:] = region_data["l4_lat_seg_indices"]
+            r.l4_lat_seg_perm[:] = region_data["l4_lat_seg_perm"]
             r.l23_seg_indices[:] = region_data["l23_seg_indices"]
             r.l23_seg_perm[:] = region_data["l23_seg_perm"]
             if "l5_seg_indices" in region_data:

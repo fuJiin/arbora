@@ -64,8 +64,8 @@ class TestActivation:
 
     def test_precise_when_predicted(self, region):
         """If a neuron was predicted, its column should activate precisely."""
-        region.predict_neuron(3, 0, segment_type="fb")
-        region.l23.active[0] = True
+        region.predict_neuron(3, 0, segment_type="lat")
+        region.l4.active[0] = True
 
         drive = col_drive([1.0, 0.5, 0.3] + [0.0] * 13, 4)
         region.step(drive)
@@ -78,8 +78,8 @@ class TestActivation:
 
     def test_excitability_breaks_ties(self, region):
         region.l4.excitability[2] = 10.0
-        region.predict_neuron(2, 0, segment_type="fb")
-        region.l23.active[0] = True
+        region.predict_neuron(2, 0, segment_type="lat")
+        region.l4.active[0] = True
 
         drive = col_drive([1.0, 0.5, 0.3] + [0.0] * 13, 4)
         region.step(drive)
@@ -323,9 +323,9 @@ class TestLearning:
 # ---------------------------------------------------------------------------
 
 
-class TestFeedback:
-    def test_feedback_biases_neuron_selection(self):
-        """Strong feedback to a specific L4 neuron should make it win
+class TestLateralPrediction:
+    def test_lateral_biases_neuron_selection(self):
+        """Lateral prediction to a specific L4 neuron should make it win
         and produce a precise (non-burst) activation."""
         r = CorticalRegion(
             8,
@@ -335,8 +335,8 @@ class TestFeedback:
             k_columns=1,
         )
         target = 3  # col 0, neuron 3
-        r.predict_neuron(target, 0, segment_type="fb")
-        r.l23.active[0] = True
+        r.predict_neuron(target, 0, segment_type="lat")
+        r.l4.active[0] = True  # L4 lateral context
 
         r.step(col_drive([1.0, 0.0, 0.0, 0.0], 4))
         assert r.l4.active[target]
@@ -392,29 +392,26 @@ class TestDendriticSegments:
     def test_segment_arrays_initialized(self):
         r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
         n_syn = r.n_synapses_per_segment
-        assert r.fb_seg_indices.shape == (8, 4, n_syn)
-        assert r.fb_seg_perm.shape == (8, 4, n_syn)
-        assert r.lat_seg_indices.shape == (8, 4, n_syn)
-        assert r.lat_seg_perm.shape == (8, 4, n_syn)
+        assert r.l4_lat_seg_indices.shape == (8, 4, n_syn)
+        assert r.l4_lat_seg_perm.shape == (8, 4, n_syn)
 
     def test_segments_start_disconnected(self):
         """All permanences start at 0 — no predictions initially."""
         r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
-        assert r.fb_seg_perm.max() == 0.0
-        assert r.lat_seg_perm.max() == 0.0
+        assert r.l4_lat_seg_perm.max() == 0.0
 
     def test_no_predictions_initially(self):
         """With all permanences at 0, no neurons should be predicted."""
         r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
-        r.l23.active[0] = True
+        r.l4.active[0] = True
         pred = r.get_prediction(k=4)
         assert len(pred) == 0
 
     def test_predict_neuron_helper(self):
         """predict_neuron sets up a segment that fires."""
         r = CorticalRegion(8, n_columns=4, n_l4=2, n_l23=2, k_columns=1)
-        r.predict_neuron(3, 0, segment_type="fb")
-        r.l23.active[0] = True
+        r.predict_neuron(3, 0, segment_type="lat")
+        r.l4.active[0] = True
         pred = r.get_prediction(k=4)
         assert 3 in pred
 
@@ -434,7 +431,7 @@ class TestDendriticSegments:
         col1_neurons = [2, 3]
         any_grown = False
         for n in col1_neurons:
-            if r.fb_seg_perm[n].max() > 0 or r.lat_seg_perm[n].max() > 0:
+            if r.l4_lat_seg_perm[n].max() > 0:
                 any_grown = True
         assert any_grown
 
@@ -478,12 +475,12 @@ class TestDendriticSegments:
             k_columns=1,
             perm_decrement=0.2,
         )
-        r.predict_neuron(0, 0, segment_type="fb")
-        r.l23.active[0] = True
+        r.predict_neuron(0, 0, segment_type="lat")
+        r.l4.active[0] = True
 
-        initial_perm = r.fb_seg_perm[0, 0, 0]
+        initial_perm = r.l4_lat_seg_perm[0, 0, 0]
         r.step(col_drive([0.0, 1.0, 0.0, 0.0], 2))
-        assert r.fb_seg_perm[0, 0, 0] < initial_perm
+        assert r.l4_lat_seg_perm[0, 0, 0] < initial_perm
 
     def test_sensory_local_connectivity(self):
         """SensoryRegion segments should only connect to local neurons."""
@@ -495,12 +492,12 @@ class TestDendriticSegments:
             k_columns=2,
         )
         radius = max(1, 8 // 4)  # 2
-        for s_idx in range(s.n_fb_segments):
+        for s_idx in range(s.n_l4_lat_segments):
             for syn_idx in range(s.n_synapses_per_segment):
-                source = s.fb_seg_indices[0, s_idx, syn_idx]
-                source_col = source // s.n_l23
+                source = s.l4_lat_seg_indices[0, s_idx, syn_idx]
+                source_col = source // s.n_l4
                 assert source_col <= radius, (
-                    f"neuron 0 has fb synapse to col {source_col}, expected <= {radius}"
+                    f"neuron 0 lat synapse col {source_col} > {radius}"
                 )
 
 
