@@ -89,17 +89,23 @@ def warmup(cortex, encoder, tokens, log_interval=2000):
     n = len(tokens)
     print(f"{DIM}Warming up on {n:,} chars...{RESET}")
 
+    from step.probes.core import LaminaProbe
+
     env = ChatEnv(tokens)
     agent = ChatAgent(encoder=encoder, circuit=cortex)
+    probe = LaminaProbe(l23_sample_interval=1)
     f = io.StringIO()
     with contextlib.redirect_stdout(f):
-        result = train(env, agent, log_interval=log_interval)
+        result = train(env, agent, log_interval=log_interval, probes=[probe])
     s1 = result.per_region["S1"]
+    snap = result.probe_snapshots.get("lamina", {}).get("S1", {})
+    l4 = snap.get("l4", {})
+    burst_rate = 1.0 - l4.get("recall", 0.0)
     print(
         f"{DIM}Warmup complete: "
         f"BPC={s1.bpc:.2f} "
         f"recent={s1.bpc_recent:.2f} "
-        f"burst={s1.representation.get('burst_rate', 0):.0%}{RESET}\n"
+        f"burst={burst_rate:.0%}{RESET}\n"
     )
     return result
 
