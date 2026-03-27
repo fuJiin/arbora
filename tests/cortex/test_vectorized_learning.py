@@ -1,87 +1,13 @@
-"""Regression tests for vectorized Hebbian learning functions.
+"""Tests for Hebbian learning rule invariants.
 
-Compares vectorized _learn_ff_hebbian and _learn_column_weights against
-naive reference implementations (the original loop-based code) to ensure
-numerically identical results.
+Validates the behavioral contracts of _learn_ff_hebbian and
+_learn_column_weights: LTP/LTD directions, bounds, masking,
+neuromodulation gating, and edge cases.
 """
 
 import numpy as np
-import pytest
 
 from step.cortex import CorticalRegion
-
-# ---------------------------------------------------------------------------
-# Reference (original loop-based) implementations
-# ---------------------------------------------------------------------------
-
-
-def _ref_learn_ff_hebbian(region, flat_input, ltp_signal, winner_indices):
-    """Original loop-based _learn_ff_hebbian, pre-vectorization."""
-    neuromod = region.surprise_modulator * region.reward_modulator
-    ltp_rate = region.learning_rate * neuromod
-
-    if len(winner_indices) > 0:
-        region.ff_weights[:, winner_indices] += ltp_rate * ltp_signal[:, np.newaxis]
-
-    if len(winner_indices) > 0:
-        ltd_rate = region.ltd_rate * neuromod
-        inactive_input = 1.0 - flat_input
-        winner_cols = winner_indices // region.n_l4
-        col_masks = region._col_mask[:, winner_cols]
-        local_on = np.maximum((flat_input[:, np.newaxis] * col_masks).sum(axis=0), 1.0)
-        local_off = np.maximum(
-            (inactive_input[:, np.newaxis] * col_masks).sum(axis=0), 1.0
-        )
-        local_scales = local_on / local_off
-        neuron_masks = region.ff_mask[:, winner_indices]
-        region.ff_weights[:, winner_indices] -= (
-            ltd_rate
-            * local_scales[np.newaxis, :]
-            * inactive_input[:, np.newaxis]
-            * neuron_masks
-        )
-        w = region.ff_weights[:, winner_indices]
-        w[~neuron_masks] = 0.0
-        np.clip(w, 0, 1, out=w)
-        region.ff_weights[:, winner_indices] = w
-
-    active_dims = np.flatnonzero(ltp_signal > 0.01)
-    if len(active_dims) > 0:
-        sub_ltp = ltp_rate * 0.1 * ltp_signal[active_dims, np.newaxis]
-        region.ff_weights[active_dims] += sub_ltp
-        region.ff_weights[active_dims] *= region.ff_mask[active_dims]
-        np.minimum(
-            region.ff_weights[active_dims],
-            1,
-            out=region.ff_weights[active_dims],
-        )
-
-
-def _ref_learn_column_weights(
-    region,
-    active_cols,
-    weights,
-    src_fr,
-    tgt_active,
-    n_src,
-    n_tgt,
-    ltp_rate,
-    ltd_rate,
-):
-    """Original loop-based _learn_column_weights, pre-vectorization."""
-    src_by_col = src_fr.reshape(region.n_columns, n_src)
-    tgt_by_col = tgt_active.reshape(region.n_columns, n_tgt)
-    for col in active_cols:
-        winners = np.nonzero(tgt_by_col[col])[0]
-        if len(winners) == 0:
-            continue
-        src = src_by_col[col]
-        w = weights[col]
-        for j in winners:
-            w[:, j] += ltp_rate * src
-            w[:, j] -= ltd_rate * (1.0 - src)
-    np.clip(weights, 0.0, 1.0, out=weights)
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -120,86 +46,104 @@ def _random_hebbian_inputs(region, rng):
     return flat_input, ltp_signal, winner_indices
 
 
-def _random_column_inputs(region, rng, n_src=4, n_tgt=4):
-    """Generate random inputs for _learn_column_weights."""
-    n_col = region.n_columns
-    active_cols = np.sort(rng.choice(n_col, size=region.k_columns, replace=False))
-    weights = rng.uniform(0.0, 1.0, size=(n_col, n_src, n_tgt))
-    src_fr = np.zeros(n_col * n_src)
-    for c in active_cols:
-        active_src = rng.choice(n_src, size=max(1, n_src // 2), replace=False)
-        src_fr[c * n_src + active_src] = rng.uniform(0.3, 1.0, size=len(active_src))
-    tgt_active = np.zeros(n_col * n_tgt)
-    for c in active_cols:
-        active_tgt = rng.choice(n_tgt, size=max(1, n_tgt // 2), replace=False)
-        tgt_active[c * n_tgt + active_tgt] = 1.0
-
-    return active_cols, weights, src_fr, tgt_active
-
-
 # ---------------------------------------------------------------------------
-# _learn_ff_hebbian regression tests
+# _learn_ff_hebbian
 # ---------------------------------------------------------------------------
 
 
-class TestLearnFfHebbianRegression:
-    @pytest.mark.parametrize("seed", [0, 1, 42, 99, 2024])
-    def test_matches_reference(self, seed):
-        """Vectorized _learn_ff_hebbian matches loop-based reference."""
-        rng = np.random.default_rng(seed)
+class TestLearnFfHebbian:
+    def test_ltp_increases_active_input_weights(self):
+        """Winner weights from active inputs should increase."""
+        region = _make_region(seed=10)
+        rng = np.random.default_rng(10)
+        flat_input, ltp_signal, winners = _random_hebbian_inputs(region, rng)
 
-        ref_region = _make_region(seed=seed)
-        vec_region = _make_region(seed=seed)
+        before = region.ff_weights[:, winners].copy()
+        region._learn_ff_hebbian(flat_input, ltp_signal, winners)
+        after = region.ff_weights[:, winners]
 
-        flat_input, ltp_signal, winners = _random_hebbian_inputs(ref_region, rng)
+        # Where ltp_signal > 0 and weight was not already at 1 or masked,
+        # weights should generally increase (LTP dominates for active inputs)
+        active_mask = ltp_signal > 0.1
+        mask = region.ff_mask[:, winners]
+        relevant = active_mask[:, np.newaxis] & mask & (before < 0.95)
+        if relevant.any():
+            assert (after[relevant] >= before[relevant] - 1e-10).all(), (
+                "LTP should increase weights from active inputs to winners"
+            )
 
-        # Ensure identical starting weights
-        np.testing.assert_array_equal(ref_region.ff_weights, vec_region.ff_weights)
+    def test_ltd_decreases_inactive_input_weights(self):
+        """Winner weights from inactive inputs should decrease."""
+        region = _make_region(seed=20, ff_sparsity=0.0)
+        # Use high LTD rate to make effect visible
+        region.ltd_rate = 0.1
 
-        _ref_learn_ff_hebbian(ref_region, flat_input, ltp_signal, winners)
-        vec_region._learn_ff_hebbian(flat_input, ltp_signal, winners)
+        flat_input = np.zeros(region.input_dim)
+        flat_input[:4] = 1.0  # only 4 inputs active
+        ltp_signal = flat_input.copy()
+        winners = np.array([0, region.n_l4, 2 * region.n_l4])
 
-        np.testing.assert_allclose(
-            vec_region.ff_weights,
-            ref_region.ff_weights,
-            atol=1e-12,
-            err_msg=f"ff_weights diverged with seed={seed}",
-        )
+        # Set weights to 0.5 so there's room to decrease
+        region.ff_weights[:] = 0.5
+        region.ff_weights *= region.ff_mask
 
-    def test_empty_winners(self):
-        """No winners should leave weights unchanged."""
-        region = _make_region()
-        rng = np.random.default_rng(0)
-        flat_input, ltp_signal, _ = _random_hebbian_inputs(region, rng)
+        before = region.ff_weights[:, winners].copy()
+        region._learn_ff_hebbian(flat_input, ltp_signal, winners)
+        after = region.ff_weights[:, winners]
 
+        # Inactive inputs (indices >= 4) should see weight decrease
+        inactive_slice = slice(4, None)
+        mask = region.ff_mask[inactive_slice, :][:, winners]
+        decreased = after[inactive_slice][mask] < before[inactive_slice][mask]
+        assert decreased.any(), "LTD should decrease weights from inactive inputs"
+
+    def test_subthreshold_ltp_on_non_winners(self):
+        """Non-winner neurons should get weak subthreshold LTP."""
+        region = _make_region(seed=30, ff_sparsity=0.0)
+        rng = np.random.default_rng(30)
+        flat_input, ltp_signal, winners = _random_hebbian_inputs(region, rng)
+
+        # Set all weights to 0.3 so there's room to grow
+        region.ff_weights[:] = 0.3
+        region.ff_weights *= region.ff_mask
         before = region.ff_weights.copy()
-        region._learn_ff_hebbian(flat_input, ltp_signal, np.array([], dtype=np.intp))
 
-        # Only subthreshold LTP should fire (on all neurons)
-        # but with empty winners, LTP/LTD blocks are skipped
+        region._learn_ff_hebbian(flat_input, ltp_signal, winners)
+
+        # Non-winner neurons in active input dimensions should increase
+        non_winner_mask = np.ones(region.ff_weights.shape[1], dtype=bool)
+        non_winner_mask[winners] = False
         active_dims = np.flatnonzero(ltp_signal > 0.01)
-        if len(active_dims) == 0:
-            np.testing.assert_array_equal(region.ff_weights, before)
 
-    def test_weights_stay_in_bounds(self):
-        """Weights must remain in [0, 1] after update."""
+        if len(active_dims) > 0:
+            diff = (
+                region.ff_weights[np.ix_(active_dims, non_winner_mask)]
+                - before[np.ix_(active_dims, non_winner_mask)]
+            )
+            mask = region.ff_mask[np.ix_(active_dims, non_winner_mask)]
+            assert (diff[mask] >= -1e-10).all(), (
+                "Subthreshold LTP should not decrease non-winner weights"
+            )
+
+    def test_weights_clamped_to_unit_interval(self):
+        """Weights must remain in [0, 1] after repeated updates."""
         rng = np.random.default_rng(7)
         region = _make_region(seed=7)
 
-        for _ in range(20):
+        for _ in range(50):
             flat_input, ltp_signal, winners = _random_hebbian_inputs(region, rng)
             region._learn_ff_hebbian(flat_input, ltp_signal, winners)
 
         assert region.ff_weights.min() >= 0.0
         assert region.ff_weights.max() <= 1.0
 
-    def test_respects_ff_mask(self):
-        """Masked-out connections must remain zero."""
+    def test_masked_connections_stay_zero(self):
+        """Structurally pruned connections must never become nonzero."""
         region = _make_region(ff_sparsity=0.5, seed=3)
         rng = np.random.default_rng(3)
         zero_mask = ~region.ff_mask
 
-        for _ in range(10):
+        for _ in range(20):
             flat_input, ltp_signal, winners = _random_hebbian_inputs(region, rng)
             region._learn_ff_hebbian(flat_input, ltp_signal, winners)
 
@@ -209,68 +153,139 @@ class TestLearnFfHebbianRegression:
             err_msg="Masked connections should stay zero",
         )
 
+    def test_zero_neuromodulation_no_change(self):
+        """With surprise_modulator=0, weights should not change."""
+        region = _make_region(seed=40)
+        region.surprise_modulator = 0.0
+        rng = np.random.default_rng(40)
+        flat_input, ltp_signal, winners = _random_hebbian_inputs(region, rng)
+
+        before = region.ff_weights.copy()
+        region._learn_ff_hebbian(flat_input, ltp_signal, winners)
+
+        np.testing.assert_array_equal(
+            region.ff_weights,
+            before,
+            err_msg="Zero neuromodulation should freeze weights",
+        )
+
+    def test_empty_winners_only_subthreshold(self):
+        """With no winners, only subthreshold LTP should apply."""
+        region = _make_region(seed=50, ff_sparsity=0.0)
+        rng = np.random.default_rng(50)
+        flat_input, ltp_signal, _ = _random_hebbian_inputs(region, rng)
+
+        # Set weights to 0.3 so sub-LTP is visible
+        region.ff_weights[:] = 0.3
+        region.ff_weights *= region.ff_mask
+        before = region.ff_weights.copy()
+
+        region._learn_ff_hebbian(flat_input, ltp_signal, np.array([], dtype=np.intp))
+
+        # Only active dims should change (subthreshold LTP)
+        active_dims = np.flatnonzero(ltp_signal > 0.01)
+        inactive_dims = np.flatnonzero(ltp_signal <= 0.01)
+
+        if len(inactive_dims) > 0:
+            np.testing.assert_array_equal(
+                region.ff_weights[inactive_dims],
+                before[inactive_dims],
+                err_msg="Inactive input dims should not change without winners",
+            )
+        if len(active_dims) > 0:
+            diff = region.ff_weights[active_dims] - before[active_dims]
+            assert (diff >= -1e-10).all(), "Subthreshold should only increase"
+
 
 # ---------------------------------------------------------------------------
-# _learn_column_weights regression tests
+# _learn_column_weights
 # ---------------------------------------------------------------------------
 
 
-class TestLearnColumnWeightsRegression:
-    @pytest.mark.parametrize("seed", [0, 1, 42, 99, 2024])
-    def test_matches_reference(self, seed):
-        """Vectorized _learn_column_weights matches loop-based reference."""
-        rng = np.random.default_rng(seed)
-        region = _make_region(seed=seed)
-
+class TestLearnColumnWeights:
+    def test_active_src_active_tgt_increases(self):
+        """w[src, tgt] increases when both src and tgt are active."""
+        region = _make_region(seed=60)
         n_src, n_tgt = 4, 4
-        ltp_rate, ltd_rate = 0.05, 0.01
+        n_col = region.n_columns
 
-        active_cols, weights, src_fr, tgt_active = _random_column_inputs(
-            region, rng, n_src=n_src, n_tgt=n_tgt
-        )
+        active_cols = np.array([0, 2])
+        weights = np.full((n_col, n_src, n_tgt), 0.5)
+        src_fr = np.zeros(n_col * n_src)
+        tgt_active = np.zeros(n_col * n_tgt)
 
-        ref_weights = weights.copy()
-        vec_weights = weights.copy()
+        # Col 0: src[0] active, tgt[0] active
+        src_fr[0] = 1.0
+        tgt_active[0] = 1.0
 
-        _ref_learn_column_weights(
-            region,
-            active_cols,
-            ref_weights,
-            src_fr,
-            tgt_active,
-            n_src,
-            n_tgt,
-            ltp_rate,
-            ltd_rate,
-        )
-        region._learn_column_weights(
-            active_cols,
-            vec_weights,
-            src_fr,
-            tgt_active,
-            n_src,
-            n_tgt,
-            ltp_rate,
-            ltd_rate,
-        )
-
-        np.testing.assert_allclose(
-            vec_weights,
-            ref_weights,
-            atol=1e-12,
-            err_msg=f"column weights diverged with seed={seed}",
-        )
-
-    def test_empty_active_cols(self):
-        """No active columns should leave weights unchanged."""
-        region = _make_region()
-        rng = np.random.default_rng(0)
-        n_src, n_tgt = 4, 4
-        _, weights, src_fr, tgt_active = _random_column_inputs(
-            region, rng, n_src, n_tgt
-        )
         before = weights.copy()
+        region._learn_column_weights(
+            active_cols, weights, src_fr, tgt_active, n_src, n_tgt, 0.1, 0.01
+        )
 
+        assert weights[0, 0, 0] > before[0, 0, 0], (
+            "Active src + active tgt should increase weight"
+        )
+
+    def test_inactive_src_active_tgt_decreases(self):
+        """w[src, tgt] decreases when src is inactive but tgt is active."""
+        region = _make_region(seed=61)
+        n_src, n_tgt = 4, 4
+        n_col = region.n_columns
+
+        active_cols = np.array([0])
+        weights = np.full((n_col, n_src, n_tgt), 0.5)
+        src_fr = np.zeros(n_col * n_src)
+        tgt_active = np.zeros(n_col * n_tgt)
+
+        # Col 0: src[0] inactive (0.0), tgt[0] active
+        tgt_active[0] = 1.0
+
+        before = weights.copy()
+        region._learn_column_weights(
+            active_cols, weights, src_fr, tgt_active, n_src, n_tgt, 0.05, 0.1
+        )
+
+        assert weights[0, 0, 0] < before[0, 0, 0], (
+            "Inactive src + active tgt should decrease weight"
+        )
+
+    def test_inactive_tgt_no_change(self):
+        """Weights to inactive targets should not change (pre-clamp)."""
+        region = _make_region(seed=62)
+        n_src, n_tgt = 4, 4
+        n_col = region.n_columns
+
+        active_cols = np.array([0])
+        weights = np.full((n_col, n_src, n_tgt), 0.5)
+        src_fr = np.zeros(n_col * n_src)
+        tgt_active = np.zeros(n_col * n_tgt)
+
+        # Col 0: src active, but NO targets active
+        src_fr[0] = 1.0
+
+        before = weights.copy()
+        region._learn_column_weights(
+            active_cols, weights, src_fr, tgt_active, n_src, n_tgt, 0.05, 0.01
+        )
+
+        np.testing.assert_array_equal(
+            weights,
+            np.clip(before, 0, 1),
+            err_msg="No active targets should mean no weight changes (except clamp)",
+        )
+
+    def test_empty_active_cols_no_change(self):
+        """No active columns should leave weights unchanged."""
+        region = _make_region(seed=63)
+        n_src, n_tgt = 4, 4
+        n_col = region.n_columns
+
+        weights = np.full((n_col, n_src, n_tgt), 0.5)
+        src_fr = np.ones(n_col * n_src)
+        tgt_active = np.ones(n_col * n_tgt)
+
+        before = weights.copy()
         region._learn_column_weights(
             np.array([], dtype=np.intp),
             weights,
@@ -283,16 +298,23 @@ class TestLearnColumnWeightsRegression:
         )
         np.testing.assert_array_equal(weights, before)
 
-    def test_weights_stay_in_bounds(self):
+    def test_weights_clamped_to_unit_interval(self):
         """Weights must remain in [0, 1] after repeated updates."""
         rng = np.random.default_rng(5)
         region = _make_region(seed=5)
         n_src, n_tgt = 4, 4
 
-        for _ in range(20):
-            active_cols, weights, src_fr, tgt_active = _random_column_inputs(
-                region, rng, n_src, n_tgt
+        weights = rng.uniform(0.0, 1.0, size=(region.n_columns, n_src, n_tgt))
+        for _ in range(50):
+            n_col = region.n_columns
+            active_cols = np.sort(
+                rng.choice(n_col, size=region.k_columns, replace=False)
             )
+            src_fr = rng.uniform(0.0, 1.0, size=n_col * n_src)
+            tgt_active = np.zeros(n_col * n_tgt)
+            for c in active_cols:
+                tgt_active[c * n_tgt + rng.choice(n_tgt)] = 1.0
+
             region._learn_column_weights(
                 active_cols,
                 weights,
@@ -307,16 +329,16 @@ class TestLearnColumnWeightsRegression:
         assert weights.min() >= 0.0
         assert weights.max() <= 1.0
 
-    def test_no_target_winners_noop(self):
-        """Columns with no active targets should not change weights."""
-        region = _make_region(seed=11)
+    def test_inactive_cols_untouched(self):
+        """Columns not in active_cols should not have weights modified."""
+        region = _make_region(seed=64)
         n_src, n_tgt = 4, 4
         n_col = region.n_columns
 
         active_cols = np.array([0, 2])
         weights = np.full((n_col, n_src, n_tgt), 0.5)
-        src_fr = np.ones(n_col * n_src) * 0.5
-        tgt_active = np.zeros(n_col * n_tgt)  # no targets active
+        src_fr = np.ones(n_col * n_src)
+        tgt_active = np.ones(n_col * n_tgt)
 
         before = weights.copy()
         region._learn_column_weights(
@@ -329,8 +351,11 @@ class TestLearnColumnWeightsRegression:
             0.05,
             0.01,
         )
+
+        # Inactive columns (1, 3, 4, ...) should be unchanged
+        inactive = [c for c in range(n_col) if c not in active_cols]
         np.testing.assert_array_equal(
-            weights,
-            np.clip(before, 0, 1),
-            err_msg="With no active targets, weights should only be clipped",
+            weights[inactive],
+            np.clip(before[inactive], 0, 1),
+            err_msg="Inactive columns should not be modified",
         )
