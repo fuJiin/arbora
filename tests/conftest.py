@@ -47,6 +47,7 @@ def run_circuit(
     show_predictions=0,
     metric_interval=0,
     babble_ratio=0.0,
+    probes=(),
 ) -> CortexResult:
     """Test helper: run a circuit through ChatEnv + ChatAgent + train().
 
@@ -61,4 +62,5 @@ def run_circuit(
         rolling_window=rolling_window,
         show_predictions=show_predictions,
         metric_interval=metric_interval,
+        probes=probes,
     )

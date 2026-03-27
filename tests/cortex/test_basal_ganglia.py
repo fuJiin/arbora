@@ -9,6 +9,7 @@ from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
 from step.data import EOM_TOKEN, STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
+from step.probes.motor import ChatMotorProbe
 from tests.conftest import run_circuit
 
 
@@ -114,10 +115,11 @@ class TestBasalGangliaIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
-        result = run_circuit(cortex, tokens)
-        m = result.per_region["M1"]
-        assert len(m.bg_gate_values) > 0
-        assert all(0 <= v <= 1 for v in m.bg_gate_values)
+        probe = ChatMotorProbe()
+        result = run_circuit(cortex, tokens, probes=[probe])
+        snap = result.probe_snapshots["motor"]
+        assert len(snap["M1"]["bg_gate_values"]) > 0
+        assert all(0 <= v <= 1 for v in snap["M1"]["bg_gate_values"])
 
     def test_bg_with_eom_tokens(self, region1, motor, encoder):
         """BG gate values are tracked through EOM phases."""
@@ -137,8 +139,10 @@ class TestBasalGangliaIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor, basal_ganglia=bg)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
-        result = run_circuit(cortex, tokens)
-        assert len(result.per_region["M1"].bg_gate_values) > 0
+        probe = ChatMotorProbe()
+        result = run_circuit(cortex, tokens, probes=[probe])
+        snap = result.probe_snapshots["motor"]
+        assert len(snap["M1"]["bg_gate_values"]) > 0
 
     def test_bg_resets_at_boundary(self, region1, motor, encoder):
         """Story boundary resets BG transient state."""
@@ -158,11 +162,15 @@ class TestBasalGangliaIntegration:
         # (we can't directly observe mid-run, but no crash = good)
 
     def test_no_bg_backward_compatible(self, region1, motor, encoder):
-        """Without BG, bg_gate_values is empty."""
+        """Without BG, probe snapshot has no bg_gate_values for M1."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(20)]
         cortex = Circuit(encoder)
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
-        result = run_circuit(cortex, tokens)
-        assert result.per_region["M1"].bg_gate_values == []
+        probe = ChatMotorProbe()
+        result = run_circuit(cortex, tokens, probes=[probe])
+        snap = result.probe_snapshots["motor"]
+        # No BG means no bg_gate_values were appended; M1 still appears
+        # in snapshot (from motor_confidences) but bg_gate_values is empty.
+        assert snap["M1"]["bg_gate_values"] == []

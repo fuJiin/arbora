@@ -22,12 +22,14 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 import step.env  # noqa: F401
+from step.agent import ChatAgent
+from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker
 from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
-from step.probes.diagnostics import CortexDiagnostics
-from step.runner import run_hierarchy
+from step.environment import ChatEnv
+from step.train import train
 
 CHARS = string.printable
 CHAR_LENGTH = 8
@@ -94,8 +96,7 @@ def make_regions(prediction_gain: float, with_apical: bool, seed: int = 42):
         ltd_rate=0.4,
         seed=seed + 81,
     )
-    if with_apical:
-        r1.init_apical_segments(source_dim=r2.n_l23_total)
+    # Apical segments are now initialized by Circuit.connect(..., APICAL)
     return r1, r2
 
 
@@ -106,6 +107,7 @@ def run_one(
     r1: SensoryRegion,
     r2: SensoryRegion,
     log_interval: int,
+    with_apical: bool = False,
 ) -> dict:
     """Run hierarchy and return summary dict."""
     print(f"\n{'=' * 60}")
@@ -113,26 +115,32 @@ def run_one(
     print(f"{'=' * 60}")
 
     surprise = SurpriseTracker()
-    diag1 = CortexDiagnostics(snapshot_interval=log_interval)
-    diag2 = CortexDiagnostics(snapshot_interval=log_interval)
+
+    cortex = Circuit(encoder, diagnostics_interval=log_interval)
+    cortex.add_region("S1", r1, entry=True)
+    cortex.add_region("S2", r2)
+    cortex.connect(
+        r1.l23,
+        r2.l4,
+        ConnectionRole.FEEDFORWARD,
+        surprise_tracker=surprise,
+    )
+    if with_apical:
+        cortex.connect(r2.l23, r1.l4, ConnectionRole.APICAL)
+
+    env = ChatEnv(tokens)
+    agent = ChatAgent(encoder=encoder, circuit=cortex)
 
     start = time.monotonic()
-    metrics = run_hierarchy(
-        r1,
-        r2,
-        encoder,
-        tokens,
-        surprise_tracker=surprise,
-        log_interval=log_interval,
-        diagnostics1=diag1,
-        diagnostics2=diag2,
-    )
+    result = train(env, agent, log_interval=log_interval)
     elapsed = time.monotonic() - start
 
+    diag1 = cortex.diagnostics.get("S1")
+    diag2 = cortex.diagnostics.get("S2")
     summ1 = diag1.summary()
     summ2 = diag2.summary()
-    rep1 = metrics.region1.representation
-    rep2 = metrics.region2.representation
+    rep1 = cortex._regions["S1"].rep_tracker.summary()
+    rep2 = cortex._regions["S2"].rep_tracker.summary()
     snap1 = diag1.snapshots[-1] if diag1.snapshots else None
 
     # Apical health
@@ -144,7 +152,7 @@ def run_one(
         apical_perm_mean = snap1.apical_seg_perm_mean
         apical_pred_cols = snap1.n_apical_predicted_cols
 
-    tail_syn = metrics.region1.synaptic_accuracies[-100:]
+    tail_syn = result.per_region["S1"].synaptic_accuracies[-100:]
     r1_syn = sum(tail_syn) / len(tail_syn) if tail_syn else 0
 
     return {
@@ -244,6 +252,7 @@ def main():
             r1a,
             r2a,
             args.log_interval,
+            with_apical=False,
         )
     )
 
@@ -258,6 +267,7 @@ def main():
                 r1,
                 r2,
                 args.log_interval,
+                with_apical=True,
             )
         )
 
