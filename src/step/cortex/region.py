@@ -439,53 +439,54 @@ class CorticalRegion:
         LTD on active neurons' inactive input connections.
         Subthreshold LTP on all neurons in inactive columns.
         """
+        # Cache attribute lookups for hot loop
+        ff_weights = self.ff_weights
         neuromod = self.surprise_modulator * self.reward_modulator
         ltp_rate = self.learning_rate * neuromod
 
-        # LTP: strengthen synapses from recently-active inputs → winners
+        # LTP + LTD on winner neurons (one per active column)
         if len(winner_indices) > 0:
-            self.ff_weights[:, winner_indices] += ltp_rate * ltp_signal[:, np.newaxis]
+            # Read winner weight slice once
+            w = ff_weights[:, winner_indices]
 
-        # LTD: weaken synapses from NOT-recently-active inputs → winners
-        # Uses flat_input (not trace) for LTD — only current step's
-        # inactive inputs get weakened. Trace-based LTD would be too
-        # aggressive (would weaken inputs that were active recently).
-        if len(winner_indices) > 0:
+            # LTP: strengthen synapses from recently-active inputs → winners
+            w += ltp_rate * ltp_signal[:, np.newaxis]
+
+            # LTD: weaken synapses from NOT-recently-active inputs → winners
+            # Uses flat_input (not trace) for LTD — only current step's
+            # inactive inputs get weakened. Trace-based LTD would be too
+            # aggressive (would weaken inputs that were active recently).
             ltd_rate = self.ltd_rate * neuromod
             inactive_input = 1.0 - flat_input
             winner_cols = winner_indices // self.n_l4
+            # col_masks == neuron_masks since ff_mask = repeat(col_mask, n_l4)
             col_masks = self._col_mask[:, winner_cols]
-            local_on = np.maximum(
-                (flat_input[:, np.newaxis] * col_masks).sum(axis=0), 1.0
-            )
-            local_off = np.maximum(
-                (inactive_input[:, np.newaxis] * col_masks).sum(axis=0),
-                1.0,
-            )
+            # Matrix-vector products instead of element-wise broadcast+sum
+            local_on = np.maximum(flat_input @ col_masks, 1.0)
+            local_off = np.maximum(inactive_input @ col_masks, 1.0)
             local_scales = local_on / local_off
-            neuron_masks = self.ff_mask[:, winner_indices]
-            self.ff_weights[:, winner_indices] -= (
+            w -= (
                 ltd_rate
                 * local_scales[np.newaxis, :]
                 * inactive_input[:, np.newaxis]
-                * neuron_masks
+                * col_masks
             )
-            w = self.ff_weights[:, winner_indices]
-            w[~neuron_masks] = 0.0
+
+            # Mask and clamp in-place, write back once
+            w[~col_masks] = 0.0
             np.clip(w, 0, 1, out=w)
-            self.ff_weights[:, winner_indices] = w
+            ff_weights[:, winner_indices] = w
 
         # Subthreshold: weak LTP on ALL neurons (uses trace too)
         active_dims = np.flatnonzero(ltp_signal > 0.01)
         if len(active_dims) > 0:
-            sub_ltp = ltp_rate * 0.1 * ltp_signal[active_dims, np.newaxis]
-            self.ff_weights[active_dims] += sub_ltp
-            self.ff_weights[active_dims] *= self.ff_mask[active_dims]
-            np.minimum(
-                self.ff_weights[active_dims],
-                1,
-                out=self.ff_weights[active_dims],
-            )
+            # Single read-modify-write: add sub-LTP, mask, clamp
+            ff_mask = self.ff_mask
+            w_sub = ff_weights[active_dims]
+            w_sub += ltp_rate * 0.1 * ltp_signal[active_dims, np.newaxis]
+            w_sub *= ff_mask[active_dims]
+            np.minimum(w_sub, 1, out=w_sub)
+            ff_weights[active_dims] = w_sub
 
     # ------------------------------------------------------------------
     # Three-factor reward consolidation
@@ -1183,18 +1184,30 @@ class CorticalRegion:
         For each active column, strengthen connections from active
         source neurons to active target neurons (LTP), weaken from
         inactive source neurons (LTD). Clamps to [0, 1].
+
+        Vectorized: computes outer-product updates for all active
+        columns simultaneously using broadcasting.
         """
+        if len(active_cols) == 0:
+            return
         src_by_col = src_fr.reshape(self.n_columns, n_src)
         tgt_by_col = tgt_active.reshape(self.n_columns, n_tgt)
-        for col in active_cols:
-            winners = np.nonzero(tgt_by_col[col])[0]
-            if len(winners) == 0:
-                continue
-            src = src_by_col[col]
-            w = weights[col]
-            for j in winners:
-                w[:, j] += ltp_rate * src
-                w[:, j] -= ltd_rate * (1.0 - src)
+
+        # Gather source firing rates and target activity for active columns
+        # src_active: (n_active, n_src), tgt_f: (n_active, n_tgt)
+        src_active = src_by_col[active_cols]
+        tgt_f = tgt_by_col[active_cols]
+
+        # Per-winner update: w[:, j] += ltp_rate * src - ltd_rate * (1 - src)
+        #                   = (ltp_rate + ltd_rate) * src * tgt - ltd_rate * tgt
+        # Vectorised as outer product over all active columns at once:
+        # delta[c, i, j] = ((ltp_rate + ltd_rate) * src[c, i] - ltd_rate) * tgt[c, j]
+        combined_rate = ltp_rate + ltd_rate
+        # (n_active, n_src, 1) * (n_active, 1, n_tgt) -> (n_active, n_src, n_tgt)
+        scaled_src = combined_rate * src_active - ltd_rate
+        delta = scaled_src[:, :, np.newaxis] * tgt_f[:, np.newaxis, :]
+
+        weights[active_cols] += delta
         np.clip(weights, 0.0, 1.0, out=weights)
 
     def _learn_l4_segments(self):
