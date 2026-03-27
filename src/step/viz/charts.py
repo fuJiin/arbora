@@ -805,7 +805,6 @@ def build_segment_health_over_time(
 
     # Row 1: active segment counts (more sensitive than connected fraction)
     for name, attr, color in [
-        ("Feedback (L2/3->L4)", "n_active_fb_segments", "#e94560"),
         ("Lateral (L4->L4)", "n_active_lat_segments", "#ffd166"),
         ("L2/3 Lateral", "n_active_l23_segments", "#06d6a0"),
         ("Apical (S2->S1)", "n_apical_predicted_cols", "#118ab2"),
@@ -825,8 +824,7 @@ def build_segment_health_over_time(
 
     # Row 2: mean permanence (only for non-zero, shows learning progress)
     for name, attr, color in [
-        ("Feedback", "fb_seg_perm_mean", "#e94560"),
-        ("Lateral", "lat_seg_perm_mean", "#ffd166"),
+        ("Lateral", "l4_lat_seg_perm_mean", "#ffd166"),
         ("L2/3 Lateral", "l23_seg_perm_mean", "#06d6a0"),
         ("Apical", "apical_seg_perm_mean", "#118ab2"),
     ]:

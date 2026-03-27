@@ -41,10 +41,9 @@ class CortexConfig:
     ltd_rate: float = 0.2
     burst_learning_scale: float = 3.0
     # Dendritic segment parameters
-    n_fb_segments: int = 4
-    n_lat_segments: int = 4
+    n_l4_lat_segments: int = 4
     n_l23_segments: int = 4
-    n_synapses_per_segment: int = 24
+    n_synapses_per_segment: int = 24  # shared across all segment types for now
     perm_threshold: float = 0.5
     perm_init: float = 0.6
     perm_increment: float = 0.2

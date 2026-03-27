@@ -44,11 +44,8 @@ class Snapshot:
     n_predicted_neurons: int = 0
 
     # Dendritic segment health
-    fb_seg_perm_mean: float = 0.0
-    fb_seg_connected_frac: float = 0.0
-    lat_seg_perm_mean: float = 0.0
+    l4_lat_seg_perm_mean: float = 0.0
     lat_seg_connected_frac: float = 0.0
-    n_active_fb_segments: int = 0
     n_active_lat_segments: int = 0
 
     # L2/3 segment health
@@ -164,26 +161,16 @@ class CortexDiagnostics:
         snap.n_predicted_neurons = int(region.l4.predicted.sum())
 
         # Dendritic segment health
-        if hasattr(region, "fb_seg_perm"):
-            fb_perm = region.fb_seg_perm
-            lat_perm = region.lat_seg_perm
-            snap.fb_seg_perm_mean = float(np.mean(fb_perm))
-            snap.fb_seg_connected_frac = float(np.mean(fb_perm > region.perm_threshold))
-            snap.lat_seg_perm_mean = float(np.mean(lat_perm))
+        if hasattr(region, "l4_lat_seg_perm"):
+            lat_perm = region.l4_lat_seg_perm
+            snap.l4_lat_seg_perm_mean = float(np.mean(lat_perm))
             snap.lat_seg_connected_frac = float(
                 np.mean(lat_perm > region.perm_threshold)
             )
 
             # Count active segments (would fire given current activity)
-            if region.l23.active.any():
-                fb_active = region.l23.active[region.fb_seg_indices]
-                fb_conn = fb_perm > region.perm_threshold
-                fb_counts = (fb_active & fb_conn).sum(axis=2)
-                snap.n_active_fb_segments = int(
-                    (fb_counts >= region.seg_activation_threshold).sum()
-                )
             if region.l4.active.any():
-                lat_active = region.l4.active[region.lat_seg_indices]
+                lat_active = region.l4.active[region.l4_lat_seg_indices]
                 lat_conn = lat_perm > region.perm_threshold
                 lat_counts = (lat_active & lat_conn).sum(axis=2)
                 snap.n_active_lat_segments = int(
@@ -306,12 +293,7 @@ class CortexDiagnostics:
 
         print("\nDendritic segments:")
         print(
-            f"  fb: perm_mean={s.fb_seg_perm_mean:.4f}"
-            f" connected={s.fb_seg_connected_frac:.1%}"
-            f" active_segs={s.n_active_fb_segments}"
-        )
-        print(
-            f"  lat: perm_mean={s.lat_seg_perm_mean:.4f}"
+            f"  lat: perm_mean={s.l4_lat_seg_perm_mean:.4f}"
             f" connected={s.lat_seg_connected_frac:.1%}"
             f" active_segs={s.n_active_lat_segments}"
         )

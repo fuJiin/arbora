@@ -61,35 +61,27 @@ class SensoryRegion(CorticalRegion):
         n_syn = self.n_synapses_per_segment
 
         # Build per-column source pools (local neighborhood)
-        self._fb_col_pools = {}
         self._lat_col_pools = {}
         self._l23_col_pools = {}
         for col in range(self.n_columns):
             neighbors = [c for c in range(self.n_columns) if abs(c - col) <= radius]
-            self._fb_col_pools[col] = np.concatenate(
-                [np.arange(c * self.n_l23, (c + 1) * self.n_l23) for c in neighbors]
-            )
             self._lat_col_pools[col] = np.concatenate(
                 [np.arange(c * self.n_l4, (c + 1) * self.n_l4) for c in neighbors]
             )
-            self._l23_col_pools[col] = self._fb_col_pools[col]  # same L2/3 neighborhood
+            self._l23_col_pools[col] = np.concatenate(
+                [np.arange(c * self.n_l23, (c + 1) * self.n_l23) for c in neighbors]
+            )
 
-        # L4 segments (feedback + lateral)
-        self.fb_seg_indices = np.zeros((n, self.n_fb_segments, n_syn), dtype=np.int32)
-        self.fb_seg_perm = np.zeros((n, self.n_fb_segments, n_syn))
-        self.lat_seg_indices = np.zeros((n, self.n_lat_segments, n_syn), dtype=np.int32)
-        self.lat_seg_perm = np.zeros((n, self.n_lat_segments, n_syn))
+        # L4 lateral segments
+        n_lat = self.n_l4_lat_segments
+        self.l4_lat_seg_indices = np.zeros((n, n_lat, n_syn), dtype=np.int32)
+        self.l4_lat_seg_perm = np.zeros((n, n_lat, n_syn))
 
         for i in range(n):
             col = i // self.n_l4
-            fb_pool = self._fb_col_pools[col]
             lat_pool = self._lat_col_pools[col]
-            for s in range(self.n_fb_segments):
-                self.fb_seg_indices[i, s] = self._rng.choice(
-                    fb_pool, n_syn, replace=len(fb_pool) < n_syn
-                )
-            for s in range(self.n_lat_segments):
-                self.lat_seg_indices[i, s] = self._rng.choice(
+            for s in range(self.n_l4_lat_segments):
+                self.l4_lat_seg_indices[i, s] = self._rng.choice(
                     lat_pool, n_syn, replace=len(lat_pool) < n_syn
                 )
 
@@ -134,11 +126,9 @@ class SensoryRegion(CorticalRegion):
             self.l5_seg_indices = np.zeros((n5, 0, n_syn), dtype=np.int32)
             self.l5_seg_perm = np.zeros((n5, 0, n_syn))
 
-    def _get_source_pool(self, neuron: int, seg_type: str) -> np.ndarray:
+    def _get_source_pool(self, neuron: int) -> np.ndarray:
         """Override: return local connectivity pool for this neuron's column."""
         col = neuron // self.n_l4
-        if seg_type == "fb":
-            return self._fb_col_pools[col]
         return self._lat_col_pools[col]
 
     def _get_l23_source_pool(self, neuron: int) -> np.ndarray:
