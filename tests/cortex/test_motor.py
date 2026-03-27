@@ -7,6 +7,7 @@ from step.cortex.motor import MotorRegion
 from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
+from step.probes.chat import ChatMotorProbe
 from tests.conftest import run_circuit
 
 
@@ -110,11 +111,12 @@ class TestMotorCircuit:
             surprise_tracker=SurpriseTracker(),
         )
         cortex.connect(motor.l23, region1.l4, ConnectionRole.APICAL)
-        result = run_circuit(cortex, tokens)
+        probe = ChatMotorProbe()
+        result = run_circuit(cortex, tokens, probes=[probe])
         assert result.elapsed_seconds > 0
         # Motor metrics should be populated
-        m1_metrics = result.per_region["M1"]
-        assert len(m1_metrics.motor_confidences) > 0
+        snap = result.probe_snapshots["motor"]
+        assert len(snap["M1"]["motor_confidences"]) > 0
 
     def test_motor_with_thalamic_gate(self, region1, motor, encoder):
         """M1→S1 apical with thalamic gate runs without error."""
@@ -157,8 +159,10 @@ class TestMotorCircuit:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
-        result = run_circuit(cortex, tokens)
-        assert "M1" in result.per_region
+        probe = ChatMotorProbe()
+        result = run_circuit(cortex, tokens, probes=[probe])
+        snap = result.probe_snapshots["motor"]
+        assert "M1" in snap
 
 
 class TestBabbleDirect:

@@ -1,9 +1,12 @@
 import numpy as np
 import pytest
 
-from step.cortex import SensoryRegion, SurpriseTracker
+from step.cortex import SensoryRegion
+from step.cortex.circuit import Circuit, ConnectionRole
+from step.cortex.modulators import SurpriseTracker
+from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
-from step.runner import STORY_BOUNDARY, run_hierarchy
+from tests.conftest import run_circuit
 
 # ---------------------------------------------------------------------------
 # SurpriseTracker
@@ -85,7 +88,7 @@ class TestSurpriseModulatorScalesLearning:
 # ---------------------------------------------------------------------------
 
 
-class TestHierarchyRuns:
+class TestMultiRegionCircuit:
     @pytest.fixture()
     def encoder(self):
         return CharbitEncoder(length=4, width=5, chars="abcd")
@@ -127,9 +130,18 @@ class TestHierarchyRuns:
             (0, "a"),
             (1, "b"),
         ]
-        metrics = run_hierarchy(region1, region2, encoder, tokens, log_interval=1000)
-        assert metrics.elapsed_seconds > 0
-        assert len(metrics.surprise_modulators) > 0
+        circuit = Circuit(encoder)
+        circuit.add_region("S1", region1, entry=True)
+        circuit.add_region("S2", region2)
+        circuit.connect(
+            region1.l23,
+            region2.l4,
+            ConnectionRole.FEEDFORWARD,
+            surprise_tracker=SurpriseTracker(),
+        )
+        result = run_circuit(circuit, tokens, log_interval=1000)
+        assert result.elapsed_seconds > 0
+        assert len(result.surprise_modulators.get("S2", [])) > 0
 
     def test_region2_receives_l23_output(self, region1, region2, encoder):
         """Region 2 input_dim must match Region 1 L2/3 total neurons."""
@@ -138,6 +150,15 @@ class TestHierarchyRuns:
     def test_region2_activates(self, region1, region2, encoder):
         """Region 2 should produce activations after Region 1."""
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
-        run_hierarchy(region1, region2, encoder, tokens, log_interval=1000)
+        circuit = Circuit(encoder)
+        circuit.add_region("S1", region1, entry=True)
+        circuit.add_region("S2", region2)
+        circuit.connect(
+            region1.l23,
+            region2.l4,
+            ConnectionRole.FEEDFORWARD,
+            surprise_tracker=SurpriseTracker(),
+        )
+        run_circuit(circuit, tokens, log_interval=1000)
         # Region 2 should have activated at some point
         assert region2.active_columns.sum() > 0
