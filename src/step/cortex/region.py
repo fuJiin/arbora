@@ -207,6 +207,17 @@ class CorticalRegion:
         )
         self._col_mask = col_mask
 
+        # --- Intra-column feedforward weights ---
+        # Per-column weight matrices for within-column pathways.
+        # L4→L2/3: which L4 patterns drive which L2/3 neurons
+        # L2/3→L5: which L2/3 patterns drive which L5 outputs
+        self.l4_to_l23_weights = self._rng.uniform(
+            0.1, 0.5, (self.n_columns, self.n_l4, self.n_l23)
+        )
+        self.l23_to_l5_weights = self._rng.uniform(
+            0.1, 0.5, (self.n_columns, self.n_l23, self.n_l5)
+        )
+
         # Presynaptic trace buffer (only allocated if enabled)
         if self._pre_trace_decay > 0:
             self._pre_trace = np.zeros(input_dim)
@@ -997,93 +1008,65 @@ class CorticalRegion:
             global_indices = precise_cols * self.n_l4 + winners
             self.l4.active[global_indices] = True
 
-    def _activate_l23(self, top_cols: np.ndarray):
-        """Activate L2/3 associative neurons in active columns.
+    def _activate_downstream(
+        self,
+        top_cols: np.ndarray,
+        src_lamina: Lamina,
+        tgt_lamina: Lamina,
+        weights: np.ndarray,
+    ) -> None:
+        """Activate a downstream lamina via per-column ff weights.
 
-        L2/3 receives three sources of drive:
-        1. L4 feedforward: base drive to all neurons in the column
-        2. L4 winner bonus: precise columns boost the matching L2/3 neuron
-        3. L2/3 segment prediction: predicted neurons get voltage boost
-
-        Then competitive selection: burst columns → all fire,
-        precise columns → single winner.
+        Shared logic for L4→L2/3 and L2/3→L5 intra-column pathways.
+        Drive = source firing_rate @ weights + prediction boost.
+        Burst columns: all target neurons fire.
+        Precise columns: single winner by score.
         """
-        # L4 -> L2/3 feedforward: base drive to all neurons in active columns
-        v_l23 = self.l23.voltage.reshape(self.n_columns, self.n_l23)
-        v_l23[top_cols] += 0.5
+        n_src = src_lamina.n_per_col
+        n_tgt = tgt_lamina.n_per_col
 
-        # Bonus for L2/3 neuron matching the L4 winner (precise only)
-        precise_cols = top_cols[~self.bursting_columns[top_cols]]
-        if len(precise_cols) > 0:
-            active_l4_by_col = self.l4.active.reshape(self.n_columns, self.n_l4)
-            l4_winners = active_l4_by_col[precise_cols].argmax(axis=1)
-            # Only apply bonus where L4 winner index fits in L2/3
-            valid = l4_winners < self.n_l23
-            if valid.any():
-                valid_cols = precise_cols[valid]
-                valid_winners = l4_winners[valid]
-                self.l23.voltage[valid_cols * self.n_l23 + valid_winners] += 0.5
-
-        # L2/3 segment prediction boost: predicted neurons are primed
-        l23_boost = self.l23_prediction_boost or self.fb_boost
-        self.l23.voltage[self.l23.predicted] += l23_boost
-
-        # Competitive selection per column
-        self.l23.active[:] = False
-        l23_scores = self.l23.voltage + self.l23.excitability
-        by_col = l23_scores.reshape(self.n_columns, self.n_l23)
-
-        # Burst columns: all L2/3 neurons fire
-        burst_cols = top_cols[self.bursting_columns[top_cols]]
-        if len(burst_cols) > 0:
-            active_l23_by_col = self.l23.active.reshape(self.n_columns, self.n_l23)
-            active_l23_by_col[burst_cols] = True
-
-        # Precise columns: single winner per column
-        if len(precise_cols) > 0:
-            winners = by_col[precise_cols].argmax(axis=1)
-            self.l23.active[precise_cols * self.n_l23 + winners] = True
-
-    def _activate_l5(self, top_cols: np.ndarray):
-        """Activate L5 output neurons in active columns.
-
-        Intra-columnar L2/3 → L5 feedforward drive. L5 is downstream
-        of L2/3 within the column: L2/3 firing rate is used as a proxy
-        for what proper L2/3→L5 ff weights would learn.
-
-        TODO: Replace with learned ff weights (L2/3→L5 within region)
-        so L5 goes through the same process pipeline as L4. Currently
-        L5 is a readout layer, not a proper learning layer.
-
-        Burst columns: all L5 neurons fire (mirrors L2/3 burst).
-        Precise columns: single L5 winner by L2/3 rate + apical boost.
-        """
-        self.l5.active[:] = False
+        # Feedforward drive via per-column weights
+        tgt_lamina.active[:] = False
         if len(top_cols) == 0:
             return
 
-        # Burst columns: all L5 neurons fire
+        src_fr = src_lamina.firing_rate.reshape(self.n_columns, n_src)
+        if len(top_cols) > 0:
+            drive = np.einsum(
+                "ci,cij->cj",
+                src_fr[top_cols],
+                weights[top_cols],
+            )
+            tgt_v = tgt_lamina.voltage.reshape(self.n_columns, n_tgt)
+            tgt_v[top_cols] += drive
+
+        # Prediction boost
+        boost = self.l23_prediction_boost or self.fb_boost
+        tgt_lamina.voltage[tgt_lamina.predicted] += boost
+
+        # Competitive selection
+        scores = tgt_lamina.voltage + tgt_lamina.excitability
+        by_col = scores.reshape(self.n_columns, n_tgt)
+
+        # Burst: all fire
         burst_cols = top_cols[self.bursting_columns[top_cols]]
         if len(burst_cols) > 0:
-            active_l5_by_col = self.l5.active.reshape(self.n_columns, self.n_l5)
-            active_l5_by_col[burst_cols] = True
+            active_by_col = tgt_lamina.active.reshape(self.n_columns, n_tgt)
+            active_by_col[burst_cols] = True
 
-        # Precise columns: L5 winner from L2/3 firing rate + apical boost
+        # Precise: single winner
         precise_cols = top_cols[~self.bursting_columns[top_cols]]
         if len(precise_cols) > 0:
-            fr_by_col = self.l23.firing_rate.reshape(self.n_columns, self.n_l23)
-            n_map = min(self.n_l23, self.n_l5)
-            # Build L5 scores from L2/3 firing rates
-            l5_scores = np.zeros((len(precise_cols), self.n_l5))
-            l5_scores[:, :n_map] = fr_by_col[precise_cols, :n_map]
+            winners = by_col[precise_cols].argmax(axis=1)
+            tgt_lamina.active[precise_cols * n_tgt + winners] = True
 
-            # Predicted L5 neurons get boost (lateral + apical predictions)
-            if self.l5.predicted.any():
-                pred_by_col = self.l5.predicted.reshape(self.n_columns, self.n_l5)
-                l5_scores += pred_by_col[precise_cols] * self.fb_boost
+    def _activate_l23(self, top_cols: np.ndarray):
+        """Activate L2/3 via L4 → L2/3 per-column weights."""
+        self._activate_downstream(top_cols, self.l4, self.l23, self.l4_to_l23_weights)
 
-            l5_winners = l5_scores.argmax(axis=1)
-            self.l5.active[precise_cols * self.n_l5 + l5_winners] = True
+    def _activate_l5(self, top_cols: np.ndarray):
+        """Activate L5 via L2/3 → L5 per-column weights."""
+        self._activate_downstream(top_cols, self.l23, self.l5, self.l23_to_l5_weights)
 
     def _learn_apical(self):
         """Update apical segment permanences on all target laminae.
@@ -1156,13 +1139,77 @@ class CorticalRegion:
         L5 segments: lateral (L5→L5) output-layer sequence prediction.
         All use sparse dendritic segment learning (grow/reinforce/punish).
         """
-        self._learn_segments()
+        self._learn_l4_segments()
         self._learn_l23_segments()
+        self._learn_intra_column_ff()
         if self.n_l5_segments > 0:
             self._learn_l5_lateral_segments()
 
-    def _learn_segments(self):
-        """Update dendritic segment permanences based on prediction outcomes.
+    def _learn_intra_column_ff(self):
+        """Hebbian learning on intra-column feedforward weights.
+
+        L4→L2/3 and L2/3→L5: same rule applied to both pathways.
+        """
+        active_cols = np.nonzero(self.active_columns)[0]
+        if len(active_cols) == 0:
+            return
+
+        ltp_rate = self.learning_rate * self.surprise_modulator
+        ltd_rate = self.ltd_rate * 0.5  # gentler LTD for within-column
+
+        self._learn_column_weights(
+            active_cols,
+            self.l4_to_l23_weights,
+            self.l4.firing_rate,
+            self.l23.active,
+            self.n_l4,
+            self.n_l23,
+            ltp_rate,
+            ltd_rate,
+        )
+        self._learn_column_weights(
+            active_cols,
+            self.l23_to_l5_weights,
+            self.l23.firing_rate,
+            self.l5.active,
+            self.n_l23,
+            self.n_l5,
+            ltp_rate,
+            ltd_rate,
+        )
+
+    def _learn_column_weights(
+        self,
+        active_cols: np.ndarray,
+        weights: np.ndarray,
+        src_fr: np.ndarray,
+        tgt_active: np.ndarray,
+        n_src: int,
+        n_tgt: int,
+        ltp_rate: float,
+        ltd_rate: float,
+    ) -> None:
+        """Hebbian update on per-column weight matrix.
+
+        For each active column, strengthen connections from active
+        source neurons to active target neurons (LTP), weaken from
+        inactive source neurons (LTD). Clamps to [0, 1].
+        """
+        src_by_col = src_fr.reshape(self.n_columns, n_src)
+        tgt_by_col = tgt_active.reshape(self.n_columns, n_tgt)
+        for col in active_cols:
+            winners = np.nonzero(tgt_by_col[col])[0]
+            if len(winners) == 0:
+                continue
+            src = src_by_col[col]
+            w = weights[col]
+            for j in winners:
+                w[:, j] += ltp_rate * src
+                w[:, j] -= ltd_rate * (1.0 - src)
+        np.clip(weights, 0.0, 1.0, out=weights)
+
+    def _learn_l4_segments(self):
+        """Update L4 dendritic segment permanences based on prediction outcomes.
 
         - Burst (unpredicted): grow best-matching segment on trace winner
         - Precise + predicted: reinforce the active segments
