@@ -23,13 +23,14 @@ def circuit(encoder):
         n_columns=16,
         n_l4=2,
         n_l23=2,
+        n_l5=0,
         k_columns=2,
         seed=42,
     )
     m1 = MotorRegion(
         input_dim=s1.n_l23_total,
         n_columns=8,
-        n_l4=2,
+        n_l4=0,
         n_l23=2,
         k_columns=1,
         n_output_tokens=7,
@@ -38,7 +39,7 @@ def circuit(encoder):
     c = Circuit(encoder)
     c.add_region("S1", s1, entry=True)
     c.add_region("M1", m1)
-    c.connect(s1.l23, m1.l4, ConnectionRole.FEEDFORWARD)
+    c.connect(s1.l23, m1.input_lamina, ConnectionRole.FEEDFORWARD)
     c.finalize()
     return c
 
