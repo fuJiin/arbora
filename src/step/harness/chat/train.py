@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from step.cortex.circuit_types import ConnectionRole
-from step.cortex.motor import MotorRegion
 from step.probes.chat import ChatMotorProbe
 from step.probes.core import LaminaProbe, Probe
 from step.reporting.chat import ChatReporter
@@ -37,7 +36,7 @@ class TrainResult:
 
     probe_snapshots: dict[str, Any] = field(default_factory=dict)
     elapsed_seconds: float = 0.0
-    # Inter-region signal time series
+    # Inter-region signal time series (TODO: move to ModulatorProbe)
     surprise_modulators: dict[str, list[float]] = field(default_factory=dict)
     thalamic_readiness: dict[str, list[float]] = field(default_factory=dict)
     reward_modulators: dict[str, list[float]] = field(default_factory=dict)
@@ -46,11 +45,14 @@ class TrainResult:
 class ChatTrainHarness:
     """Train a Circuit on chat token sequences with probe telemetry.
 
-    Wraps the ChatEnv + ChatAgent + Circuit loop with:
-    - Probe observation after each process() step
+    Wraps the ChatEnv + ChatAgent loop with:
+    - Probe observation after each agent.act() step
     - ChatReporter for periodic log lines
     - Optional decoder training (for REPL warmup)
-    - Modulator and diagnostics tracking
+    - Modulator tracking
+
+    The harness operates on the agent abstraction, not the circuit
+    directly. The agent owns encoding, processing, decoding, and reset.
     """
 
     def __init__(
@@ -65,7 +67,6 @@ class ChatTrainHarness:
     ):
         self._env = env
         self._agent = agent
-        self._circuit = agent.circuit
         self._probes = probes
         self._decoder_training = decoder_training
         self._reporter = ChatReporter(
@@ -82,10 +83,11 @@ class ChatTrainHarness:
                 self._motor_probe = p
 
         # Initialize modulator tracking from circuit connections
+        circuit = agent.circuit
         self._surprise_mods: dict[str, list[float]] = {}
         self._thalamic_ready: dict[str, list[float]] = {}
         self._reward_mods: dict[str, list[float]] = {}
-        for conn in self._circuit._connections:
+        for conn in circuit._connections:
             if conn.surprise_tracker is not None:
                 self._surprise_mods[conn.target] = []
             if conn.thalamic_gate is not None:
@@ -97,7 +99,7 @@ class ChatTrainHarness:
         """Execute the training loop. Returns TrainResult with probe snapshots."""
         env = self._env
         agent = self._agent
-        circuit = self._circuit
+        circuit = agent.circuit
         probes = self._probes
         start = time.monotonic()
 
@@ -106,7 +108,10 @@ class ChatTrainHarness:
 
         while not env.done:
             if obs.is_boundary:
-                self._on_boundary()
+                agent.reset()
+                for probe in probes:
+                    if hasattr(probe, "boundary"):
+                        probe.boundary()
                 obs, _reward = env.step(None)
                 continue
 
@@ -124,15 +129,9 @@ class ChatTrainHarness:
             prev_l23 = None
             prev_motor_l23: dict[str, object] = {}
             if self._decoder_training:
-                entry_name = circuit._entry_name
-                assert entry_name is not None
-                entry_region = circuit._regions[entry_name].region
-                prev_l23 = entry_region.l23.active.copy()
-                for _mn, _ms in circuit._regions.items():
-                    if _ms.motor and _ms.motor_decoder is not None:
-                        prev_motor_l23[_mn] = _ms.region.l23.active.copy()
+                prev_l23, prev_motor_l23 = _snapshot_l23(circuit)
 
-            # Efference copy (before process)
+            # Agent handles: efference copy, process, motor learning
             motor_active = agent._motor_active or agent.force_gate_open
             if agent.last_action is not None and agent.force_gate_open:
                 entry = circuit.region(agent._entry_name)
@@ -140,17 +139,10 @@ class ChatTrainHarness:
                 ef = agent.encoder.encode(action_char)
                 entry.set_efference_copy(ef)
 
-            # Neural processing
             output = circuit.process(encoding, motor_active=motor_active)
             agent.last_output = output
 
-            # Token-level motor learning
-            if motor_active:
-                for s in circuit._regions.values():
-                    if s.motor and isinstance(s.region, MotorRegion):
-                        s.region.observe_token(obs.token_id)
-
-            # Probes observe
+            # Probes observe circuit state
             for probe in probes:
                 probe.observe(
                     circuit,
@@ -159,13 +151,15 @@ class ChatTrainHarness:
                     eom_steps=env.eom_steps,
                 )
 
-            # Record modulators + diagnostics
+            # Modulator tracking (TODO: move to ModulatorProbe)
             _record_modulators(
                 circuit,
                 self._surprise_mods,
                 self._thalamic_ready,
                 self._reward_mods,
             )
+
+            # Diagnostics / timeline capture (viz observability)
             _capture_diagnostics(circuit, t)
 
             # Optional decoder training
@@ -209,27 +203,23 @@ class ChatTrainHarness:
             result.probe_snapshots[probe.name] = probe.snapshot()
         return result
 
-    def _on_boundary(self) -> None:
-        """Handle dialogue boundary: reset modulators, circuit, agent, probes."""
-        circuit = self._circuit
-        for conn in circuit._connections:
-            if conn.reward_modulator is not None:
-                conn.reward_modulator.reset()
-        if circuit._reward_source is not None:
-            _rs_reset = getattr(circuit._reward_source, "reset", None)
-            if _rs_reset is not None:
-                _rs_reset()
-        circuit.reset()
-        self._agent._motor_active = False
-        self._agent.last_action = None
-        for probe in self._probes:
-            if hasattr(probe, "boundary"):
-                probe.boundary()
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _snapshot_l23(circuit: Circuit) -> tuple[object, dict[str, object]]:
+    """Snapshot L2/3 state before processing (for decoder training)."""
+    entry_name = circuit._entry_name
+    assert entry_name is not None
+    entry_region = circuit._regions[entry_name].region
+    prev_l23 = entry_region.l23.active.copy()
+    prev_motor_l23: dict[str, object] = {}
+    for _mn, _ms in circuit._regions.items():
+        if _ms.motor and _ms.motor_decoder is not None:
+            prev_motor_l23[_mn] = _ms.region.l23.active.copy()
+    return prev_l23, prev_motor_l23
 
 
 def _record_modulators(
@@ -258,7 +248,7 @@ def _record_modulators(
 
 
 def _capture_diagnostics(circuit: Circuit, t: int) -> None:
-    """Capture diagnostics and timeline snapshots."""
+    """Capture diagnostics and timeline snapshots (viz observability)."""
     for _name, s in circuit._regions.items():
         if s.diagnostics is not None:
             s.diagnostics.step(t, s.region)

@@ -101,6 +101,20 @@ class ChatAgent:
     def circuit(self) -> Circuit:
         return self._circuit
 
+    def reset(self) -> None:
+        """Reset at dialogue boundary: clear circuit and agent state."""
+        self._circuit.reset()
+        # Reset reward modulators on circuit connections
+        for conn in self._circuit._connections:
+            if conn.reward_modulator is not None:
+                conn.reward_modulator.reset()
+        if self._circuit._reward_source is not None:
+            _rs_reset = getattr(self._circuit._reward_source, "reset", None)
+            if _rs_reset is not None:
+                _rs_reset()
+        self._motor_active = False
+        self.last_action = None
+
     def act(self, obs: ChatObs, reward: float) -> int | None:
         """Process one observation and return an action.
 
@@ -114,11 +128,9 @@ class ChatAgent:
         Returns:
             Token ID of the agent's action, or None for silence.
         """
-        # Boundary: reset circuit working memory
+        # Boundary: reset circuit and agent state
         if obs.is_boundary:
-            self._circuit.reset()
-            self._motor_active = False
-            self.last_action = None
+            self.reset()
             return None
 
         # EOM: activate motor output

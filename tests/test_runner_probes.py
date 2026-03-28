@@ -12,12 +12,12 @@ import pytest
 from step.agent import ChatAgent
 from step.cortex import CorticalRegion
 from step.cortex.circuit import Circuit
+from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.positional import PositionalCharEncoder
 from step.environment import ChatEnv
 from step.harness.chat import ChatTrainHarness
 from step.probes.core import LaminaProbe
-from step.runner import run_cortex
 
 # ---------------------------------------------------------------------------
 # Spy probe for verifying call protocol
@@ -207,19 +207,22 @@ class TestTrainProbeWiring:
 # ---------------------------------------------------------------------------
 
 
-class TestRunCortexProbes:
-    def test_probes_threaded_through_run_cortex(self):
-        """run_cortex() passes probes to train(); spy records observations."""
+class TestHarnessDirectUsage:
+    def test_probes_with_sensory_region(self):
+        """ChatTrainHarness passes probes through; spy records observations."""
         encoder = PositionalCharEncoder("abcdefgh", max_positions=1)
-        region = CorticalRegion(
+        region = SensoryRegion(
             encoder.input_dim, n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42
         )
+        circuit = Circuit(encoder)
+        circuit.add_region("S1", region, entry=True)
         tokens = _make_tokens("abcdef")
         spy = SpyProbe()
 
-        run_cortex(region, encoder, tokens, log_interval=9999, probes=[spy])
+        env = ChatEnv(tokens)
+        agent = ChatAgent(encoder=encoder, circuit=circuit)
+        ChatTrainHarness(env, agent, log_interval=9999, probes=[spy]).run()
 
-        # Probe was called for each character
         assert spy.observe_count == 6
 
 
