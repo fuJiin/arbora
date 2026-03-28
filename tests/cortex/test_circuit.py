@@ -6,6 +6,7 @@ from step.cortex.modulators import SurpriseTracker, ThalamicGate
 from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
+from step.probes.modulators import ModulatorProbe
 from tests.conftest import run_circuit
 
 
@@ -84,10 +85,12 @@ class TestHierarchy:
             ConnectionRole.FEEDFORWARD,
             surprise_tracker=SurpriseTracker(),
         )
-        result = run_circuit(cortex, tokens)
+        mod_probe = ModulatorProbe()
+        result = run_circuit(cortex, tokens, probes=[mod_probe])
         assert result.elapsed_seconds > 0
-        assert "S2" in result.surprise_modulators
-        assert len(result.surprise_modulators["S2"]) > 0
+        mod_snap = result.probe_snapshots["modulators"]
+        assert "S2" in mod_snap.surprise
+        assert len(mod_snap.surprise["S2"]) > 0
 
     def test_hierarchy_region2_activates(self, region1, region2, encoder):
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
@@ -475,9 +478,11 @@ class TestThalamicGateIntegration:
         cortex.connect(
             region2.l23, region1.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate()
         )
-        result = run_circuit(cortex, tokens)
-        assert "S2->S1" in result.thalamic_readiness
-        assert len(result.thalamic_readiness["S2->S1"]) > 0
+        mod_probe = ModulatorProbe()
+        result = run_circuit(cortex, tokens, probes=[mod_probe])
+        mod_snap = result.probe_snapshots["modulators"]
+        assert "S2->S1" in mod_snap.thalamic
+        assert len(mod_snap.thalamic["S2->S1"]) > 0
 
     def test_story_boundary_resets_gate(self, region1, region2, encoder):
         """Gate resets at story boundary (readiness drops back toward 0)."""
@@ -517,5 +522,7 @@ class TestThalamicGateIntegration:
             surprise_tracker=SurpriseTracker(),
         )
         cortex.connect(region2.l23, region1.l4, ConnectionRole.APICAL)
-        result = run_circuit(cortex, tokens)
-        assert result.thalamic_readiness == {}
+        mod_probe = ModulatorProbe()
+        result = run_circuit(cortex, tokens, probes=[mod_probe])
+        mod_snap = result.probe_snapshots["modulators"]
+        assert mod_snap.thalamic == {}

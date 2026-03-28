@@ -8,6 +8,7 @@ from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
 from step.probes.chat import ChatMotorProbe
+from step.probes.modulators import ModulatorProbe
 from tests.conftest import run_circuit
 
 
@@ -133,8 +134,10 @@ class TestMotorCircuit:
         cortex.connect(
             motor.l23, region1.l4, ConnectionRole.APICAL, thalamic_gate=ThalamicGate()
         )
-        result = run_circuit(cortex, tokens)
-        assert "M1->S1" in result.thalamic_readiness
+        mod_probe = ModulatorProbe()
+        result = run_circuit(cortex, tokens, probes=[mod_probe])
+        mod_snap = result.probe_snapshots["modulators"]
+        assert "M1->S1" in mod_snap.thalamic
 
     def test_story_boundary_resets_motor(self, region1, motor, encoder):
         tokens = [

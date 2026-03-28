@@ -1,7 +1,7 @@
 """Chat-specific reporter for periodic training log lines.
 
-Reads typed probe snapshots (LaminaProbe, ChatMotorProbe) and prints
-formatted progress lines. No learning, no circuit access.
+Reads typed probe snapshots (LaminaProbe, ChatMotorProbe, ModulatorProbe)
+and prints formatted progress lines. No learning, no circuit access.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from step.probes.chat import ChatMotorProbe
     from step.probes.core import LaminaProbe
+    from step.probes.modulators import ModulatorProbe
 
 
 def _rolling_mean(vals: list[float], window: int) -> float:
@@ -34,22 +35,12 @@ class ChatReporter:
         *,
         lamina: LaminaProbe | None = None,
         motor: ChatMotorProbe | None = None,
-        surprise_modulators: dict[str, list[float]] | None = None,
-        thalamic_readiness: dict[str, list[float]] | None = None,
-        reward_modulators: dict[str, list[float]] | None = None,
+        modulators: ModulatorProbe | None = None,
     ) -> None:
         """Print a log line if t is at a log interval."""
         if t == 0 or t % self._log_interval != 0:
             return
-        self._log(
-            t,
-            elapsed,
-            lamina=lamina,
-            motor=motor,
-            surprise_modulators=surprise_modulators or {},
-            thalamic_readiness=thalamic_readiness or {},
-            reward_modulators=reward_modulators or {},
-        )
+        self._log(t, elapsed, lamina=lamina, motor=motor, modulators=modulators)
 
     def _log(
         self,
@@ -58,9 +49,7 @@ class ChatReporter:
         *,
         lamina: LaminaProbe | None,
         motor: ChatMotorProbe | None,
-        surprise_modulators: dict[str, list[float]],
-        thalamic_readiness: dict[str, list[float]],
-        reward_modulators: dict[str, list[float]],
+        modulators: ModulatorProbe | None,
     ) -> None:
         """Format and print a log line from typed probe snapshots."""
         rw = self._rolling_window
@@ -106,17 +95,19 @@ class ChatReporter:
 
         # Modulator info
         mod_str = ""
-        for _tgt, mods in surprise_modulators.items():
-            if mods:
-                mod_str += f" mod={_rolling_mean(mods, rw):.2f}"
-                break
-        for _key, vals in thalamic_readiness.items():
-            if vals:
-                mod_str += f" gate={_rolling_mean(vals, rw):.2f}"
-                break
-        for _tgt, rews in reward_modulators.items():
-            if rews:
-                mod_str += f" rew={_rolling_mean(rews, rw):.2f}"
-                break
+        if modulators is not None:
+            snap = modulators.snapshot()
+            for _tgt, mods in snap.surprise.items():
+                if mods:
+                    mod_str += f" mod={_rolling_mean(mods, rw):.2f}"
+                    break
+            for _key, vals in snap.thalamic.items():
+                if vals:
+                    mod_str += f" gate={_rolling_mean(vals, rw):.2f}"
+                    break
+            for _tgt, rews in snap.reward.items():
+                if rews:
+                    mod_str += f" rew={_rolling_mean(rews, rw):.2f}"
+                    break
 
         print(f"  t={t:,} {lamina_str}{motor_str}{mod_str} ({elapsed:.1f}s)")
