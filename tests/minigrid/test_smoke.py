@@ -53,4 +53,4 @@ def test_full_loop_10_episodes():
     # Verify S1 has learned something (recall > 0)
     snap = result.probe_snapshots["lamina"]
     assert "S1" in snap
-    assert snap["S1"].l4.recall >= 0
+    assert snap["S1"].input.recall >= 0

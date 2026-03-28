@@ -78,10 +78,10 @@ def main() -> None:
     for region_name, region_snap in snap.items():
         print(
             f"  {region_name}: "
-            f"recall={region_snap.l4.recall:.3f} "
-            f"prec={region_snap.l4.precision:.3f} "
-            f"sparse={region_snap.l4.sparseness:.3f} "
-            f"dim={region_snap.l23.eff_dim:.1f}"
+            f"recall={region_snap.input.recall:.3f} "
+            f"prec={region_snap.input.precision:.3f} "
+            f"sparse={region_snap.input.sparseness:.3f} "
+            f"dim={region_snap.association.eff_dim:.1f}"
         )
 
 

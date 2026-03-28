@@ -231,9 +231,7 @@ class CorticalRegion:
         # Allocated when plasticity_rule is THREE_FACTOR.
         self._eligibility_clip: float = 0.0
         if plasticity_rule == PlasticityRule.THREE_FACTOR:
-            self._ff_eligibility: np.ndarray | None = np.zeros(
-                (input_dim, _ff_n_total)
-            )
+            self._ff_eligibility: np.ndarray | None = np.zeros((input_dim, _ff_n_total))
         else:
             self._ff_eligibility = None
 
@@ -366,9 +364,9 @@ class CorticalRegion:
             ] * n_per_col + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
         precise = ~is_burst
         if precise.any():
-            winner_indices[precise] = active_cols[
-                precise
-            ] * n_per_col + active_by_col[active_cols[precise]].argmax(axis=1)
+            winner_indices[precise] = active_cols[precise] * n_per_col + active_by_col[
+                active_cols[precise]
+            ].argmax(axis=1)
         return winner_indices
 
     def _learn_ff(self, flat_input: np.ndarray):
@@ -975,9 +973,9 @@ class CorticalRegion:
             self.output_scores[:] = 0.0
 
         # Store column drive for diagnostics
-        self.last_column_drive[:] = (
-            self.l23.voltage.reshape(self.n_columns, self.n_l23).max(axis=1)
-        )
+        self.last_column_drive[:] = self.l23.voltage.reshape(
+            self.n_columns, self.n_l23
+        ).max(axis=1)
 
         return np.nonzero(self.l23.active)[0]
 
@@ -1078,9 +1076,7 @@ class CorticalRegion:
         """Select top-k columns by max neuron score (L4)."""
         return self._select_columns_generic(scores, self.n_l4)
 
-    def _select_columns_generic(
-        self, scores: np.ndarray, n_per_col: int
-    ) -> np.ndarray:
+    def _select_columns_generic(self, scores: np.ndarray, n_per_col: int) -> np.ndarray:
         """Select top-k columns by max neuron score on any lamina."""
         by_col = scores.reshape(self.n_columns, n_per_col)
         col_scores = by_col.max(axis=1)

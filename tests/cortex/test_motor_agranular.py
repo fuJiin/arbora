@@ -45,7 +45,7 @@ class TestMotorAgranular:
     def test_produces_output(self, motor):
         encoding = np.random.default_rng(0).random(32)
         motor.process(encoding)
-        token_id, conf = motor.get_population_output()
+        token_id, _conf = motor.get_population_output()
         # May or may not produce output depending on threshold
         assert isinstance(token_id, (int, np.integer))
 

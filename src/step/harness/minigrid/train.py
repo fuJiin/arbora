@@ -115,9 +115,9 @@ class MiniGridHarness:
         if self._lamina_probe is not None:
             for _rn, snap in self._lamina_probe.snapshot().items():
                 lamina_str = (
-                    f"recall={snap.l4.recall:.2f} "
-                    f"prec={snap.l4.precision:.2f} "
-                    f"dim={snap.l23.eff_dim:.1f}"
+                    f"recall={snap.input.recall:.2f} "
+                    f"prec={snap.input.precision:.2f} "
+                    f"dim={snap.association.eff_dim:.1f}"
                 )
                 break
         print(f"  t={t:,} ep={env.episode_count} {lamina_str} ({elapsed:.1f}s)")

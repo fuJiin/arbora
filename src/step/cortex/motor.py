@@ -286,8 +286,12 @@ class MotorRegion(CorticalRegion):
             inc = self.max_excitability / self.n_l23
             self.l23.excitability[~self.l23.active] += inc
             self.l23.excitability[self.l23.active] = 0.0
-            np.clip(self.l23.excitability, 0, self.max_excitability,
-                    out=self.l23.excitability)
+            np.clip(
+                self.l23.excitability,
+                0,
+                self.max_excitability,
+                out=self.l23.excitability,
+            )
 
         self.l23.voltage[self.l23.active] = 0.0
         np.clip(self.l23.voltage, 0.0, 1.0, out=self.l23.voltage)

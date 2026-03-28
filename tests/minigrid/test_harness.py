@@ -64,7 +64,7 @@ class TestMiniGridHarness:
         assert "lamina" in result.probe_snapshots
         snap = result.probe_snapshots["lamina"]
         assert "S1" in snap
-        assert snap["S1"].l4.recall >= 0
+        assert snap["S1"].input.recall >= 0
 
     def test_train_result_has_snapshots(self, encoder, circuit):
         """TrainResult should include probe snapshots."""
