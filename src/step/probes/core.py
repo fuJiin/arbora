@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
-from step.probes.snapshots import L4Snapshot, L23Snapshot, LaminaRegionSnapshot
+from step.snapshots.core import L4Snapshot, L23Snapshot, LaminaRegionSnapshot
 
 if TYPE_CHECKING:
     from step.cortex.circuit import Circuit
