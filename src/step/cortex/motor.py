@@ -132,7 +132,12 @@ class MotorRegion(CorticalRegion):
         """Set PFC goal signal for next process() call."""
         self._goal_drive = pfc_firing_rate
 
-    def process(self, encoding: np.ndarray) -> np.ndarray:
+    def process(
+        self,
+        encoding: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Feedforward + optional goal drive + L5 output scores.
 
         Routes to exploration (forced random columns) or normal processing
@@ -142,8 +147,7 @@ class MotorRegion(CorticalRegion):
             return self._explore_direct(encoding)
         if self.exploration_noise > 0.0 and self._rng.random() < self.exploration_noise:
             return self._explore_direct(encoding)
-        # Normal path: base class process() handles goal_drive + ff_weights
-        return super().process(encoding)
+        return super().process(encoding, forced_columns=forced_columns)
 
     def _explore_direct(self, encoding: np.ndarray | None = None) -> np.ndarray:
         """Force random column activations while training ff_weights.
