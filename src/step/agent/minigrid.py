@@ -13,15 +13,16 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from step.agent.base import BaseAgent
 from step.cortex.motor import MotorRegion
-from step.env_minigrid import MiniGridObs
+from step.environment.minigrid import MiniGridObs
 
 if TYPE_CHECKING:
     from step.cortex.circuit import Circuit
     from step.encoders.minigrid import MiniGridEncoder
 
 
-class MiniGridAgent:
+class MiniGridAgent(BaseAgent):
     """Agent wrapping a Circuit for MiniGrid environments.
 
     The harness interleaves probes between step() and decode_action()::
@@ -45,29 +46,9 @@ class MiniGridAgent:
         n_actions: int = 7,
         entry_name: str | None = None,
     ):
-        self._encoder = encoder
-        self._circuit = circuit
+        super().__init__(encoder, circuit, entry_name=entry_name)
         self._n_actions = n_actions
-        self._entry_name = entry_name or circuit._entry_name
         self._rng = np.random.default_rng(42)
-
-        # Last step state (readable by harness for probes/metrics)
-        self.last_encoding: np.ndarray | None = None
-        self.last_output: np.ndarray | None = None
-        self.last_action: int | None = None
-
-    @property
-    def encoder(self) -> MiniGridEncoder:
-        return self._encoder
-
-    @property
-    def circuit(self) -> Circuit:
-        return self._circuit
-
-    def reset(self) -> None:
-        """Episode boundary: reset circuit state."""
-        self._circuit.reset()
-        self.last_action = None
 
     def step(self, obs: MiniGridObs) -> None:
         """Encode observation and run circuit processing.

@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from step.decoders.word import WordDecoder
 
 
+# Contravariant: Encoder accepts observations (parameter position).
+# Encoder[str] for chat, Encoder[MiniGridObs] for grid envs.
 T_obs = TypeVar("T_obs", contravariant=True)
 
 

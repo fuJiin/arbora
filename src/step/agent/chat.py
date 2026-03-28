@@ -13,8 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-import numpy as np
-
+from step.agent.base import BaseAgent
 from step.cortex.motor import MotorRegion
 from step.environment import ChatObs
 
@@ -55,7 +54,7 @@ class Agent(Protocol):
 # ---------------------------------------------------------------------------
 
 
-class ChatAgent:
+class ChatAgent(BaseAgent):
     """Agent wrapping a Circuit with encoder/decoder for char-level chat.
 
     Owns the encoder (text -> vector), the circuit (vector -> vector),
@@ -85,31 +84,18 @@ class ChatAgent:
         *,
         entry_name: str | None = None,
     ):
-        self._encoder = encoder
-        self._circuit = circuit
-        self._entry_name = entry_name or circuit._entry_name
+        super().__init__(encoder, circuit, entry_name=entry_name)
 
         # Motor state — agent policy, not circuit state
         self._motor_active = False
         self.force_gate_open = False
 
-        # Last step state (readable by harness for probes/metrics)
-        self.last_encoding: np.ndarray | None = None
-        self.last_output: np.ndarray | None = None
-        self.last_action: int | None = None
+        # Chat-specific state
         self.last_token_str: str = ""
-
-    @property
-    def encoder(self) -> Encoder:
-        return self._encoder
-
-    @property
-    def circuit(self) -> Circuit:
-        return self._circuit
 
     def reset(self) -> None:
         """Reset at dialogue boundary: clear circuit and agent state."""
-        self._circuit.reset()
+        super().reset()
         for conn in self._circuit._connections:
             if conn.reward_modulator is not None:
                 conn.reward_modulator.reset()
@@ -118,7 +104,6 @@ class ChatAgent:
             if _rs_reset is not None:
                 _rs_reset()
         self._motor_active = False
-        self.last_action = None
 
     def step(self, obs: ChatObs) -> None:
         """Encode observation, run neural processing, do motor learning.

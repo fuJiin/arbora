@@ -5,9 +5,10 @@ ChatAgent — concrete implementation for char-level text chat.
 MiniGridAgent — concrete implementation for MiniGrid gymnasium envs.
 """
 
+from step.agent.base import BaseAgent
 from step.agent.chat import Agent, ChatAgent
 
-__all__ = ["Agent", "ChatAgent", "MiniGridAgent"]
+__all__ = ["Agent", "BaseAgent", "ChatAgent", "MiniGridAgent"]
 
 
 def __getattr__(name: str):

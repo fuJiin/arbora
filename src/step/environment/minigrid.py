@@ -7,7 +7,7 @@ MiniGridEnv wraps a gymnasium MiniGrid env for multi-episode training.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 
@@ -30,7 +30,15 @@ class MiniGridObs:
     mission: str = ""
 
 
-def _to_obs(gym_obs: dict) -> MiniGridObs:
+class _GymMiniGridObs(TypedDict, total=False):
+    """Typed dict matching gymnasium MiniGrid observation format."""
+
+    image: np.ndarray
+    direction: int
+    mission: str
+
+
+def _to_obs(gym_obs: _GymMiniGridObs) -> MiniGridObs:
     """Convert gymnasium dict observation to typed MiniGridObs."""
     return MiniGridObs(
         image=gym_obs["image"],

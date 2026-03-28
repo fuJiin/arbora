@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from step.env_minigrid import MiniGridObs
+from step.environment.minigrid import MiniGridObs
 
 # MiniGrid symbolic encoding ranges
 _N_OBJECT_TYPES = 11
