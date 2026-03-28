@@ -33,8 +33,8 @@ from step.cortex.stages import (
 from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
 from step.environment import ChatEnv
+from step.harness.chat import ChatTrainHarness
 from step.runs import save_run
-from step.train import train
 
 CKPT_DIR = "experiments/checkpoints"
 
@@ -162,7 +162,7 @@ def run_stage(
         env = ChatEnv(stage_tokens)
 
     agent = ChatAgent(encoder=encoder, circuit=cortex)
-    result = train(env, agent, log_interval=log_interval)
+    result = ChatTrainHarness(env, agent, log_interval=log_interval).run()
 
     print(f"\nStage '{stage.name}' completed in {result.elapsed_seconds:.1f}s")
 

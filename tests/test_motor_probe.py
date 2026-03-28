@@ -9,8 +9,8 @@ from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
 from step.environment import ChatEnv
+from step.harness.chat import ChatTrainHarness
 from step.probes.chat import ChatMotorProbe
-from step.train import train
 
 
 def _make_motor_circuit():
@@ -54,7 +54,7 @@ def _train_with_probe(circuit, encoder, text="abcdabcd" * 5):
     env = ChatEnv(tokens)
     agent = ChatAgent(encoder=encoder, circuit=circuit)
     probe = ChatMotorProbe()
-    result = train(env, agent, log_interval=9999, probes=[probe])
+    result = ChatTrainHarness(env, agent, log_interval=9999, probes=[probe]).run()
     return result, probe
 
 
@@ -109,6 +109,6 @@ class TestChatMotorProbeNoMotor:
         env = ChatEnv(tokens)
         agent = ChatAgent(encoder=encoder, circuit=circuit)
         probe = ChatMotorProbe()
-        train(env, agent, log_interval=9999, probes=[probe])
+        ChatTrainHarness(env, agent, log_interval=9999, probes=[probe]).run()
 
         assert probe.snapshot() == {}

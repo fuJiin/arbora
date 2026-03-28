@@ -33,7 +33,7 @@ from step.data import (
 from step.decoders.dendritic import DendriticDecoder  # for type hints
 from step.encoders.positional import PositionalCharEncoder
 from step.environment import EOM_OBS, ChatEnv, ChatObs
-from step.train import train
+from step.harness.chat import ChatTrainHarness
 
 # ANSI colors
 DIM = "\033[2m"
@@ -96,13 +96,13 @@ def warmup(cortex, encoder, tokens, log_interval=2000):
     probe = LaminaProbe(l23_sample_interval=1)
     f = io.StringIO()
     with contextlib.redirect_stdout(f):
-        result = train(
+        result = ChatTrainHarness(
             env,
             agent,
             log_interval=log_interval,
             probes=[probe],
             decoder_training=True,
-        )
+        ).run()
     lamina_snap = result.probe_snapshots.get("lamina", {})
     s1 = lamina_snap.get("S1")
     if s1 is not None:
