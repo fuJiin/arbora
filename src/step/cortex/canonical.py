@@ -92,7 +92,7 @@ def build_canonical_circuit(
     s1 = make_sensory_region(
         s1_cfg,
         encoder.input_dim,
-        encoder.encoding_width,  # type: ignore[attr-defined]
+        encoder.encoding_width,
     )
 
     s2_cfg = _apply_overrides(_default_region2_config(), s2_overrides)
