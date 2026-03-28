@@ -7,7 +7,7 @@ from step.cortex import CorticalRegion
 from step.cortex.circuit import Circuit
 from step.encoders.positional import PositionalCharEncoder
 from step.environment import ChatEnv
-from step.train import TrainResult, train
+from step.harness.chat import ChatTrainHarness, TrainResult
 
 
 def make_circuit(n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42):
@@ -45,13 +45,14 @@ def run_circuit(
     rolling_window=100,
     probes=(),
 ) -> TrainResult:
-    """Test helper: run a circuit through ChatEnv + ChatAgent + train()."""
+    """Test helper: run a circuit via ChatTrainHarness."""
     agent = ChatAgent(encoder=cortex._encoder, circuit=cortex)
     env = ChatEnv(tokens)
-    return train(
+    harness = ChatTrainHarness(
         env,
         agent,
+        probes=probes,
         log_interval=log_interval,
         rolling_window=rolling_window,
-        probes=probes,
     )
+    return harness.run()

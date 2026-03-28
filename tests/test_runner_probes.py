@@ -12,12 +12,12 @@ import pytest
 from step.agent import ChatAgent
 from step.cortex import CorticalRegion
 from step.cortex.circuit import Circuit
+from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY
 from step.encoders.positional import PositionalCharEncoder
 from step.environment import ChatEnv
+from step.harness.chat import ChatTrainHarness
 from step.probes.core import LaminaProbe
-from step.runner import run_cortex
-from step.train import train
 
 # ---------------------------------------------------------------------------
 # Spy probe for verifying call protocol
@@ -95,7 +95,7 @@ class TestTrainProbeWiring:
         env, agent, _tokens = _make_circuit_and_env("abcdef")
         spy = SpyProbe()
 
-        train(env, agent, log_interval=9999, probes=[spy])
+        ChatTrainHarness(env, agent, log_interval=9999, probes=[spy]).run()
 
         # 6 characters = 6 observe calls (boundary is skipped, not processed)
         assert spy.observe_count == 6
@@ -105,7 +105,7 @@ class TestTrainProbeWiring:
         env, agent, _ = _make_circuit_and_env("ab")
         spy = SpyProbe()
 
-        train(env, agent, log_interval=9999, probes=[spy])
+        ChatTrainHarness(env, agent, log_interval=9999, probes=[spy]).run()
 
         # Last token was 'b' = ord('b') = 98
         assert spy.last_kwargs["stimulus_id"] == ord("b")
@@ -130,7 +130,7 @@ class TestTrainProbeWiring:
         agent = ChatAgent(encoder=encoder, circuit=circuit)
 
         spy = SpyProbe()
-        train(env, agent, log_interval=9999, probes=[spy])
+        ChatTrainHarness(env, agent, log_interval=9999, probes=[spy]).run()
 
         assert spy.boundary_count == 2  # two STORY_BOUNDARY tokens
         assert spy.observe_count == 5  # abc + de
@@ -140,7 +140,7 @@ class TestTrainProbeWiring:
         env, agent, _ = _make_circuit_and_env("abcdef")
         spy = SpyProbe()
 
-        result = train(env, agent, log_interval=9999, probes=[spy])
+        result = ChatTrainHarness(env, agent, log_interval=9999, probes=[spy]).run()
 
         assert "spy" in result.probe_snapshots
         assert result.probe_snapshots["spy"]["observe_count"] == 6
@@ -153,7 +153,9 @@ class TestTrainProbeWiring:
         spy2 = SpyProbe()
         spy2.name = "spy2"
 
-        result = train(env, agent, log_interval=9999, probes=[spy1, spy2])
+        result = ChatTrainHarness(
+            env, agent, log_interval=9999, probes=[spy1, spy2]
+        ).run()
 
         assert spy1.observe_count == 3
         assert spy2.observe_count == 3
@@ -163,7 +165,7 @@ class TestTrainProbeWiring:
     def test_no_probes_backward_compatible(self):
         """train() works without probes (default)."""
         env, agent, _ = _make_circuit_and_env("abc")
-        result = train(env, agent, log_interval=9999)
+        result = ChatTrainHarness(env, agent, log_interval=9999).run()
         assert result.probe_snapshots == {}
 
     def test_probe_without_boundary_ok(self):
@@ -194,7 +196,9 @@ class TestTrainProbeWiring:
         env = ChatEnv(tokens)
         agent = ChatAgent(encoder=encoder, circuit=circuit)
 
-        result = train(env, agent, log_interval=9999, probes=[MinimalProbe()])
+        result = ChatTrainHarness(
+            env, agent, log_interval=9999, probes=[MinimalProbe()]
+        ).run()
         assert "minimal" in result.probe_snapshots
 
 
@@ -203,19 +207,22 @@ class TestTrainProbeWiring:
 # ---------------------------------------------------------------------------
 
 
-class TestRunCortexProbes:
-    def test_probes_threaded_through_run_cortex(self):
-        """run_cortex() passes probes to train(); spy records observations."""
+class TestHarnessDirectUsage:
+    def test_probes_with_sensory_region(self):
+        """ChatTrainHarness passes probes through; spy records observations."""
         encoder = PositionalCharEncoder("abcdefgh", max_positions=1)
-        region = CorticalRegion(
+        region = SensoryRegion(
             encoder.input_dim, n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42
         )
+        circuit = Circuit(encoder)
+        circuit.add_region("S1", region, entry=True)
         tokens = _make_tokens("abcdef")
         spy = SpyProbe()
 
-        run_cortex(region, encoder, tokens, log_interval=9999, probes=[spy])
+        env = ChatEnv(tokens)
+        agent = ChatAgent(encoder=encoder, circuit=circuit)
+        ChatTrainHarness(env, agent, log_interval=9999, probes=[spy]).run()
 
-        # Probe was called for each character
         assert spy.observe_count == 6
 
 
@@ -230,7 +237,7 @@ class TestEndToEndProbeKPIs:
         env, agent, _ = _make_circuit_and_env("abcdefgh" * 20)
         probe = LaminaProbe(l23_sample_interval=1)
 
-        result = train(env, agent, log_interval=9999, probes=[probe])
+        result = ChatTrainHarness(env, agent, log_interval=9999, probes=[probe]).run()
 
         snap = result.probe_snapshots["lamina"]
         assert "S1" in snap
@@ -250,7 +257,7 @@ class TestEndToEndProbeKPIs:
             linear_probe_window=1000,
         )
 
-        result = train(env, agent, log_interval=9999, probes=[probe])
+        result = ChatTrainHarness(env, agent, log_interval=9999, probes=[probe]).run()
 
         snap = result.probe_snapshots["chat_lamina"]
         assert "S1" in snap
