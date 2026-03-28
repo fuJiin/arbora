@@ -11,6 +11,7 @@ dependencies = [
 
 [project.optional-dependencies]
 viz = ["matplotlib", "plotly"]
+minigrid = ["minigrid>=3.0", "gymnasium>=1.0"]
 
 [dependency-groups]
 dev = [

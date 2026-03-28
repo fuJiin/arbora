@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 import numpy as np
 
@@ -26,10 +26,30 @@ if TYPE_CHECKING:
     from step.decoders.word import WordDecoder
 
 
-class Encoder(Protocol):
-    """Minimal encoder interface for the runner."""
+T_obs = TypeVar("T_obs", contravariant=True)
 
-    def encode(self, token: str) -> np.ndarray: ...
+
+class Encoder(Protocol[T_obs]):
+    """Encoder interface: observation → sparse binary vector.
+
+    Generic over the observation type. Chat encoders implement
+    Encoder[str], grid encoders implement Encoder[MiniGridObs], etc.
+    """
+
+    @property
+    def input_dim(self) -> int:
+        """Total flattened encoding dimension for SensoryRegion."""
+        ...
+
+    @property
+    def encoding_width(self) -> int:
+        """Width of a single position for receptive field tiling.
+
+        Return 0 if the encoding has no positional structure.
+        """
+        ...
+
+    def encode(self, obs: T_obs) -> np.ndarray: ...
 
 
 @dataclass
