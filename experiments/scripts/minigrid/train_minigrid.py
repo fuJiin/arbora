@@ -18,7 +18,7 @@ from step.cortex import SensoryRegion
 from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.motor import MotorRegion
 from step.encoders.minigrid import MiniGridEncoder
-from step.env_minigrid import MiniGridEnv
+from step.environment.minigrid import MiniGridEnv
 from step.harness.minigrid.train import MiniGridHarness
 from step.probes.core import LaminaProbe
 

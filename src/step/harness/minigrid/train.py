@@ -21,7 +21,7 @@ from step.probes.core import LaminaProbe, Probe
 
 if TYPE_CHECKING:
     from step.agent.minigrid import MiniGridAgent
-    from step.env_minigrid import MiniGridEnv
+    from step.environment.minigrid import MiniGridEnv
 
 
 class MiniGridHarness:

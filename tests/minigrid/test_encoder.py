@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from step.encoders.minigrid import MiniGridEncoder
-from step.env_minigrid import MiniGridObs
+from step.environment.minigrid import MiniGridObs
 
 
 @pytest.fixture()

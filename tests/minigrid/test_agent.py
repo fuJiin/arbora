@@ -6,7 +6,7 @@ from step.cortex import SensoryRegion
 from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.motor import MotorRegion
 from step.encoders.minigrid import MiniGridEncoder
-from step.env_minigrid import MiniGridEnv, MiniGridObs
+from step.environment.minigrid import MiniGridEnv, MiniGridObs
 
 
 @pytest.fixture()
