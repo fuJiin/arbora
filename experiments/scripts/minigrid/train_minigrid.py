@@ -31,13 +31,14 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
         n_columns=64,
         n_l4=4,
         n_l23=4,
+        n_l5=0,
         k_columns=4,
         seed=42,
     )
     m1 = MotorRegion(
         input_dim=s1.n_l23_total,
         n_columns=16,
-        n_l4=4,
+        n_l4=0,
         n_l23=4,
         k_columns=2,
         n_output_tokens=7,
@@ -46,7 +47,7 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
     circuit = Circuit(encoder)
     circuit.add_region("S1", s1, entry=True)
     circuit.add_region("M1", m1)
-    circuit.connect(s1.l23, m1.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s1.l23, m1.input_lamina, ConnectionRole.FEEDFORWARD)
     circuit.finalize()
     return circuit
 
