@@ -49,15 +49,15 @@ class TestMotorAgranular:
         # May or may not produce output depending on threshold
         assert isinstance(token_id, (int, np.integer))
 
-    def test_babble_runs(self, motor):
-        motor.babbling_noise = 1.0
+    def test_explore_runs(self, motor):
+        motor.exploration_noise = 1.0
         encoding = np.random.default_rng(0).random(32)
         result = motor.process(encoding)
         assert isinstance(result, np.ndarray)
         assert motor.l23.active.any()
 
-    def test_babble_activates_l5(self, motor):
-        motor.babbling_noise = 1.0
+    def test_explore_activates_l5(self, motor):
+        motor.exploration_noise = 1.0
         encoding = np.random.default_rng(0).random(32)
         motor.process(encoding)
         assert motor.l5.active.any()
@@ -101,8 +101,8 @@ class TestMotorGranularUnchanged:
         result = motor_granular.process(encoding)
         assert isinstance(result, np.ndarray)
 
-    def test_babble_runs(self, motor_granular):
-        motor_granular.babbling_noise = 1.0
+    def test_explore_runs(self, motor_granular):
+        motor_granular.exploration_noise = 1.0
         encoding = np.random.default_rng(0).random(32)
         result = motor_granular.process(encoding)
         assert isinstance(result, np.ndarray)

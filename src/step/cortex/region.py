@@ -310,7 +310,7 @@ class CorticalRegion:
         Args:
             encoding: Input encoding vector.
             forced_columns: If provided, skip k-WTA and use these columns.
-                Used for motor babbling / exploration.
+                Used for motor exploration (random column forcing).
         """
         flat = encoding.flatten().astype(np.float64)
 
@@ -838,7 +838,7 @@ class CorticalRegion:
             drive: Per-neuron feedforward drive targeting the input lamina.
                    Shape (n_l4_total,) for granular, (n_l23_total,) for agranular.
             forced_columns: If provided, skip k-WTA and use these column
-                indices instead. Used for motor babbling / exploration.
+                indices instead. Used for motor exploration (random column forcing).
 
         Returns:
             Array of global indices of active input-lamina neurons.

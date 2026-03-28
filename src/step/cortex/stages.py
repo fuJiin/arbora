@@ -46,7 +46,7 @@ class TrainingStage:
     save_checkpoint: str | None = None
 
     # Motor babbling noise (0.0 = off, 1.0 = pure random)
-    babbling_noise: float = 0.0
+    exploration_noise: float = 0.0
 
     # Force M1 active every step (not just EOM phase)
     force_motor_active: bool = False
@@ -75,7 +75,7 @@ def _apply_learning_regions(circuit, regions: list[str]) -> None:
 
 
 def _apply_motor_settings(
-    circuit, babbling_noise: float, force_motor_active: bool
+    circuit, exploration_noise: float, force_motor_active: bool
 ) -> None:
     """Configure motor babbling noise.
 
@@ -84,7 +84,7 @@ def _apply_motor_settings(
     """
     for _name, state in circuit._regions.items():
         if state.motor:
-            state.region.babbling_noise = babbling_noise
+            state.region.exploration_noise = exploration_noise
 
 
 def _apply_reward_source(circuit, reward_source: str) -> None:
@@ -114,7 +114,7 @@ def configure_sensory(circuit) -> None:
     M1->S1 apical (motor shouldn't influence sensory during learning).
     """
     _apply_learning_regions(circuit, ["S1", "S2", "S3", "M1", "M2", "PFC"])
-    _apply_motor_settings(circuit, babbling_noise=0.0, force_motor_active=False)
+    _apply_motor_settings(circuit, exploration_noise=0.0, force_motor_active=False)
     _apply_reward_source(circuit, "turn_taking")
 
     # Sensory feedforward: on
@@ -156,7 +156,7 @@ def configure_babbling(circuit) -> None:
 
     # Override motor and reward settings for babbling
     _apply_learning_regions(circuit, ["S1", "S2", "S3", "M1", "M2", "PFC"])
-    _apply_motor_settings(circuit, babbling_noise=0.5, force_motor_active=True)
+    _apply_motor_settings(circuit, exploration_noise=0.5, force_motor_active=True)
     _apply_reward_source(circuit, "caregiver")
 
 
@@ -166,7 +166,7 @@ def configure_guided_babbling(circuit) -> None:
     Only M1 learns. Motor monitoring off. S3 pathway disabled.
     """
     _apply_learning_regions(circuit, ["M1"])
-    _apply_motor_settings(circuit, babbling_noise=0.5, force_motor_active=True)
+    _apply_motor_settings(circuit, exploration_noise=0.5, force_motor_active=True)
     _apply_reward_source(circuit, "caregiver")
 
     # S1->M1 feedforward: on
@@ -223,7 +223,7 @@ BABBLING_STAGE = TrainingStage(
     learning_regions=["S1", "S2", "S3", "M1", "M2", "PFC"],
     load_checkpoint="stage1_sensory",
     save_checkpoint="stage2_babbling",
-    babbling_noise=0.5,
+    exploration_noise=0.5,
     force_motor_active=True,
     reward_source="caregiver",
     configure=configure_babbling,
@@ -236,7 +236,7 @@ GUIDED_BABBLING_STAGE = TrainingStage(
     learning_regions=["M1"],
     load_checkpoint="stage2_babbling",
     save_checkpoint="stage3_guided",
-    babbling_noise=0.5,
+    exploration_noise=0.5,
     force_motor_active=True,
     reward_source="caregiver",
     configure=configure_guided_babbling,
