@@ -1,7 +1,7 @@
 """Typed snapshot dataclasses for probe output.
 
-Replaces untyped dicts with structured types for autocompletion,
-type checking, and self-documenting probe output.
+Core snapshots (input-agnostic): L4Snapshot, L23Snapshot, LaminaRegionSnapshot.
+Chat-specific snapshots: ChatL23Snapshot, ChatLaminaRegionSnapshot, MotorRegionSnapshot.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
-# Lamina snapshots (LaminaProbe / ChatLaminaProbe)
+# Core snapshots (LaminaProbe — input-agnostic)
 # ---------------------------------------------------------------------------
 
 
@@ -24,30 +24,43 @@ class L4Snapshot:
 
 @dataclass
 class L23Snapshot:
-    """L2/3 lamina KPIs: representation quality."""
+    """L2/3 lamina KPIs: representation quality (input-agnostic)."""
 
     eff_dim: float = 0.0
-    # Chat-specific (set by ChatLaminaProbe)
-    linear_probe: float = 0.0
-    ctx_disc: float = 0.0
 
 
 @dataclass
 class LaminaRegionSnapshot:
-    """Per-region lamina snapshot."""
+    """Per-region lamina snapshot (input-agnostic)."""
 
     l4: L4Snapshot = field(default_factory=L4Snapshot)
     l23: L23Snapshot = field(default_factory=L23Snapshot)
 
 
 # ---------------------------------------------------------------------------
-# Motor snapshots (ChatMotorProbe)
+# Chat-specific snapshots (ChatLaminaProbe, ChatMotorProbe)
 # ---------------------------------------------------------------------------
 
 
 @dataclass
+class ChatL23Snapshot(L23Snapshot):
+    """L2/3 KPIs with chat-specific metrics."""
+
+    linear_probe: float = 0.0
+    ctx_disc: float = 0.0
+
+
+@dataclass
+class ChatLaminaRegionSnapshot:
+    """Per-region lamina snapshot with chat-specific L2/3."""
+
+    l4: L4Snapshot = field(default_factory=L4Snapshot)
+    l23: ChatL23Snapshot = field(default_factory=ChatL23Snapshot)
+
+
+@dataclass
 class MotorRegionSnapshot:
-    """Per-region motor metrics."""
+    """Per-region motor metrics (chat-specific)."""
 
     motor_accuracies: list[float] = field(default_factory=list)
     motor_confidences: list[float] = field(default_factory=list)
