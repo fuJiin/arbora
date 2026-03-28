@@ -69,7 +69,7 @@ class TestMiniGridEncoder:
         obs = MiniGridObs(image=image, direction=0)
         result = encoder.encode(obs)
         # Cell (0,0): object_type=0 → bit 0 active, color=0 → bit 11, state=0 → bit 17
-        assert result[0]   # object_type 0
+        assert result[0]  # object_type 0
         assert result[11]  # color 0
         assert result[17]  # state 0
 

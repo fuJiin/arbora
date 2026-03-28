@@ -7,9 +7,12 @@ MiniGridEnv wraps a gymnasium MiniGrid env for multi-episode training.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import gymnasium as gym
 import numpy as np
+
+if TYPE_CHECKING:
+    import gymnasium as gym
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,9 +68,10 @@ class MiniGridEnv:
         max_episodes: int = 100,
         seed: int = 0,
     ):
+        import gymnasium as gym
         import minigrid  # noqa: F401 — registers envs
 
-        self._gym_env = gym.make(env_id)
+        self._gym_env: gym.Env = gym.make(env_id)
         self._max_episodes = max_episodes
         self._seed = seed
 
