@@ -121,30 +121,16 @@ class ChatTrainHarness:
                 obs, _reward = env.step(None)
                 continue
 
-            # Encode
-            encoding = agent.encoder.encode(obs.token_str)
-            agent.last_encoding = encoding
-            agent.last_token_str = obs.token_str
-
             # Snapshot L2/3 before processing (for decoder training)
             prev_l23 = None
             prev_motor_l23: dict[str, object] = {}
             if self._decoder_training:
                 prev_l23, prev_motor_l23 = _snapshot_l23(circuit)
 
-            # TODO(STEP-87): move to agent.step() — harness shouldn't
-            # touch circuit directly. Split act() into step() + decode().
-            motor_active = agent._motor_active or agent.force_gate_open
-            if agent.last_action is not None and agent.force_gate_open:
-                entry = circuit.region(agent._entry_name)
-                action_char = chr(agent.last_action) if agent.last_action < 128 else ""
-                ef = agent.encoder.encode(action_char)
-                entry.set_efference_copy(ef)
+            # Agent: encode + efference copy + process + motor learning
+            agent.step(obs)
 
-            output = circuit.process(encoding, motor_active=motor_active)
-            agent.last_output = output
-
-            # Probes observe circuit state
+            # Probes observe circuit state (between step and decode)
             for probe in probes:
                 probe.observe(
                     circuit,
@@ -153,7 +139,7 @@ class ChatTrainHarness:
                     eom_steps=env.eom_steps,
                 )
 
-            # Modulator tracking (TODO: move to ModulatorProbe)
+            # TODO(STEP-86): move to ModulatorProbe
             _record_modulators(
                 circuit,
                 self._surprise_mods,
@@ -161,8 +147,7 @@ class ChatTrainHarness:
                 self._reward_mods,
             )
 
-            # Diagnostics / timeline capture
-            # TODO(STEP-87): move to agent or viz probe
+            # Diagnostics / timeline capture (viz observability)
             _capture_diagnostics(circuit, t)
 
             # Optional decoder training
@@ -171,7 +156,7 @@ class ChatTrainHarness:
                     circuit,
                     obs.token_id,
                     obs.token_str,
-                    encoding,
+                    agent.last_encoding,
                     prev_l23,
                     prev_motor_l23,
                 )
@@ -188,9 +173,8 @@ class ChatTrainHarness:
                 reward_modulators=self._reward_mods,
             )
 
-            # Decode action + step env
-            action = agent._decode_action()
-            agent.last_action = action
+            # Get action + step env
+            action = agent.decode_action()
             obs, _reward = env.step(action)
             t += 1
 
