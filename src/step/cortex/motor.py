@@ -120,13 +120,14 @@ class MotorRegion(CorticalRegion):
         Called once when PFC is connected. Creates learned weights that
         map PFC's L2/3 firing rate to additive M1 neuron drive.
         """
+        _target_dim = self.input_lamina.n_total
         self._goal_weights = self._rng.uniform(
             0,
             0.01,
-            size=(source_dim, self.n_l4_total),
+            size=(source_dim, _target_dim),
         )
         # Structural sparsity: ~50% connectivity
-        goal_mask = self._rng.random((source_dim, self.n_l4_total)) < 0.5
+        goal_mask = self._rng.random((source_dim, _target_dim)) < 0.5
         self._goal_weights *= goal_mask
         self._goal_eligibility = np.zeros_like(self._goal_weights)
         self._goal_drive = None
@@ -174,7 +175,8 @@ class MotorRegion(CorticalRegion):
 
             self._goal_drive = None  # Consumed
 
-        self.last_column_drive = neuron_drive.reshape(self.n_columns, self.n_l4).max(
+        _n_per = self.input_lamina.n_per_col
+        self.last_column_drive = neuron_drive.reshape(self.n_columns, _n_per).max(
             axis=1
         )
         active = self.step(neuron_drive)
@@ -185,7 +187,7 @@ class MotorRegion(CorticalRegion):
             if len(winner_cols) > 0:
                 winner_neurons = []
                 for col in winner_cols:
-                    winner_neurons.extend(range(col * self.n_l4, (col + 1) * self.n_l4))
+                    winner_neurons.extend(range(col * _n_per, (col + 1) * _n_per))
                 # Slow learning rate for goal weights (stability over speed)
                 goal_lr = self.learning_rate * 0.1
                 self._goal_eligibility[:, winner_neurons] += (
@@ -213,9 +215,14 @@ class MotorRegion(CorticalRegion):
         # Pick random k columns
         cols = self._rng.choice(self.n_columns, self.k_columns, replace=False)
 
+        # Determine which lamina receives input
+        input_lam = self.input_lamina
+        n_per = input_lam.n_per_col
+
         # Run the standard step pipeline but inject our columns
         # 1. Decay voltages
-        self.l4.voltage *= self.voltage_decay
+        if self.has_l4:
+            self.l4.voltage *= self.voltage_decay
         self.l23.voltage *= self.voltage_decay
 
         # 2. Compute predictions (for segment learning)
@@ -223,19 +230,27 @@ class MotorRegion(CorticalRegion):
 
         # 3. Save prediction context
         self._pred_context_l23[:] = self.l23.active
-        self._pred_context_l4[:] = self.l4.active
+        if self.has_l4:
+            self._pred_context_l4[:] = self.l4.active
 
-        # 4-6. Force our chosen columns active
+        # 4-6. Force our chosen columns active on the input lamina
         for col in cols:
-            start = col * self.n_l4
-            end = start + self.n_l4
-            self.l4.voltage[start:end] = 1.0
+            start = col * n_per
+            end = start + n_per
+            input_lam.voltage[start:end] = 1.0
 
-        scores_l4 = self.l4.voltage + self.l4.excitability
-        self._activate_l4_burst(cols, scores_l4)
+        scores = input_lam.voltage + input_lam.excitability
+        self._activate_input_burst(cols, scores, input_lam, n_per)
 
-        # 7. Activate L2/3
-        self._activate_l23(cols)
+        # Update input lamina firing rate
+        input_lam.firing_rate *= self.voltage_decay
+        input_lam.firing_rate[input_lam.active] += 1.0 - self.voltage_decay
+
+        # 7. Activate downstream: L4→L2/3 (granular) or skip (agranular)
+        if self.has_l4:
+            self._activate_l23(cols)
+            self.l23.firing_rate *= self.voltage_decay
+            self.l23.firing_rate[self.l23.active] += 1.0 - self.voltage_decay
 
         # 7b. Activate L5
         self._activate_l5(cols)
@@ -244,27 +259,55 @@ class MotorRegion(CorticalRegion):
         if self.learning_enabled:
             self._learn()
             # Train ff_weights: learn to map S1 input -> forced columns.
-            # This builds the sensorimotor forward model.
             if encoding is not None:
                 flat = encoding.flatten().astype(np.float64)
                 self._learn_ff(flat)
 
         # 9-13. Standard housekeeping
-        self._update_traces()
-        self._update_excitability()
-        self.l4.voltage[self.l4.active] = 0.0
+        if self.has_l4:
+            self._update_traces()
+            self._update_excitability()
+            self.l4.voltage[self.l4.active] = 0.0
+        else:
+            # Agranular: traces and excitability on L2/3 only
+            self.l23.trace *= self.eligibility_decay
+            active_cols = np.nonzero(self.active_columns)[0]
+            if len(active_cols) > 0:
+                v_by = self.l23.voltage.reshape(self.n_columns, self.n_l23)
+                a_by = self.l23.active.reshape(self.n_columns, self.n_l23)
+                bc = active_cols[self.bursting_columns[active_cols]]
+                if len(bc) > 0:
+                    best = v_by[bc].argmax(axis=1)
+                    self.l23.trace[bc * self.n_l23 + best] = 1.0
+                pc = active_cols[~self.bursting_columns[active_cols]]
+                if len(pc) > 0:
+                    best = a_by[pc].argmax(axis=1)
+                    self.l23.trace[pc * self.n_l23 + best] = 1.0
+            inc = self.max_excitability / self.n_l23
+            self.l23.excitability[~self.l23.active] += inc
+            self.l23.excitability[self.l23.active] = 0.0
+            np.clip(self.l23.excitability, 0, self.max_excitability,
+                    out=self.l23.excitability)
+
         self.l23.voltage[self.l23.active] = 0.0
-        np.clip(self.l4.voltage, 0.0, 1.0, out=self.l4.voltage)
         np.clip(self.l23.voltage, 0.0, 1.0, out=self.l23.voltage)
-        self.l23.firing_rate *= self.voltage_decay
-        self.l23.firing_rate[self.l23.active] += 1.0 - self.voltage_decay
+        if self.has_l4:
+            np.clip(self.l4.voltage, 0.0, 1.0, out=self.l4.voltage)
+
+        if not self.has_l4:
+            # Firing rate already updated above for agranular
+            pass
+        else:
+            self.l23.firing_rate *= self.voltage_decay
+            self.l23.firing_rate[self.l23.active] += 1.0 - self.voltage_decay
+
         self.l5.firing_rate *= self.voltage_decay
         self.l5.firing_rate[self.l5.active] += 1.0 - self.voltage_decay
         self.output_scores[:] = self.l5.firing_rate.reshape(
             self.n_columns, self.n_l5
         ).mean(axis=1)
 
-        return np.nonzero(self.l4.active)[0]
+        return np.nonzero(input_lam.active)[0]
 
     # _learn_ff() inherited from CorticalRegion base class.
     # Base dispatches to _learn_ff_three_factor which handles
