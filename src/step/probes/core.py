@@ -79,7 +79,7 @@ class LaminaProbe:
             if region.n_l23 > 0:
                 self._observe_l23(region, region_name)
 
-    def snapshot(self) -> dict[str, LaminaRegionSnapshot]:
+    def snapshot(self) -> dict:
         """Compute current KPI values."""
         result: dict[str, LaminaRegionSnapshot] = {}
 
