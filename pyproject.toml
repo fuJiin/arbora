@@ -64,6 +64,13 @@ include = ["src/step/viz/**"]
 unresolved-import = "ignore"
 
 [[tool.ty.overrides]]
+include = ["src/step/env_minigrid.py", "src/step/encoders/minigrid.py", "src/step/agent/minigrid.py", "src/step/harness/minigrid/**"]
+
+[tool.ty.overrides.rules]
+# gymnasium/minigrid are optional deps, not installed in CI
+unresolved-import = "ignore"
+
+[[tool.ty.overrides]]
 include = ["experiments/scripts/**"]
 
 [tool.ty.overrides.rules]
