@@ -13,7 +13,7 @@ import numpy as np
 
 from step.cortex.motor import MotorRegion
 from step.probes.core import LaminaProbe
-from step.probes.snapshots import (
+from step.snapshots.chat import (
     ChatL23Snapshot,
     ChatLaminaRegionSnapshot,
     MotorRegionSnapshot,
