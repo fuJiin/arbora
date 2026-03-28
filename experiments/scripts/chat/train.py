@@ -172,7 +172,7 @@ def run_stage(
         cortex.save_checkpoint(ckpt_path)
         print(f"Saved checkpoint: {ckpt_path}")
 
-    # TODO: JSON sidecar output from probe snapshots (Phase 5)
+    # TODO: JSON sidecar output from probe snapshots
 
     if is_babbling and result.babble_tokens_produced:
         print(
