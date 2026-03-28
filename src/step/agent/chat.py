@@ -66,6 +66,12 @@ class ChatAgent:
     handles everything else: encoding, decoding, boundary dispatch,
     motor learning, efference copy, and force-gate policy.
 
+    The harness interleaves probes between step() and decode_action()::
+
+        agent.step(obs)              # encode + process + motor learning
+        probe.observe(circuit)       # harness observes
+        action = agent.decode_action()  # read motor output
+
     Args:
         encoder: Encodes token strings to input vectors.
         circuit: The neural circuit (process(encoding) -> output).
@@ -87,7 +93,7 @@ class ChatAgent:
         self._motor_active = False
         self.force_gate_open = False
 
-        # Last step state (readable by runners for metrics)
+        # Last step state (readable by harness for probes/metrics)
         self.last_encoding: np.ndarray | None = None
         self.last_output: np.ndarray | None = None
         self.last_action: int | None = None
@@ -104,7 +110,6 @@ class ChatAgent:
     def reset(self) -> None:
         """Reset at dialogue boundary: clear circuit and agent state."""
         self._circuit.reset()
-        # Reset reward modulators on circuit connections
         for conn in self._circuit._connections:
             if conn.reward_modulator is not None:
                 conn.reward_modulator.reset()
@@ -115,71 +120,64 @@ class ChatAgent:
         self._motor_active = False
         self.last_action = None
 
-    def act(self, obs: ChatObs, reward: float) -> int | None:
-        """Process one observation and return an action.
+    def step(self, obs: ChatObs) -> None:
+        """Encode observation, run neural processing, do motor learning.
 
-        Handles the full pipeline: boundary/EOM dispatch, encoding,
-        neural processing, motor learning, decoding, efference copy.
-
-        Args:
-            obs: Current observation from ChatEnv.
-            reward: Reward from previous action.
-
-        Returns:
-            Token ID of the agent's action, or None for silence.
+        Does NOT produce an action — call decode_action() after probe
+        observation. Encoding is available via self.last_encoding.
         """
-        # Boundary: reset circuit and agent state
-        if obs.is_boundary:
-            self.reset()
-            return None
-
-        # EOM: activate motor output
-        if obs.is_eom:
-            self._motor_active = True
-            return None
-
-        # Encode observation
+        # Encode
         encoding = self._encoder.encode(obs.token_str)
         self.last_encoding = encoding
         self.last_token_str = obs.token_str
 
-        # Efference copy: feed last motor output to entry region
-        # (must happen before process() so it's available this step)
-        # TODO: efference copy gating should eventually be learned by
-        # BasalGanglia rather than hardcoded to force_gate_open.
+        # Efference copy (before process)
         if self.last_action is not None and self.force_gate_open:
             entry = self._circuit.region(self._entry_name)
             action_char = chr(self.last_action) if self.last_action < 128 else ""
             ef = self._encoder.encode(action_char)
             entry.set_efference_copy(ef)
 
-        # Neural processing — pass motor_active explicitly so Circuit
-        # doesn't need to read _in_eom/force_gate_open internally
+        # Neural processing
         motor_active = self._motor_active or self.force_gate_open
         output = self._circuit.process(encoding, motor_active=motor_active)
         self.last_output = output
 
-        # Token-level motor learning (agent's responsibility)
+        # Token-level motor learning
         if motor_active:
             for s in self._circuit._regions.values():
                 if s.motor and isinstance(s.region, MotorRegion):
                     s.region.observe_token(obs.token_id)
 
-        # Decode motor output to action
-        action = self._decode_action()
-        self.last_action = action
-        return action
+    def decode_action(self) -> int | None:
+        """Decode motor region output to an action.
 
-    def _decode_action(self) -> int | None:
-        """Decode motor region output to a token ID.
-
-        Reads M1's population output. Returns token_id if motor
-        produced something, None otherwise (silence).
+        Returns token_id if motor produced output, None for silence.
         """
         for s in self._circuit._regions.values():
             if s.motor and isinstance(s.region, MotorRegion):
                 m_id, _conf = s.region.last_output
                 if m_id >= 0:
+                    self.last_action = m_id
                     return m_id
+                self.last_action = None
                 return None
+        self.last_action = None
         return None
+
+    def act(self, obs: ChatObs, reward: float) -> int | None:
+        """Process one observation and return an action.
+
+        Convenience method combining step() + decode_action(). Use them
+        separately when you need to interleave probe observation.
+        """
+        if obs.is_boundary:
+            self.reset()
+            return None
+
+        if obs.is_eom:
+            self._motor_active = True
+            return None
+
+        self.step(obs)
+        return self.decode_action()
