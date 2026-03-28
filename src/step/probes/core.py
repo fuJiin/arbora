@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
+from step.snapshots.core import L4Snapshot, L23Snapshot, LaminaRegionSnapshot
+
 if TYPE_CHECKING:
     from step.cortex.circuit import Circuit
 
@@ -79,16 +81,17 @@ class LaminaProbe:
 
     def snapshot(self) -> dict:
         """Compute current KPI values."""
-        result = {}
+        result: dict[str, LaminaRegionSnapshot] = {}
 
         all_regions = set(
             list(self._l4_active_total.keys()) + list(self._l23_samples.keys())
         )
 
         for name in sorted(all_regions):
-            l4_kpis = self._snapshot_l4(name)
-            l23_kpis = self._snapshot_l23(name)
-            result[name] = {"l4": l4_kpis, "l23": l23_kpis}
+            result[name] = LaminaRegionSnapshot(
+                l4=self._snapshot_l4(name),
+                l23=self._snapshot_l23(name),
+            )
 
         return result
 
@@ -132,31 +135,27 @@ class LaminaProbe:
     # Per-lamina snapshot
     # -----------------------------------------------------------------------
 
-    def _snapshot_l4(self, name: str) -> dict:
-        """Compute L4 KPI dict from accumulated state."""
-        kpis: dict[str, float] = {}
-
+    def _snapshot_l4(self, name: str) -> L4Snapshot:
+        """Compute L4 KPIs from accumulated state."""
         total = self._l4_active_total.get(name, 0)
-        kpis["recall"] = (
-            self._l4_active_predicted.get(name, 0) / total if total > 0 else 0.0
-        )
+        recall = self._l4_active_predicted.get(name, 0) / total if total > 0 else 0.0
 
         pred_total = self._l4_predicted_total.get(name, 0)
-        kpis["precision"] = (
+        precision = (
             self._l4_predicted_correct.get(name, 0) / pred_total
             if pred_total > 0
             else 0.0
         )
 
         vals = self._l4_sparseness.get(name, [])
-        kpis["sparseness"] = float(np.mean(vals)) if vals else 0.0
+        sparseness = float(np.mean(vals)) if vals else 0.0
 
-        return kpis
+        return L4Snapshot(recall=recall, precision=precision, sparseness=sparseness)
 
-    def _snapshot_l23(self, name: str) -> dict:
-        """Compute L2/3 KPI dict from accumulated state."""
+    def _snapshot_l23(self, name: str) -> L23Snapshot:
+        """Compute L2/3 KPIs from accumulated state."""
         samples = self._l23_samples.get(name, [])
-        return {"eff_dim": _participation_ratio(samples)}
+        return L23Snapshot(eff_dim=_participation_ratio(samples))
 
 
 # ---------------------------------------------------------------------------

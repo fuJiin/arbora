@@ -118,8 +118,8 @@ class TestBasalGangliaIntegration:
         probe = ChatMotorProbe()
         result = run_circuit(cortex, tokens, probes=[probe])
         snap = result.probe_snapshots["motor"]
-        assert len(snap["M1"]["bg_gate_values"]) > 0
-        assert all(0 <= v <= 1 for v in snap["M1"]["bg_gate_values"])
+        assert len(snap["M1"].bg_gate_values) > 0
+        assert all(0 <= v <= 1 for v in snap["M1"].bg_gate_values)
 
     def test_bg_with_eom_tokens(self, region1, motor, encoder):
         """BG gate values are tracked through EOM phases."""
@@ -142,7 +142,7 @@ class TestBasalGangliaIntegration:
         probe = ChatMotorProbe()
         result = run_circuit(cortex, tokens, probes=[probe])
         snap = result.probe_snapshots["motor"]
-        assert len(snap["M1"]["bg_gate_values"]) > 0
+        assert len(snap["M1"].bg_gate_values) > 0
 
     def test_bg_resets_at_boundary(self, region1, motor, encoder):
         """Story boundary resets BG transient state."""
@@ -173,4 +173,4 @@ class TestBasalGangliaIntegration:
         snap = result.probe_snapshots["motor"]
         # No BG means no bg_gate_values were appended; M1 still appears
         # in snapshot (from motor_confidences) but bg_gate_values is empty.
-        assert snap["M1"]["bg_gate_values"] == []
+        assert snap["M1"].bg_gate_values == []
