@@ -19,13 +19,14 @@ def test_full_loop_10_episodes():
         n_columns=16,
         n_l4=2,
         n_l23=2,
+        n_l5=0,
         k_columns=2,
         seed=42,
     )
     m1 = MotorRegion(
         input_dim=s1.n_l23_total,
         n_columns=8,
-        n_l4=2,
+        n_l4=0,
         n_l23=2,
         k_columns=1,
         n_output_tokens=7,
@@ -34,7 +35,7 @@ def test_full_loop_10_episodes():
     circuit = Circuit(encoder)
     circuit.add_region("S1", s1, entry=True)
     circuit.add_region("M1", m1)
-    circuit.connect(s1.l23, m1.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s1.l23, m1.input_lamina, ConnectionRole.FEEDFORWARD)
     circuit.finalize()
 
     env = MiniGridEnv("MiniGrid-Empty-5x5-v0", max_episodes=10)
@@ -52,4 +53,4 @@ def test_full_loop_10_episodes():
     # Verify S1 has learned something (recall > 0)
     snap = result.probe_snapshots["lamina"]
     assert "S1" in snap
-    assert snap["S1"].l4.recall >= 0
+    assert snap["S1"].input.recall >= 0

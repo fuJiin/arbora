@@ -31,13 +31,14 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
         n_columns=64,
         n_l4=4,
         n_l23=4,
+        n_l5=0,
         k_columns=4,
         seed=42,
     )
     m1 = MotorRegion(
         input_dim=s1.n_l23_total,
         n_columns=16,
-        n_l4=4,
+        n_l4=0,
         n_l23=4,
         k_columns=2,
         n_output_tokens=7,
@@ -46,7 +47,7 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
     circuit = Circuit(encoder)
     circuit.add_region("S1", s1, entry=True)
     circuit.add_region("M1", m1)
-    circuit.connect(s1.l23, m1.l4, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s1.l23, m1.input_lamina, ConnectionRole.FEEDFORWARD)
     circuit.finalize()
     return circuit
 
@@ -77,10 +78,10 @@ def main() -> None:
     for region_name, region_snap in snap.items():
         print(
             f"  {region_name}: "
-            f"recall={region_snap.l4.recall:.3f} "
-            f"prec={region_snap.l4.precision:.3f} "
-            f"sparse={region_snap.l4.sparseness:.3f} "
-            f"dim={region_snap.l23.eff_dim:.1f}"
+            f"recall={region_snap.input.recall:.3f} "
+            f"prec={region_snap.input.precision:.3f} "
+            f"sparse={region_snap.input.sparseness:.3f} "
+            f"dim={region_snap.association.eff_dim:.1f}"
         )
 
 

@@ -404,6 +404,18 @@ class Circuit:
     def region(self, name: str) -> CorticalRegion:
         return self._regions[name].region
 
+    def apply_reward(self, reward: float) -> None:
+        """Route environment reward to motor regions and basal ganglia.
+
+        Three-factor consolidation: converts eligibility traces to weight
+        updates. Called by the agent after env.step() returns reward.
+        """
+        for _name, s in self._regions.items():
+            if s.motor:
+                s.region.apply_reward(reward)
+            if s.basal_ganglia is not None:
+                s.basal_ganglia.reward(reward)
+
     def _resolve_region_name(self, region: CorticalRegion) -> str:
         """Look up the registered name for a region."""
         for name, state in self._regions.items():

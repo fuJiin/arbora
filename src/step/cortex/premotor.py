@@ -79,7 +79,12 @@ class PremotorRegion(CorticalRegion):
         """Set PFC goal for next process() call."""
         self._goal_drive = pfc_firing_rate
 
-    def process(self, encoding: np.ndarray) -> np.ndarray:
+    def process(
+        self,
+        encoding: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Feedforward with additive PFC goal drive.
 
         encoding: S2 word-level context (feedforward from sensory)

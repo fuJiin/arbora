@@ -14,7 +14,7 @@ import numpy as np
 from step.cortex.motor import MotorRegion
 from step.probes.core import LaminaProbe
 from step.snapshots.chat import (
-    ChatL23Snapshot,
+    ChatAssociationSnapshot,
     ChatLaminaRegionSnapshot,
     MotorRegionSnapshot,
 )
@@ -101,9 +101,9 @@ class ChatLaminaProbe(LaminaProbe):
         result: dict[str, ChatLaminaRegionSnapshot] = {}
         for region_name, region_snap in base.items():
             result[region_name] = ChatLaminaRegionSnapshot(
-                l4=region_snap.l4,
-                l23=ChatL23Snapshot(
-                    eff_dim=region_snap.l23.eff_dim,
+                input=region_snap.input,
+                association=ChatAssociationSnapshot(
+                    eff_dim=region_snap.association.eff_dim,
                     linear_probe=self._probe_accuracy.get(region_name, 0.0),
                     ctx_disc=self._compute_ctx_disc(region_name),
                 ),

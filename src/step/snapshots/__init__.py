@@ -1,21 +1,21 @@
 """Typed snapshot dataclasses for probe output.
 
-Core (input-agnostic): L4Snapshot, L23Snapshot, LaminaRegionSnapshot.
-Chat-specific: ChatL23Snapshot, ChatLaminaRegionSnapshot, MotorRegionSnapshot.
+Core (input-agnostic): InputSnapshot, AssociationSnapshot, LaminaRegionSnapshot.
+Chat-specific: ChatAssociationSnapshot, ChatLaminaRegionSnapshot, MotorRegionSnapshot.
 """
 
 from step.snapshots.chat import (
-    ChatL23Snapshot,
+    ChatAssociationSnapshot,
     ChatLaminaRegionSnapshot,
     MotorRegionSnapshot,
 )
-from step.snapshots.core import L4Snapshot, L23Snapshot, LaminaRegionSnapshot
+from step.snapshots.core import AssociationSnapshot, InputSnapshot, LaminaRegionSnapshot
 
 __all__ = [
-    "ChatL23Snapshot",
+    "AssociationSnapshot",
+    "ChatAssociationSnapshot",
     "ChatLaminaRegionSnapshot",
-    "L4Snapshot",
-    "L23Snapshot",
+    "InputSnapshot",
     "LaminaRegionSnapshot",
     "MotorRegionSnapshot",
 ]

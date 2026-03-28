@@ -194,10 +194,17 @@ class CorticalRegion:
         self._apical_source_dim: int = 0
         self._apical_context = np.zeros(0, dtype=np.float64)
 
+        # Optional goal drive (initialized lazily via init_goal_drive())
+        self._goal_drive: np.ndarray | None = None
+        self._goal_weights: np.ndarray | None = None
+
         # --- Feedforward weights ---
+        # Target the input lamina: L4 in granular regions, L2/3 in agranular.
+        _ff_n_per_col = self.input_lamina.n_per_col
+        _ff_n_total = self.input_lamina.n_total
         col_mask = self._build_ff_mask(input_dim)
-        self.ff_mask = np.repeat(col_mask, self.n_l4, axis=1)
-        self.ff_weights = np.zeros((input_dim, self.n_l4_total))
+        self.ff_mask = np.repeat(col_mask, _ff_n_per_col, axis=1)
+        self.ff_weights = np.zeros((input_dim, _ff_n_total))
         self.ff_weights[self.ff_mask] = self._rng.uniform(
             0.1, 0.5, int(self.ff_mask.sum())
         )
@@ -228,9 +235,7 @@ class CorticalRegion:
         # Allocated when plasticity_rule is THREE_FACTOR.
         self._eligibility_clip: float = 0.0
         if plasticity_rule == PlasticityRule.THREE_FACTOR:
-            self._ff_eligibility: np.ndarray | None = np.zeros(
-                (input_dim, n_columns * n_l4)
-            )
+            self._ff_eligibility: np.ndarray | None = np.zeros((input_dim, _ff_n_total))
         else:
             self._ff_eligibility = None
 
@@ -294,8 +299,19 @@ class CorticalRegion:
         """
         self._efference_copy = encoding
 
-    def process(self, encoding: np.ndarray) -> np.ndarray:
-        """Feedforward an encoding through L4 → L2/3 pipeline."""
+    def process(
+        self,
+        encoding: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Feedforward an encoding through the input→association→output pipeline.
+
+        Args:
+            encoding: Input encoding vector.
+            forced_columns: If provided, skip k-WTA and use these columns.
+                Used for motor exploration (random column forcing).
+        """
         flat = encoding.flatten().astype(np.float64)
 
         neuron_drive = flat @ self.ff_weights
@@ -307,10 +323,33 @@ class CorticalRegion:
             neuron_drive -= self.efference_gain * predicted_drive
             self._efference_copy = None
 
-        self.last_column_drive = neuron_drive.reshape(self.n_columns, self.n_l4).max(
+        # Optional goal drive (PFC→motor additive signal)
+        if self._goal_drive is not None and self._goal_weights is not None:
+            goal_drive = self._goal_drive @ self._goal_weights
+            neuron_drive += goal_drive
+            if hasattr(self, "_goal_eligibility"):
+                self._goal_eligibility *= self.eligibility_decay
+                self._pending_goal_signal = self._goal_drive
+            self._goal_drive = None
+
+        _n_per = self.input_lamina.n_per_col
+        self.last_column_drive = neuron_drive.reshape(self.n_columns, _n_per).max(
             axis=1
         )
-        active = self.step(neuron_drive)
+        active = self.step(neuron_drive, forced_columns=forced_columns)
+
+        # Goal eligibility for winner neurons
+        if hasattr(self, "_goal_eligibility") and hasattr(self, "_pending_goal_signal"):
+            winner_cols = np.nonzero(self.active_columns)[0]
+            if len(winner_cols) > 0:
+                winner_neurons = []
+                for col in winner_cols:
+                    winner_neurons.extend(range(col * _n_per, (col + 1) * _n_per))
+                goal_lr = self.learning_rate * 0.1
+                self._goal_eligibility[:, winner_neurons] += (
+                    goal_lr * self._pending_goal_signal[:, np.newaxis]
+                )
+            del self._pending_goal_signal
 
         if self.learning_enabled:
             self._learn_ff(flat)
@@ -330,36 +369,39 @@ class CorticalRegion:
         if len(columns) == 0:
             return np.zeros(self.input_dim)
 
+        n_per = self.input_lamina.n_per_col
         neuron_indices = []
         for col in columns:
-            neuron_indices.extend(range(col * self.n_l4, (col + 1) * self.n_l4))
+            neuron_indices.extend(range(col * n_per, (col + 1) * n_per))
         return self.ff_weights[:, neuron_indices].sum(axis=1)
 
     def _find_winners(self) -> np.ndarray:
-        """Find winning neurons (one per active column).
+        """Find winning neurons (one per active column) on the input lamina.
 
         For bursting columns: winner is the neuron with highest voltage.
         For precise columns: winner is the neuron with highest activation.
 
-        Returns flat indices into the L4 neuron array (shape: n_active_cols).
+        Returns flat indices into the input lamina neuron array.
         Returns empty array if no columns are active.
         """
         active_cols = np.nonzero(self.active_columns)[0]
         if len(active_cols) == 0:
             return np.empty(0, dtype=np.intp)
 
-        voltage_by_col = self.l4.voltage.reshape(self.n_columns, self.n_l4)
-        active_by_col = self.l4.active.reshape(self.n_columns, self.n_l4)
+        lamina = self.input_lamina
+        n_per_col = lamina.n_per_col
+        voltage_by_col = lamina.voltage.reshape(self.n_columns, n_per_col)
+        active_by_col = lamina.active.reshape(self.n_columns, n_per_col)
         is_burst = self.bursting_columns[active_cols]
 
         winner_indices = np.empty(len(active_cols), dtype=np.intp)
         if is_burst.any():
             winner_indices[is_burst] = active_cols[
                 is_burst
-            ] * self.n_l4 + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
+            ] * n_per_col + voltage_by_col[active_cols[is_burst]].argmax(axis=1)
         precise = ~is_burst
         if precise.any():
-            winner_indices[precise] = active_cols[precise] * self.n_l4 + active_by_col[
+            winner_indices[precise] = active_cols[precise] * n_per_col + active_by_col[
                 active_cols[precise]
             ].argmax(axis=1)
         return winner_indices
@@ -458,7 +500,8 @@ class CorticalRegion:
             # aggressive (would weaken inputs that were active recently).
             ltd_rate = self.ltd_rate * neuromod
             inactive_input = 1.0 - flat_input
-            winner_cols = winner_indices // self.n_l4
+            _n_per = self.input_lamina.n_per_col
+            winner_cols = winner_indices // _n_per
             # col_masks == neuron_masks since ff_mask = repeat(col_mask, n_l4)
             col_masks = self._col_mask[:, winner_cols]
             # Matrix-vector products instead of element-wise broadcast+sum
@@ -662,6 +705,26 @@ class CorticalRegion:
         return self.laminae[LaminaID.L5]
 
     @property
+    def has_l4(self) -> bool:
+        """Whether this region has an L4 (input) lamina."""
+        return self.n_l4 > 0
+
+    @property
+    def has_l5(self) -> bool:
+        """Whether this region has an L5 (output) lamina."""
+        return self.n_l5 > 0
+
+    @property
+    def input_lamina(self) -> Lamina:
+        """The lamina that receives feedforward drive (L4 or L2/3)."""
+        return self.l4 if self.has_l4 else self.l23
+
+    @property
+    def output_lamina(self) -> Lamina:
+        """The lamina that provides output (L5 or L2/3)."""
+        return self.l5 if self.has_l5 else self.l23
+
+    @property
     def has_apical(self) -> bool:
         """Whether any apical source has been initialized."""
         return len(self._apical_sources) > 0
@@ -763,15 +826,26 @@ class CorticalRegion:
         """
         return np.nonzero(self._predict_from_segments())[0]
 
-    def step(self, drive: np.ndarray) -> np.ndarray:
+    def step(
+        self,
+        drive: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Run one timestep given per-neuron feedforward drive.
 
         Args:
-            drive: (n_l4_total,) per-neuron feedforward drive.
+            drive: Per-neuron feedforward drive targeting the input lamina.
+                   Shape (n_l4_total,) for granular, (n_l23_total,) for agranular.
+            forced_columns: If provided, skip k-WTA and use these column
+                indices instead. Used for motor exploration (random column forcing).
 
         Returns:
-            Array of global indices of active L4 neurons.
+            Array of global indices of active input-lamina neurons.
         """
+        if not self.has_l4:
+            return self._step_no_l4(drive, forced_columns=forced_columns)
+
         # 1. Decay voltages
         self.l4.voltage *= self.voltage_decay
         self.l23.voltage *= self.voltage_decay
@@ -803,7 +877,11 @@ class CorticalRegion:
 
         # 6. Activate L4: top-k columns, then burst/precise per column
         scores_l4 = self.l4.voltage + self.l4.excitability
-        top_cols = self._select_columns(scores_l4)
+        top_cols = (
+            forced_columns
+            if forced_columns is not None
+            else self._select_columns(scores_l4)
+        )
         self._activate_l4_burst(top_cols, scores_l4)
 
         # 6b. Update L4 firing rate (EMA) so L4→L2/3 weights see non-zero drive
@@ -853,6 +931,110 @@ class CorticalRegion:
             self.output_scores[:] = 0.0
 
         return np.nonzero(self.l4.active)[0]
+
+    def _step_no_l4(
+        self,
+        drive: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Agranular processing: feedforward drive targets L2/3 directly.
+
+        Used when n_l4=0 (motor cortex, PFC). Input reception, column
+        selection, and burst/precise determination all happen on L2/3.
+        L2/3 then drives L5 via standard intra-column pathway.
+        """
+        # 1. Decay L2/3 voltage (no L4 to decay)
+        self.l23.voltage *= self.voltage_decay
+
+        # 2. Predictions on L2/3 (L4 predictions are no-ops on size-0 arrays)
+        self._compute_predictions()
+
+        # 3. Save prediction context (L2/3 only)
+        self._pred_context_l23[:] = self.l23.active
+        if self._seg_trace_l23 is not None:
+            self._seg_trace_l23 *= self._pre_trace_decay
+            self._seg_trace_l23[self.l23.active] += 1.0
+        if self._seg_trace_l5 is not None:
+            self._seg_trace_l5 *= self._pre_trace_decay
+            self._seg_trace_l5[self.l5.active] += 1.0
+
+        # 4. Feedforward drive to L2/3 (not L4)
+        self.l23.voltage += drive
+
+        # 5. Prediction boost on L2/3
+        self.l23.voltage[self.l23.predicted] += self.fb_boost
+
+        # 6. Column selection on L2/3
+        scores = self.l23.voltage + self.l23.excitability
+        top_cols = (
+            forced_columns
+            if forced_columns is not None
+            else self._select_columns_generic(scores, self.n_l23)
+        )
+
+        # 7. Burst/precise on L2/3
+        self._activate_input_burst(top_cols, scores, self.l23, self.n_l23)
+
+        # 8. L2/3 firing rate (EMA)
+        self.l23.firing_rate *= self.voltage_decay
+        self.l23.firing_rate[self.l23.active] += 1.0 - self.voltage_decay
+
+        # 9. L5 activation via L2/3→L5 pathway
+        self._activate_l5(top_cols)
+
+        # 10. Learn (L2/3 segments only — no L4 segments)
+        if self.learning_enabled:
+            self._learn()
+            if self.has_apical:
+                self._learn_apical()
+
+        # 11. Traces (L2/3 only)
+        self.l23.trace *= self.eligibility_decay
+        active_cols = np.nonzero(self.active_columns)[0]
+        if len(active_cols) > 0:
+            v_by_col = self.l23.voltage.reshape(self.n_columns, self.n_l23)
+            a_by_col = self.l23.active.reshape(self.n_columns, self.n_l23)
+            burst_cols = active_cols[self.bursting_columns[active_cols]]
+            if len(burst_cols) > 0:
+                best = v_by_col[burst_cols].argmax(axis=1)
+                self.l23.trace[burst_cols * self.n_l23 + best] = 1.0
+            precise_cols = active_cols[~self.bursting_columns[active_cols]]
+            if len(precise_cols) > 0:
+                best = a_by_col[precise_cols].argmax(axis=1)
+                self.l23.trace[precise_cols * self.n_l23 + best] = 1.0
+
+        # 12. Excitability (L2/3 only)
+        inc = self.max_excitability / self.n_l23
+        self.l23.excitability[~self.l23.active] += inc
+        self.l23.excitability[self.l23.active] = 0.0
+        np.clip(
+            self.l23.excitability,
+            0,
+            self.max_excitability,
+            out=self.l23.excitability,
+        )
+
+        # 13. Refractory reset
+        self.l23.voltage[self.l23.active] = 0.0
+        np.clip(self.l23.voltage, 0.0, 1.0, out=self.l23.voltage)
+
+        # 14. L5 firing rate + output scores
+        if self.has_l5:
+            self.l5.firing_rate *= self.voltage_decay
+            self.l5.firing_rate[self.l5.active] += 1.0 - self.voltage_decay
+            self.output_scores[:] = self.l5.firing_rate.reshape(
+                self.n_columns, self.n_l5
+            ).mean(axis=1)
+        else:
+            self.output_scores[:] = 0.0
+
+        # Store column drive for diagnostics
+        self.last_column_drive[:] = self.l23.voltage.reshape(
+            self.n_columns, self.n_l23
+        ).max(axis=1)
+
+        return np.nonzero(self.l23.active)[0]
 
     def _predict_l23_from_segments(self) -> np.ndarray:
         """Check which L2/3 neurons have active lateral dendritic segments.
@@ -948,8 +1130,12 @@ class CorticalRegion:
         return predicted
 
     def _select_columns(self, scores: np.ndarray) -> np.ndarray:
-        """Select top-k columns by max neuron score."""
-        by_col = scores.reshape(self.n_columns, self.n_l4)
+        """Select top-k columns by max neuron score (L4)."""
+        return self._select_columns_generic(scores, self.n_l4)
+
+    def _select_columns_generic(self, scores: np.ndarray, n_per_col: int) -> np.ndarray:
+        """Select top-k columns by max neuron score on any lamina."""
+        by_col = scores.reshape(self.n_columns, n_per_col)
         col_scores = by_col.max(axis=1)
 
         if self.k_columns >= self.n_columns:
@@ -957,7 +1143,17 @@ class CorticalRegion:
         return np.argpartition(col_scores, -self.k_columns)[-self.k_columns :]
 
     def _activate_l4_burst(self, top_cols: np.ndarray, scores: np.ndarray):
-        """Activate L4 neurons with burst/precise distinction.
+        """Activate L4 neurons with burst/precise distinction."""
+        self._activate_input_burst(top_cols, scores, self.l4, self.n_l4)
+
+    def _activate_input_burst(
+        self,
+        top_cols: np.ndarray,
+        scores: np.ndarray,
+        lamina: Lamina,
+        n_per_col: int,
+    ):
+        """Activate neurons on any lamina with burst/precise distinction.
 
         For each winning column:
         - If any neuron was predicted by dendritic segments → precise activation:
@@ -966,34 +1162,34 @@ class CorticalRegion:
         """
         self.active_columns[:] = False
         self.active_columns[top_cols] = True
-        self.l4.active[:] = False
+        lamina.active[:] = False
         self.bursting_columns[:] = False
 
-        predicted_by_col = self.l4.predicted.reshape(self.n_columns, self.n_l4)
-        scores_by_col = scores.reshape(self.n_columns, self.n_l4)
+        predicted_by_col = lamina.predicted.reshape(self.n_columns, n_per_col)
+        scores_by_col = scores.reshape(self.n_columns, n_per_col)
 
         # Work only with the winning columns
-        tc_predicted = predicted_by_col[top_cols]  # (k, n_l4)
-        tc_scores = scores_by_col[top_cols].copy()  # (k, n_l4)
+        tc_predicted = predicted_by_col[top_cols]  # (k, n_per_col)
+        tc_scores = scores_by_col[top_cols].copy()
         has_prediction = tc_predicted.any(axis=1)  # (k,)
 
         # Burst columns: no prediction — all neurons fire
         burst_cols = top_cols[~has_prediction]
         self.bursting_columns[burst_cols] = True
         if len(burst_cols) > 0:
-            active_l4_by_col = self.l4.active.reshape(self.n_columns, self.n_l4)
-            active_l4_by_col[burst_cols] = True
+            active_by_col = lamina.active.reshape(self.n_columns, n_per_col)
+            active_by_col[burst_cols] = True
 
         # Precise columns: mask unpredicted neurons, pick best scorer
         precise_mask = has_prediction
         if precise_mask.any():
             precise_cols = top_cols[precise_mask]
-            p_scores = tc_scores[precise_mask]  # (n_precise, n_l4)
-            p_predicted = tc_predicted[precise_mask]  # (n_precise, n_l4)
+            p_scores = tc_scores[precise_mask]
+            p_predicted = tc_predicted[precise_mask]
             p_scores[~p_predicted] = -np.inf
-            winners = p_scores.argmax(axis=1)  # (n_precise,)
-            global_indices = precise_cols * self.n_l4 + winners
-            self.l4.active[global_indices] = True
+            winners = p_scores.argmax(axis=1)
+            global_indices = precise_cols * n_per_col + winners
+            lamina.active[global_indices] = True
 
     def _activate_downstream(
         self,
@@ -1146,16 +1342,17 @@ class CorticalRegion:
         ltp_rate = self.learning_rate * self.surprise_modulator
         ltd_rate = self.ltd_rate * 0.5  # gentler LTD for within-column
 
-        self._learn_column_weights(
-            active_cols,
-            self.l4_to_l23_weights,
-            self.l4.firing_rate,
-            self.l23.active,
-            self.n_l4,
-            self.n_l23,
-            ltp_rate,
-            ltd_rate,
-        )
+        if self.n_l4 > 0:
+            self._learn_column_weights(
+                active_cols,
+                self.l4_to_l23_weights,
+                self.l4.firing_rate,
+                self.l23.active,
+                self.n_l4,
+                self.n_l23,
+                ltp_rate,
+                ltd_rate,
+            )
         if self.n_l5 > 0:
             self._learn_column_weights(
                 active_cols,
@@ -1213,6 +1410,8 @@ class CorticalRegion:
     def _learn_l4_segments(self):
         """Update L4 dendritic segment permanences based on prediction outcomes.
 
+        No-op when n_l4=0 (agranular regions have no L4 segments).
+
         - Burst (unpredicted): grow best-matching segment on trace winner
         - Precise + predicted: reinforce the active segments
         - Predicted but didn't fire: punish the active segments
@@ -1222,6 +1421,8 @@ class CorticalRegion:
         context (segments need active/inactive distinction for
         permanence increment/decrement).
         """
+        if self.n_l4 == 0:
+            return
         active_cols = np.nonzero(self.active_columns)[0]
         voltage_by_col = self.l4.voltage.reshape(self.n_columns, self.n_l4)
 
