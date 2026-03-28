@@ -79,7 +79,11 @@ class MiniGridHarness:
 
             # Decode action + step env
             action = agent.decode_action()
-            obs, _reward = env.step(action)
+            obs, reward = env.step(action)
+
+            # Route reward to circuit (BG + motor regions)
+            if reward != 0.0:
+                agent.apply_reward(reward)
 
             # Episode boundary detection (env auto-resets internally)
             if env.episode_count > last_ep:

@@ -59,3 +59,7 @@ class BaseAgent:
         """Reset circuit and clear agent state. Subclasses should call super()."""
         self._circuit.reset()
         self.last_action = None
+
+    def apply_reward(self, reward: float) -> None:
+        """Route reward to circuit (BG + motor regions internally)."""
+        self._circuit.apply_reward(reward)
