@@ -17,7 +17,8 @@ from typing import TYPE_CHECKING
 from step.cortex.circuit_types import ConnectionRole
 from step.cortex.motor import MotorRegion
 from step.environment import ChatEnv
-from step.probes.core import Probe
+from step.probes.chat import ChatMotorProbe
+from step.probes.core import LaminaProbe, Probe
 from step.reporting.chat import ChatReporter
 
 if TYPE_CHECKING:
@@ -75,6 +76,15 @@ def train(
             thalamic_ready[f"{conn.source}->{conn.target}"] = []
         if conn.reward_modulator is not None:
             reward_mods[conn.target] = []
+
+    # Resolve typed probes for reporter (once, not per step)
+    _lamina_probe: LaminaProbe | None = None
+    _motor_probe: ChatMotorProbe | None = None
+    for p in probes:
+        if isinstance(p, LaminaProbe) and _lamina_probe is None:
+            _lamina_probe = p
+        if isinstance(p, ChatMotorProbe) and _motor_probe is None:
+            _motor_probe = p
 
     obs = env.reset()
     t = 0
@@ -167,10 +177,11 @@ def train(
 
         # Periodic logging from probes
         elapsed = time.monotonic() - start
-        reporter.maybe_log(
+        reporter.log_at_interval(
             t,
-            probes,
             elapsed,
+            lamina=_lamina_probe,
+            motor=_motor_probe,
             surprise_modulators=surprise_mods,
             thalamic_readiness=thalamic_ready,
             reward_modulators=reward_mods,
