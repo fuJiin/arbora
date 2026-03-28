@@ -33,26 +33,6 @@ class Encoder(Protocol):
 
 
 @dataclass
-class RunMetrics:
-    overlaps: list[float] = field(default_factory=list)
-    accuracies: list[float] = field(default_factory=list)
-    synaptic_accuracies: list[float] = field(default_factory=list)
-    column_accuracies: list[float] = field(default_factory=list)
-    dendritic_accuracies: list[float] = field(default_factory=list)
-    # Bits-per-character (entry region only, uses dendritic decoder)
-    bpc: float = 0.0
-    bpc_recent: float = 0.0
-    # Per-dialogue BPC breakdown (forgetting diagnosis)
-    bpc_per_dialogue: list[float] = field(default_factory=list)
-    bpc_boundary: list[float] = field(default_factory=list)
-    bpc_steady: list[float] = field(default_factory=list)
-    # Centroid-based BPC (non-learned, for comparison)
-    centroid_bpc: float = 0.0
-    centroid_bpc_recent: float = 0.0
-    elapsed_seconds: float = 0.0
-
-
-@dataclass
 class _RegionState:
     """Per-region bookkeeping created by add_region()."""
 
@@ -97,20 +77,3 @@ class Connection:
     _trace: np.ndarray | None = field(default=None, repr=False)
     _buffer: np.ndarray | None = field(default=None, repr=False)
     _buffer_pos: int = 0
-
-
-@dataclass
-class CortexResult:
-    per_region: dict[str, RunMetrics] = field(default_factory=dict)
-    surprise_modulators: dict[str, list[float]] = field(default_factory=dict)
-    thalamic_readiness: dict[str, list[float]] = field(default_factory=dict)
-    reward_modulators: dict[str, list[float]] = field(default_factory=dict)
-    elapsed_seconds: float = 0.0
-    # Babble metrics (populated when babble_ratio > 0)
-    babble_rewards: list[float] = field(default_factory=list)
-    babble_tokens_produced: list[str] = field(default_factory=list)
-    babble_unique_tokens: list[str] = field(default_factory=list)
-    total_listen_steps: int = 0
-    total_babble_steps: int = 0
-    # Per-probe snapshots keyed by probe.name
-    probe_snapshots: dict[str, dict] = field(default_factory=dict)

@@ -66,14 +66,14 @@ class TestChatMotorProbeObserve:
 
         snap = result.probe_snapshots["motor"]
         assert "M1" in snap
-        assert len(snap["M1"]["bg_gate_values"]) > 0
+        assert len(snap["M1"].bg_gate_values) > 0
 
     def test_motor_confidences_accumulated(self):
         circuit, encoder = _make_motor_circuit()
         _, probe = _train_with_probe(circuit, encoder)
 
         snap = probe.snapshot()
-        assert len(snap["M1"]["motor_confidences"]) > 0
+        assert len(snap["M1"].motor_confidences) > 0
 
     def test_turn_taking_counters(self):
         """Turn-taking counters should accumulate across steps."""
@@ -83,9 +83,9 @@ class TestChatMotorProbeObserve:
         snap = probe.snapshot()
         m1 = snap["M1"]
         # Input steps should be nonzero (tokens processed outside EOM)
-        assert m1["turn_input_steps"] > 0
+        assert m1.turn_input_steps > 0
         # Total = input + eom
-        total = m1["turn_input_steps"] + m1["turn_eom_steps"]
+        total = m1.turn_input_steps + m1.turn_eom_steps
         assert total > 0
 
     def test_motor_rewards_accumulated(self):
@@ -93,7 +93,7 @@ class TestChatMotorProbeObserve:
         _, probe = _train_with_probe(circuit, encoder)
 
         snap = probe.snapshot()
-        assert len(snap["M1"]["motor_rewards"]) > 0
+        assert len(snap["M1"].motor_rewards) > 0
 
 
 class TestChatMotorProbeNoMotor:

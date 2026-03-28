@@ -138,7 +138,7 @@ class TestRewardIntegration:
         probe = ChatMotorProbe()
         result = run_circuit(cortex, tokens, probes=[probe])
         snap = result.probe_snapshots["motor"]
-        assert len(snap["M1"]["motor_rewards"]) > 0
+        assert len(snap["M1"].motor_rewards) > 0
 
     def test_reward_with_eom_tokens(self, region1, motor, encoder):
         """EOM tokens trigger turn-taking state changes."""
@@ -166,7 +166,7 @@ class TestRewardIntegration:
         probe = ChatMotorProbe()
         result = run_circuit(cortex, tokens, probes=[probe])
         snap = result.probe_snapshots["motor"]
-        assert len(snap["M1"]["motor_rewards"]) > 0
+        assert len(snap["M1"].motor_rewards) > 0
 
     def test_reward_modulators_in_result(self, region1, motor, encoder):
         """reward_modulators dict is populated when reward connections exist."""
@@ -299,17 +299,17 @@ class TestTurnTakingCounters:
         result = run_circuit(cortex, tokens, probes=[probe])
         m = result.probe_snapshots["motor"]["M1"]
         # Should have counted both phases
-        assert m["turn_input_steps"] > 0
-        assert m["turn_eom_steps"] > 0
+        assert m.turn_input_steps > 0
+        assert m.turn_eom_steps > 0
         # Totals should add up: every motor step is one of the 4 categories
         total = (
-            m["turn_interruptions"]
-            + m["turn_correct_silent"]
-            + m["turn_correct_speak"]
-            + m["turn_unresponsive"]
-            + m["turn_rambles"]
+            m.turn_interruptions
+            + m.turn_correct_silent
+            + m.turn_correct_speak
+            + m.turn_unresponsive
+            + m.turn_rambles
         )
-        assert total == m["turn_input_steps"] + m["turn_eom_steps"]
+        assert total == m.turn_input_steps + m.turn_eom_steps
 
     def test_counters_without_eom(self, region1, motor, encoder):
         """Without EOM, all steps are input phase."""
@@ -327,11 +327,11 @@ class TestTurnTakingCounters:
         probe = ChatMotorProbe()
         result = run_circuit(cortex, tokens, probes=[probe])
         m = result.probe_snapshots["motor"]["M1"]
-        assert m["turn_eom_steps"] == 0
-        assert m["turn_input_steps"] > 0
-        assert m["turn_unresponsive"] == 0
-        assert m["turn_correct_speak"] == 0
-        assert m["turn_rambles"] == 0
+        assert m.turn_eom_steps == 0
+        assert m.turn_input_steps > 0
+        assert m.turn_unresponsive == 0
+        assert m.turn_correct_speak == 0
+        assert m.turn_rambles == 0
 
 
 class TestEchoReward:

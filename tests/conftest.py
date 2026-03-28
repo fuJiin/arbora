@@ -5,10 +5,9 @@ import numpy as np
 from step.agent import ChatAgent
 from step.cortex import CorticalRegion
 from step.cortex.circuit import Circuit
-from step.cortex.circuit_types import CortexResult
 from step.encoders.positional import PositionalCharEncoder
 from step.environment import ChatEnv
-from step.train import train
+from step.train import TrainResult, train
 
 
 def make_circuit(n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42):
@@ -44,23 +43,15 @@ def run_circuit(
     *,
     log_interval=1000,
     rolling_window=100,
-    show_predictions=0,
-    metric_interval=0,
-    babble_ratio=0.0,
     probes=(),
-) -> CortexResult:
-    """Test helper: run a circuit through ChatEnv + ChatAgent + train().
-
-    Drop-in replacement for cortex.run(tokens, ...) in tests.
-    """
+) -> TrainResult:
+    """Test helper: run a circuit through ChatEnv + ChatAgent + train()."""
     agent = ChatAgent(encoder=cortex._encoder, circuit=cortex)
-    env = ChatEnv(tokens, babble_ratio=babble_ratio)
+    env = ChatEnv(tokens)
     return train(
         env,
         agent,
         log_interval=log_interval,
         rolling_window=rolling_window,
-        show_predictions=show_predictions,
-        metric_interval=metric_interval,
         probes=probes,
     )

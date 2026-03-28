@@ -1,21 +1,20 @@
-"""Cortex training loop with natural prediction measurement."""
+"""Cortex training convenience functions."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
 from step.agent import ChatAgent
-from step.cortex.circuit import Circuit, Encoder, RunMetrics
+from step.cortex.circuit import Circuit, Encoder
 from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY  # noqa: F401 — re-exported for tests
 from step.environment import ChatEnv
 from step.probes.core import Probe
 from step.probes.diagnostics import CortexDiagnostics
-from step.train import train
+from step.train import TrainResult, train
 
 __all__ = [
     "Encoder",
-    "RunMetrics",
     "run_cortex",
 ]
 
@@ -58,15 +57,11 @@ def run_cortex(
     log_interval: int = 100,
     rolling_window: int = 100,
     diagnostics: CortexDiagnostics | None = None,
-    show_predictions: int = 0,
     probes: Sequence[Probe] = (),
-) -> RunMetrics:
-    """Run cortex model on a token sequence, measuring prediction quality.
+) -> TrainResult:
+    """Run single-region cortex model on a token sequence.
 
-    tokens: list of (token_id, token_string) pairs.
-            token_id == STORY_BOUNDARY signals a story boundary.
-    show_predictions: if > 0, print this many prediction samples at each
-                      log interval (actual vs predicted for each decoder).
+    Returns TrainResult with probe snapshots and modulator time series.
     """
     diag_interval = diagnostics.snapshot_interval if diagnostics else 100
     cortex = Circuit(encoder, diagnostics_interval=diag_interval)
@@ -79,8 +74,7 @@ def run_cortex(
         agent,
         log_interval=log_interval,
         rolling_window=rolling_window,
-        show_predictions=show_predictions,
         probes=probes,
     )
     _copy_diag(cortex, "S1", diagnostics)
-    return result.per_region["S1"]
+    return result
