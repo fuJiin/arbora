@@ -34,7 +34,6 @@ from step.data import inject_eom_tokens, prepare_tokens_charlevel
 from step.encoders.positional import PositionalCharEncoder
 from step.environment import ChatEnv
 from step.harness.chat import ChatTrainHarness
-from step.runs import save_run
 
 CKPT_DIR = "experiments/checkpoints"
 
@@ -173,21 +172,7 @@ def run_stage(
         cortex.save_checkpoint(ckpt_path)
         print(f"Saved checkpoint: {ckpt_path}")
 
-    # Save run data (now always CortexResult)
-    run_dir = save_run(
-        name=f"staged-{stage.name}-{stage.n_tokens // 1000}k",
-        timelines=dict(cortex.timelines),
-        diagnostics=dict(cortex.diagnostics),
-        result=result,
-        region_configs={},
-        meta_extra={
-            "stage": stage.name,
-            "n_tokens": stage.n_tokens,
-            "learning_regions": stage.learning_regions,
-            "encoder": "PositionalCharEncoder",
-        },
-    )
-    print(f"Run saved: {run_dir}")
+    # TODO: JSON sidecar output from probe snapshots (Phase 5)
 
     if is_babbling and result.babble_tokens_produced:
         print(
