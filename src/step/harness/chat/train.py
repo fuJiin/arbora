@@ -83,6 +83,7 @@ class ChatTrainHarness:
                 self._motor_probe = p
 
         # Initialize modulator tracking from circuit connections
+        # TODO(STEP-86): move to ModulatorProbe
         circuit = agent.circuit
         self._surprise_mods: dict[str, list[float]] = {}
         self._thalamic_ready: dict[str, list[float]] = {}
@@ -131,7 +132,8 @@ class ChatTrainHarness:
             if self._decoder_training:
                 prev_l23, prev_motor_l23 = _snapshot_l23(circuit)
 
-            # Agent handles: efference copy, process, motor learning
+            # TODO(STEP-87): move to agent.step() — harness shouldn't
+            # touch circuit directly. Split act() into step() + decode().
             motor_active = agent._motor_active or agent.force_gate_open
             if agent.last_action is not None and agent.force_gate_open:
                 entry = circuit.region(agent._entry_name)
@@ -159,7 +161,8 @@ class ChatTrainHarness:
                 self._reward_mods,
             )
 
-            # Diagnostics / timeline capture (viz observability)
+            # Diagnostics / timeline capture
+            # TODO(STEP-87): move to agent or viz probe
             _capture_diagnostics(circuit, t)
 
             # Optional decoder training
