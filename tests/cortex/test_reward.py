@@ -11,6 +11,7 @@ from step.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
 from step.encoders.charbit import CharbitEncoder
 from step.environment import ChatEnv
 from step.probes.chat import ChatMotorProbe
+from step.probes.modulators import ModulatorProbe
 from tests.conftest import run_circuit
 
 
@@ -181,9 +182,11 @@ class TestRewardIntegration:
             ConnectionRole.FEEDFORWARD,
             reward_modulator=RewardModulator(),
         )
-        result = run_circuit(cortex, tokens)
-        assert "M1" in result.reward_modulators
-        assert len(result.reward_modulators["M1"]) > 0
+        mod_probe = ModulatorProbe()
+        result = run_circuit(cortex, tokens, probes=[mod_probe])
+        mod_snap = result.probe_snapshots["modulators"]
+        assert "M1" in mod_snap.reward
+        assert len(mod_snap.reward["M1"]) > 0
 
     def test_no_reward_backward_compatible(self, region1, motor, encoder):
         """Without reward connections, reward_modulators is empty."""
@@ -192,8 +195,10 @@ class TestRewardIntegration:
         cortex.add_region("S1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
-        result = run_circuit(cortex, tokens)
-        assert result.reward_modulators == {}
+        mod_probe = ModulatorProbe()
+        result = run_circuit(cortex, tokens, probes=[mod_probe])
+        mod_snap = result.probe_snapshots["modulators"]
+        assert mod_snap.reward == {}
 
 
 class TestEomTokenInjection:

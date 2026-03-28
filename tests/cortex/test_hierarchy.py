@@ -6,6 +6,7 @@ from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker
 from step.data import STORY_BOUNDARY
 from step.encoders.charbit import CharbitEncoder
+from step.probes.modulators import ModulatorProbe
 from tests.conftest import run_circuit
 
 # ---------------------------------------------------------------------------
@@ -139,9 +140,11 @@ class TestMultiRegionCircuit:
             ConnectionRole.FEEDFORWARD,
             surprise_tracker=SurpriseTracker(),
         )
-        result = run_circuit(circuit, tokens, log_interval=1000)
+        mod_probe = ModulatorProbe()
+        result = run_circuit(circuit, tokens, log_interval=1000, probes=[mod_probe])
         assert result.elapsed_seconds > 0
-        assert len(result.surprise_modulators.get("S2", [])) > 0
+        mod_snap = result.probe_snapshots["modulators"]
+        assert len(mod_snap.surprise.get("S2", [])) > 0
 
     def test_region2_receives_l23_output(self, region1, region2, encoder):
         """Region 2 input_dim must match Region 1 L2/3 total neurons."""
