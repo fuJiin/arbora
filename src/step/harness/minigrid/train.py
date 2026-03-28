@@ -116,10 +116,7 @@ class MiniGridHarness:
                     f"dim={snap.l23.eff_dim:.1f}"
                 )
                 break
-        print(
-            f"  t={t:,} ep={env.episode_count} "
-            f"{lamina_str} ({elapsed:.1f}s)"
-        )
+        print(f"  t={t:,} ep={env.episode_count} {lamina_str} ({elapsed:.1f}s)")
 
     def _log_final(self, total_steps: int, elapsed: float) -> None:
         """Print summary at end of training."""
