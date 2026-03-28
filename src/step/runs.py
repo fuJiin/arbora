@@ -5,9 +5,9 @@ import pickle
 from datetime import UTC, datetime
 from pathlib import Path
 
+from step.harness.chat import TrainResult
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.timeline import Timeline
-from step.train import TrainResult
 
 RUNS_DIR = Path("experiments/runs")
 

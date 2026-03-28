@@ -9,9 +9,9 @@ from step.cortex.circuit import Circuit, Encoder
 from step.cortex.sensory import SensoryRegion
 from step.data import STORY_BOUNDARY  # noqa: F401 — re-exported for tests
 from step.environment import ChatEnv
+from step.harness.chat import ChatTrainHarness, TrainResult
 from step.probes.core import Probe
 from step.probes.diagnostics import CortexDiagnostics
-from step.train import TrainResult, train
 
 __all__ = [
     "Encoder",
@@ -69,12 +69,12 @@ def run_cortex(
 
     env = ChatEnv(tokens)
     agent = ChatAgent(encoder=encoder, circuit=cortex)
-    result = train(
+    result = ChatTrainHarness(
         env,
         agent,
         log_interval=log_interval,
         rolling_window=rolling_window,
         probes=probes,
-    )
+    ).run()
     _copy_diag(cortex, "S1", diagnostics)
     return result
