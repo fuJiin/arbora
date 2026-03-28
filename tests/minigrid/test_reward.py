@@ -11,7 +11,6 @@ from step.cortex.motor import MotorRegion
 from step.encoders.minigrid import MiniGridEncoder
 from step.environment.minigrid import MiniGridEnv
 from step.harness.minigrid.train import MiniGridHarness
-from step.probes.core import LaminaProbe
 
 
 @pytest.fixture()
@@ -88,7 +87,7 @@ class TestCircuitApplyReward:
 
 class TestRewardInHarness:
     def test_reward_flows_through_harness(self, encoder, setup):
-        circuit, m1, _bg = setup
+        circuit, _m1, _bg = setup
         env = MiniGridEnv("MiniGrid-Empty-5x5-v0", max_episodes=3)
         agent = MiniGridAgent(encoder=encoder, circuit=circuit)
         harness = MiniGridHarness(env, agent, log_interval=10000)

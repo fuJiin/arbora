@@ -58,15 +58,15 @@ class ChatReporter:
         lamina_str = ""
         if lamina is not None:
             for _rn, snap in lamina.snapshot().items():
-                burst = 1.0 - snap.l4.recall
+                burst = 1.0 - snap.input.recall
                 lamina_str = (
-                    f"recall={snap.l4.recall:.2f} "
-                    f"prec={snap.l4.precision:.2f} "
-                    f"sparse={snap.l4.sparseness:.2f} "
+                    f"recall={snap.input.recall:.2f} "
+                    f"prec={snap.input.precision:.2f} "
+                    f"sparse={snap.input.sparseness:.2f} "
                     f"burst={burst:.0%} "
-                    f"dim={snap.l23.eff_dim:.1f}"
+                    f"dim={snap.association.eff_dim:.1f}"
                 )
-                lp = getattr(snap.l23, "linear_probe", 0.0)
+                lp = getattr(snap.association, "linear_probe", 0.0)
                 if lp > 0:
                     lamina_str += f" lprobe={lp:.2f}"
                 break
