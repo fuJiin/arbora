@@ -34,6 +34,11 @@ class OneHotCharEncoder:
         """Dimension of the encoding vector."""
         return self.vocab_size
 
+    @property
+    def encoding_width(self) -> int:
+        """No positional structure in one-hot encoding."""
+        return 0
+
     def encode(self, char: str) -> np.ndarray:
         """Encode a single character as a one-hot vector."""
         out = np.zeros(self.vocab_size, dtype=np.bool_)

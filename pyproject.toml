@@ -11,6 +11,7 @@ dependencies = [
 
 [project.optional-dependencies]
 viz = ["matplotlib", "plotly"]
+minigrid = ["minigrid>=3.0", "gymnasium>=1.0"]
 
 [dependency-groups]
 dev = [
@@ -60,6 +61,13 @@ include = ["src/step/viz/**"]
 
 [tool.ty.overrides.rules]
 # plotly is an optional dependency (viz extra), not installed in CI
+unresolved-import = "ignore"
+
+[[tool.ty.overrides]]
+include = ["src/step/environment/minigrid.py", "src/step/encoders/minigrid.py", "src/step/agent/minigrid.py", "src/step/harness/minigrid/**"]
+
+[tool.ty.overrides.rules]
+# gymnasium/minigrid are optional deps, not installed in CI
 unresolved-import = "ignore"
 
 [[tool.ty.overrides]]
