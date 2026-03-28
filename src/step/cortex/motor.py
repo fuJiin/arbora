@@ -61,10 +61,11 @@ class MotorRegion(CorticalRegion):
         else:
             self._output_vocab = None
 
-        # Babbling mode: mix random sparse drive with normal feedforward.
-        # 0.0 = normal (no noise), 1.0 = pure random babbling.
-        # Models brainstem pattern generators in early infant vocalization.
-        self.babbling_noise: float = 0.0
+        # Exploration mode: mix random column forcing with normal feedforward.
+        # 0.0 = normal (no noise), 1.0 = pure random exploration.
+        # Builds sensorimotor forward model by training ff_weights to map
+        # input patterns to randomly forced column activations.
+        self.exploration_noise: float = 0.0
 
         # Eligibility trace clamp: prevents unbounded accumulation over
         # multi-step episodes. 0.0 = no clamping (original behavior).
@@ -76,12 +77,7 @@ class MotorRegion(CorticalRegion):
         self._reward_baseline_decay = reward_baseline_decay
         self._reward_baseline = 0.0
 
-        # Goal drive: additive feedforward signal from PFC.
-        # Added to ff_weights drive before k-WTA competition.
-        # This is the "direct dial" -- PFC->M1 feedforward shortcut
-        # for simple responses. Will be replaced by PFC->M2->M1 later.
-        self._goal_drive: np.ndarray | None = None
-        self._goal_weights: np.ndarray | None = None
+        # Goal drive scale: slower learning for goal weights (stability).
         self.goal_consolidation_scale: float = 0.3
 
         # -- L5 output layer: L2/3 -> token scores --
@@ -120,13 +116,14 @@ class MotorRegion(CorticalRegion):
         Called once when PFC is connected. Creates learned weights that
         map PFC's L2/3 firing rate to additive M1 neuron drive.
         """
+        _target_dim = self.input_lamina.n_total
         self._goal_weights = self._rng.uniform(
             0,
             0.01,
-            size=(source_dim, self.n_l4_total),
+            size=(source_dim, _target_dim),
         )
         # Structural sparsity: ~50% connectivity
-        goal_mask = self._rng.random((source_dim, self.n_l4_total)) < 0.5
+        goal_mask = self._rng.random((source_dim, _target_dim)) < 0.5
         self._goal_weights *= goal_mask
         self._goal_eligibility = np.zeros_like(self._goal_weights)
         self._goal_drive = None
@@ -135,136 +132,49 @@ class MotorRegion(CorticalRegion):
         """Set PFC goal signal for next process() call."""
         self._goal_drive = pfc_firing_rate
 
-    def process(self, encoding: np.ndarray) -> np.ndarray:
-        """Feedforward + goal drive + L5 output scores.
+    def process(
+        self,
+        encoding: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Feedforward + optional goal drive + L5 output scores.
 
-        Combines S1 feedforward (sensory context) with PFC goal drive
-        (what to produce). Both are additive on neuron voltage before
-        k-WTA competition selects winning columns.
+        Routes to exploration (forced random columns) or normal processing
+        (base class handles goal drive injection if set).
         """
-        if self.babbling_noise >= 1.0:
-            active = self._babble_direct(encoding)
-        elif self.babbling_noise > 0.0:
-            if self._rng.random() < self.babbling_noise:
-                active = self._babble_direct(encoding)
-            else:
-                active = self._process_with_goal(encoding)
-        else:
-            active = self._process_with_goal(encoding)
+        if self.exploration_noise >= 1.0:
+            return self._explore_direct(encoding)
+        if self.exploration_noise > 0.0 and self._rng.random() < self.exploration_noise:
+            return self._explore_direct(encoding)
+        return super().process(encoding, forced_columns=forced_columns)
 
-        # output_scores updated in base step() via L5 firing rate
-        return active
-
-    def _process_with_goal(self, encoding: np.ndarray) -> np.ndarray:
-        """Normal feedforward processing with additive PFC goal drive."""
-        flat = encoding.flatten().astype(np.float64)
-        neuron_drive = flat @ self.ff_weights
-
-        # Add PFC goal drive (if set)
-        if self._goal_drive is not None and self._goal_weights is not None:
-            goal_signal = self._goal_drive
-            goal_drive = goal_signal @ self._goal_weights
-            neuron_drive += goal_drive
-
-            # Record goal eligibility (three-factor: PFC activity x M1 winners)
-            if hasattr(self, "_goal_eligibility"):
-                self._goal_eligibility *= self.eligibility_decay
-                # Will be populated after step() determines winners
-                self._pending_goal_signal = goal_signal
-
-            self._goal_drive = None  # Consumed
-
-        self.last_column_drive = neuron_drive.reshape(self.n_columns, self.n_l4).max(
-            axis=1
-        )
-        active = self.step(neuron_drive)
-
-        # Record goal eligibility for winner neurons
-        if hasattr(self, "_goal_eligibility") and hasattr(self, "_pending_goal_signal"):
-            winner_cols = np.nonzero(self.active_columns)[0]
-            if len(winner_cols) > 0:
-                winner_neurons = []
-                for col in winner_cols:
-                    winner_neurons.extend(range(col * self.n_l4, (col + 1) * self.n_l4))
-                # Slow learning rate for goal weights (stability over speed)
-                goal_lr = self.learning_rate * 0.1
-                self._goal_eligibility[:, winner_neurons] += (
-                    goal_lr * self._pending_goal_signal[:, np.newaxis]
-                )
-            del self._pending_goal_signal
-
-        if self.learning_enabled:
-            self._learn_ff(flat)
-        return active
-
-    def _babble_direct(self, encoding: np.ndarray | None = None) -> np.ndarray:
+    def _explore_direct(self, encoding: np.ndarray | None = None) -> np.ndarray:
         """Force random column activations while training ff_weights.
 
-        Randomly selects k columns (ensuring diverse exploration), then
-        runs normal L2/3 activation and learning. Crucially, also trains
-        ff_weights via _learn_ff so the sensorimotor mapping develops --
-        M1 learns "when S1 pattern is X, I should activate columns Y."
+        Randomly selects k columns, then delegates to the base class
+        process() with forced_columns. The base class handles the full
+        step pipeline (predictions, activation, learning, traces).
 
-        Args:
-            encoding: The real feedforward input (S1 L2/3). If provided,
-                      ff_weights are trained to map this input to the
-                      forced columns. Builds the forward model.
+        ff_weights learn to map the real input to the forced columns,
+        building the sensorimotor forward model.
         """
-        # Pick random k columns
         cols = self._rng.choice(self.n_columns, self.k_columns, replace=False)
 
-        # Run the standard step pipeline but inject our columns
-        # 1. Decay voltages
-        self.l4.voltage *= self.voltage_decay
-        self.l23.voltage *= self.voltage_decay
+        if encoding is not None:
+            # Force high voltage on chosen columns so forced_columns wins
+            input_lam = self.input_lamina
+            n_per = input_lam.n_per_col
+            for col in cols:
+                input_lam.voltage[col * n_per : (col + 1) * n_per] = 1.0
+            return super().process(encoding, forced_columns=cols)
 
-        # 2. Compute predictions (for segment learning)
-        self._compute_predictions()
-
-        # 3. Save prediction context
-        self._pred_context_l23[:] = self.l23.active
-        self._pred_context_l4[:] = self.l4.active
-
-        # 4-6. Force our chosen columns active
+        # No encoding: just force columns via step directly
+        drive = np.zeros(self.input_lamina.n_total)
+        n_per = self.input_lamina.n_per_col
         for col in cols:
-            start = col * self.n_l4
-            end = start + self.n_l4
-            self.l4.voltage[start:end] = 1.0
-
-        scores_l4 = self.l4.voltage + self.l4.excitability
-        self._activate_l4_burst(cols, scores_l4)
-
-        # 7. Activate L2/3
-        self._activate_l23(cols)
-
-        # 7b. Activate L5
-        self._activate_l5(cols)
-
-        # 8. Learn -- segments AND ff_weights
-        if self.learning_enabled:
-            self._learn()
-            # Train ff_weights: learn to map S1 input -> forced columns.
-            # This builds the sensorimotor forward model.
-            if encoding is not None:
-                flat = encoding.flatten().astype(np.float64)
-                self._learn_ff(flat)
-
-        # 9-13. Standard housekeeping
-        self._update_traces()
-        self._update_excitability()
-        self.l4.voltage[self.l4.active] = 0.0
-        self.l23.voltage[self.l23.active] = 0.0
-        np.clip(self.l4.voltage, 0.0, 1.0, out=self.l4.voltage)
-        np.clip(self.l23.voltage, 0.0, 1.0, out=self.l23.voltage)
-        self.l23.firing_rate *= self.voltage_decay
-        self.l23.firing_rate[self.l23.active] += 1.0 - self.voltage_decay
-        self.l5.firing_rate *= self.voltage_decay
-        self.l5.firing_rate[self.l5.active] += 1.0 - self.voltage_decay
-        self.output_scores[:] = self.l5.firing_rate.reshape(
-            self.n_columns, self.n_l5
-        ).mean(axis=1)
-
-        return np.nonzero(self.l4.active)[0]
+            drive[col * n_per : (col + 1) * n_per] = 1.0
+        return self.step(drive, forced_columns=cols)
 
     # _learn_ff() inherited from CorticalRegion base class.
     # Base dispatches to _learn_ff_three_factor which handles

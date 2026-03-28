@@ -103,7 +103,12 @@ class PFCRegion(CorticalRegion):
         active_rates = rates[self.active_columns].mean()
         return float(active_rates)
 
-    def process(self, encoding: np.ndarray) -> np.ndarray:
+    def process(
+        self,
+        encoding: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Feedforward with global gating.
 
         When gate is open: process new input normally (update goal).

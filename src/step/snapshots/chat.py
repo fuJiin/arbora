@@ -1,6 +1,6 @@
 """Chat-specific snapshot types for probe output.
 
-ChatL23Snapshot, ChatLaminaRegionSnapshot — used by ChatLaminaProbe.
+ChatAssociationSnapshot, ChatLaminaRegionSnapshot — used by ChatLaminaProbe.
 MotorRegionSnapshot — used by ChatMotorProbe.
 """
 
@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from step.snapshots.core import L4Snapshot, L23Snapshot
+from step.snapshots.core import AssociationSnapshot, InputSnapshot
 
 
 @dataclass
-class ChatL23Snapshot(L23Snapshot):
-    """L2/3 KPIs with chat-specific metrics."""
+class ChatAssociationSnapshot(AssociationSnapshot):
+    """Association KPIs with chat-specific metrics."""
 
     linear_probe: float = 0.0
     ctx_disc: float = 0.0
@@ -21,10 +21,12 @@ class ChatL23Snapshot(L23Snapshot):
 
 @dataclass
 class ChatLaminaRegionSnapshot:
-    """Per-region lamina snapshot with chat-specific L2/3."""
+    """Per-region functional snapshot with chat-specific association."""
 
-    l4: L4Snapshot = field(default_factory=L4Snapshot)
-    l23: ChatL23Snapshot = field(default_factory=ChatL23Snapshot)
+    input: InputSnapshot = field(default_factory=InputSnapshot)
+    association: ChatAssociationSnapshot = field(
+        default_factory=ChatAssociationSnapshot
+    )
 
 
 @dataclass
