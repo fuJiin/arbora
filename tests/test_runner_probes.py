@@ -234,9 +234,9 @@ class TestEndToEndProbeKPIs:
 
         snap = result.probe_snapshots["lamina"]
         assert "S1" in snap
-        assert snap["S1"]["l4"]["recall"] > 0
-        assert snap["S1"]["l4"]["sparseness"] > 0
-        assert snap["S1"]["l23"]["eff_dim"] > 0
+        assert snap["S1"].l4.recall > 0
+        assert snap["S1"].l4.sparseness > 0
+        assert snap["S1"].l23.eff_dim > 0
 
     def test_chat_lamina_probe_via_train(self):
         """ChatLaminaProbe produces linear probe accuracy through train()."""
@@ -255,4 +255,4 @@ class TestEndToEndProbeKPIs:
         snap = result.probe_snapshots["chat_lamina"]
         assert "S1" in snap
         # Linear probe should have attempted a fit
-        assert "linear_probe" in snap["S1"]["l23"]
+        assert snap["S1"].l23.linear_probe is not None

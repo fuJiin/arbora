@@ -54,10 +54,9 @@ def save_run(
     summary: dict[str, dict[str, object]] = {}
     chat_lamina = result.probe_snapshots.get("chat_lamina", {})
     for region_name, snap in chat_lamina.items():
-        l23 = snap.get("l23", {})
         summary[region_name] = {
-            "ctx_disc": l23.get("ctx_disc", 0),
-            "linear_probe": l23.get("linear_probe", 0),
+            "ctx_disc": snap.l23.ctx_disc,
+            "linear_probe": snap.l23.linear_probe,
         }
     if summary:
         meta["summary"] = summary

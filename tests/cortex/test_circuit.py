@@ -428,7 +428,7 @@ class TestResultsMatchRunner:
         # Both should produce identical probe snapshots
         snap1 = result1.probe_snapshots["lamina"]["S1"]
         snap2 = result2.probe_snapshots["lamina"]["S1"]
-        assert abs(snap1["l4"]["recall"] - snap2["l4"]["recall"]) < 1e-10
+        assert abs(snap1.l4.recall - snap2.l4.recall) < 1e-10
 
 
 class TestThalamicGate:

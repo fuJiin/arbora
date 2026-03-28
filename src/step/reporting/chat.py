@@ -68,43 +68,38 @@ class ChatReporter:
         # Lamina metrics (first region)
         lamina_str = ""
         if lamina is not None:
-            lamina_snap = lamina.snapshot()
-            for _rn, region_snap in lamina_snap.items():
-                l4 = region_snap.get("l4", {})
-                l23 = region_snap.get("l23", {})
-                recall = l4.get("recall", 0.0)
-                precision = l4.get("precision", 0.0)
-                sparseness = l4.get("sparseness", 0.0)
-                eff_dim = l23.get("eff_dim", 0.0)
-                burst = 1.0 - recall
+            for _rn, snap in lamina.snapshot().items():
+                burst = 1.0 - snap.l4.recall
                 lamina_str = (
-                    f"recall={recall:.2f} "
-                    f"prec={precision:.2f} "
-                    f"sparse={sparseness:.2f} "
+                    f"recall={snap.l4.recall:.2f} "
+                    f"prec={snap.l4.precision:.2f} "
+                    f"sparse={snap.l4.sparseness:.2f} "
                     f"burst={burst:.0%} "
-                    f"dim={eff_dim:.1f}"
+                    f"dim={snap.l23.eff_dim:.1f}"
                 )
-                lp = l23.get("linear_probe")
-                if lp is not None and lp > 0:
-                    lamina_str += f" lprobe={lp:.2f}"
+                if snap.l23.linear_probe > 0:
+                    lamina_str += f" lprobe={snap.l23.linear_probe:.2f}"
                 break
 
         # Motor metrics (first region)
         motor_str = ""
         if motor is not None:
-            motor_snap = motor.snapshot()
-            for _rn, m in motor_snap.items():
-                accs = m.get("motor_accuracies", [])
-                if accs:
-                    motor_str += f" M1={_rolling_mean(accs, rw):.4f}"
-                gates = m.get("bg_gate_values", [])
-                if gates:
-                    motor_str += f" bg={_rolling_mean(gates, rw):.2f}"
-                eom = m.get("turn_eom_steps", 0)
-                inp = m.get("turn_input_steps", 0)
-                if eom > 0 or inp > 0:
-                    intr = m.get("turn_interruptions", 0) / inp if inp > 0 else 0
-                    unr = m.get("turn_unresponsive", 0) / eom if eom > 0 else 0
+            for _rn, m in motor.snapshot().items():
+                if m.motor_accuracies:
+                    motor_str += f" M1={_rolling_mean(m.motor_accuracies, rw):.4f}"
+                if m.bg_gate_values:
+                    motor_str += f" bg={_rolling_mean(m.bg_gate_values, rw):.2f}"
+                if m.turn_eom_steps > 0 or m.turn_input_steps > 0:
+                    intr = (
+                        m.turn_interruptions / m.turn_input_steps
+                        if m.turn_input_steps > 0
+                        else 0
+                    )
+                    unr = (
+                        m.turn_unresponsive / m.turn_eom_steps
+                        if m.turn_eom_steps > 0
+                        else 0
+                    )
                     motor_str += f" int={intr:.0%} unr={unr:.0%}"
                 break
 
