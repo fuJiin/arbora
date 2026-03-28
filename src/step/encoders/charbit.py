@@ -35,6 +35,16 @@ class CharbitEncoder:
         self._char_to_col = {ch: i for i, ch in enumerate(chars)}
         self._col_to_char: dict[int, str] | None = None
 
+    @property
+    def input_dim(self) -> int:
+        """Total flattened encoding dimension."""
+        return self.length * self.width
+
+    @property
+    def encoding_width(self) -> int:
+        """Width of each position row (for ff_mask tiling)."""
+        return self.width
+
     def encode(self, token: str) -> np.ndarray:
         """Encode a token string into a (length, width) boolean matrix."""
         out = np.zeros((self.length, self.width), dtype=np.bool_)

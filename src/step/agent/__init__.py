@@ -2,8 +2,18 @@
 
 Agent — modality-agnostic protocol (act(obs, reward) -> action).
 ChatAgent — concrete implementation for char-level text chat.
+MiniGridAgent — concrete implementation for MiniGrid gymnasium envs.
 """
 
+from step.agent.base import BaseAgent
 from step.agent.chat import Agent, ChatAgent
 
-__all__ = ["Agent", "ChatAgent"]
+__all__ = ["Agent", "BaseAgent", "ChatAgent", "MiniGridAgent"]
+
+
+def __getattr__(name: str):
+    if name == "MiniGridAgent":
+        from step.agent.minigrid import MiniGridAgent
+
+        return MiniGridAgent
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
