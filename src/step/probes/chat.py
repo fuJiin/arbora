@@ -91,7 +91,7 @@ class ChatLaminaProbe(LaminaProbe):
         """Reset per-dialogue state."""
         self._prev_token = None
 
-    def snapshot(self) -> dict[str, ChatLaminaRegionSnapshot]:
+    def snapshot(self) -> dict:
         """Extend parent snapshot with chat-specific L2/3 KPIs."""
         base = super().snapshot()
 
