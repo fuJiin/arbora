@@ -13,7 +13,11 @@ import numpy as np
 
 from step.cortex.motor import MotorRegion
 from step.probes.core import LaminaProbe
-from step.probes.snapshots import LaminaRegionSnapshot, MotorRegionSnapshot
+from step.probes.snapshots import (
+    ChatL23Snapshot,
+    ChatLaminaRegionSnapshot,
+    MotorRegionSnapshot,
+)
 
 if TYPE_CHECKING:
     from step.cortex.circuit import Circuit
@@ -87,16 +91,23 @@ class ChatLaminaProbe(LaminaProbe):
         """Reset per-dialogue state."""
         self._prev_token = None
 
-    def snapshot(self) -> dict[str, LaminaRegionSnapshot]:
+    def snapshot(self) -> dict[str, ChatLaminaRegionSnapshot]:
         """Extend parent snapshot with chat-specific L2/3 KPIs."""
-        result = super().snapshot()
+        base = super().snapshot()
 
         # Ensure we have a recent fit
         self._fit_linear_probes()
 
-        for region_name, region_snap in result.items():
-            region_snap.l23.linear_probe = self._probe_accuracy.get(region_name, 0.0)
-            region_snap.l23.ctx_disc = self._compute_ctx_disc(region_name)
+        result: dict[str, ChatLaminaRegionSnapshot] = {}
+        for region_name, region_snap in base.items():
+            result[region_name] = ChatLaminaRegionSnapshot(
+                l4=region_snap.l4,
+                l23=ChatL23Snapshot(
+                    eff_dim=region_snap.l23.eff_dim,
+                    linear_probe=self._probe_accuracy.get(region_name, 0.0),
+                    ctx_disc=self._compute_ctx_disc(region_name),
+                ),
+            )
 
         return result
 

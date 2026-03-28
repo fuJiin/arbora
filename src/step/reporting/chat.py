@@ -77,8 +77,9 @@ class ChatReporter:
                     f"burst={burst:.0%} "
                     f"dim={snap.l23.eff_dim:.1f}"
                 )
-                if snap.l23.linear_probe > 0:
-                    lamina_str += f" lprobe={snap.l23.linear_probe:.2f}"
+                lp = getattr(snap.l23, "linear_probe", 0.0)
+                if lp > 0:
+                    lamina_str += f" lprobe={lp:.2f}"
                 break
 
         # Motor metrics (first region)
