@@ -162,7 +162,7 @@ class TestMotorL5:
 
     def test_babble_activates_l5(self):
         m = self._make_motor()
-        m.babbling_noise = 1.0
+        m.exploration_noise = 1.0
         encoding = np.random.default_rng(0).random(m.input_dim)
         m.process(encoding)
         assert m.l5.active.any()

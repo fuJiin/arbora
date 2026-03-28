@@ -61,10 +61,11 @@ class MotorRegion(CorticalRegion):
         else:
             self._output_vocab = None
 
-        # Babbling mode: mix random sparse drive with normal feedforward.
-        # 0.0 = normal (no noise), 1.0 = pure random babbling.
-        # Models brainstem pattern generators in early infant vocalization.
-        self.babbling_noise: float = 0.0
+        # Exploration mode: mix random column forcing with normal feedforward.
+        # 0.0 = normal (no noise), 1.0 = pure random exploration.
+        # Builds sensorimotor forward model by training ff_weights to map
+        # input patterns to randomly forced column activations.
+        self.exploration_noise: float = 0.0
 
         # Eligibility trace clamp: prevents unbounded accumulation over
         # multi-step episodes. 0.0 = no clamping (original behavior).
@@ -134,17 +135,17 @@ class MotorRegion(CorticalRegion):
     def process(self, encoding: np.ndarray) -> np.ndarray:
         """Feedforward + optional goal drive + L5 output scores.
 
-        Routes to babbling (forced random columns) or normal processing
+        Routes to exploration (forced random columns) or normal processing
         (base class handles goal drive injection if set).
         """
-        if self.babbling_noise >= 1.0:
-            return self._babble_direct(encoding)
-        if self.babbling_noise > 0.0 and self._rng.random() < self.babbling_noise:
-            return self._babble_direct(encoding)
+        if self.exploration_noise >= 1.0:
+            return self._explore_direct(encoding)
+        if self.exploration_noise > 0.0 and self._rng.random() < self.exploration_noise:
+            return self._explore_direct(encoding)
         # Normal path: base class process() handles goal_drive + ff_weights
         return super().process(encoding)
 
-    def _babble_direct(self, encoding: np.ndarray | None = None) -> np.ndarray:
+    def _explore_direct(self, encoding: np.ndarray | None = None) -> np.ndarray:
         """Force random column activations while training ff_weights.
 
         Randomly selects k columns, then delegates to the base class
