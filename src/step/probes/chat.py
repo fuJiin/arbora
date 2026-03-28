@@ -13,6 +13,7 @@ import numpy as np
 
 from step.cortex.motor import MotorRegion
 from step.probes.core import LaminaProbe
+from step.probes.snapshots import LaminaRegionSnapshot, MotorRegionSnapshot
 
 if TYPE_CHECKING:
     from step.cortex.circuit import Circuit
@@ -86,18 +87,16 @@ class ChatLaminaProbe(LaminaProbe):
         """Reset per-dialogue state."""
         self._prev_token = None
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, LaminaRegionSnapshot]:
         """Extend parent snapshot with chat-specific L2/3 KPIs."""
         result = super().snapshot()
 
         # Ensure we have a recent fit
         self._fit_linear_probes()
 
-        for region_name in result:
-            result[region_name]["l23"]["linear_probe"] = self._probe_accuracy.get(
-                region_name, 0.0
-            )
-            result[region_name]["l23"]["ctx_disc"] = self._compute_ctx_disc(region_name)
+        for region_name, region_snap in result.items():
+            region_snap.l23.linear_probe = self._probe_accuracy.get(region_name, 0.0)
+            region_snap.l23.ctx_disc = self._compute_ctx_disc(region_name)
 
         return result
 
@@ -292,24 +291,24 @@ class ChatMotorProbe:
                 else:
                     self._turn_correct_silent[name] += 1
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, MotorRegionSnapshot]:
         """Return per-region motor metrics."""
         all_regions = set(
             list(self._motor_confidences.keys()) + list(self._bg_gate_values.keys())
         )
-        result = {}
+        result: dict[str, MotorRegionSnapshot] = {}
         for name in sorted(all_regions):
-            result[name] = {
-                "motor_accuracies": self._motor_accuracies.get(name, []),
-                "motor_confidences": self._motor_confidences.get(name, []),
-                "motor_rewards": self._motor_rewards.get(name, []),
-                "bg_gate_values": self._bg_gate_values.get(name, []),
-                "turn_eom_steps": self._turn_eom_steps.get(name, 0),
-                "turn_input_steps": self._turn_input_steps.get(name, 0),
-                "turn_correct_speak": self._turn_correct_speak.get(name, 0),
-                "turn_correct_silent": self._turn_correct_silent.get(name, 0),
-                "turn_interruptions": self._turn_interruptions.get(name, 0),
-                "turn_unresponsive": self._turn_unresponsive.get(name, 0),
-                "turn_rambles": self._turn_rambles.get(name, 0),
-            }
+            result[name] = MotorRegionSnapshot(
+                motor_accuracies=self._motor_accuracies.get(name, []),
+                motor_confidences=self._motor_confidences.get(name, []),
+                motor_rewards=self._motor_rewards.get(name, []),
+                bg_gate_values=self._bg_gate_values.get(name, []),
+                turn_eom_steps=self._turn_eom_steps.get(name, 0),
+                turn_input_steps=self._turn_input_steps.get(name, 0),
+                turn_correct_speak=self._turn_correct_speak.get(name, 0),
+                turn_correct_silent=self._turn_correct_silent.get(name, 0),
+                turn_interruptions=self._turn_interruptions.get(name, 0),
+                turn_unresponsive=self._turn_unresponsive.get(name, 0),
+                turn_rambles=self._turn_rambles.get(name, 0),
+            )
         return result

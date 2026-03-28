@@ -116,7 +116,7 @@ class TestMotorCircuit:
         assert result.elapsed_seconds > 0
         # Motor metrics should be populated
         snap = result.probe_snapshots["motor"]
-        assert len(snap["M1"]["motor_confidences"]) > 0
+        assert len(snap["M1"].motor_confidences) > 0
 
     def test_motor_with_thalamic_gate(self, region1, motor, encoder):
         """M1→S1 apical with thalamic gate runs without error."""

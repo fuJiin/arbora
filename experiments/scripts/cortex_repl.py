@@ -103,10 +103,13 @@ def warmup(cortex, encoder, tokens, log_interval=2000):
             probes=[probe],
             decoder_training=True,
         )
-    snap = result.probe_snapshots.get("lamina", {}).get("S1", {})
-    l4 = snap.get("l4", {})
-    burst_rate = 1.0 - l4.get("recall", 0.0)
-    recall = l4.get("recall", 0.0)
+    lamina_snap = result.probe_snapshots.get("lamina", {})
+    s1 = lamina_snap.get("S1")
+    if s1 is not None:
+        recall = s1.l4.recall
+        burst_rate = 1.0 - recall
+    else:
+        recall, burst_rate = 0.0, 1.0
     print(f"{DIM}Warmup complete: recall={recall:.2f} burst={burst_rate:.0%}{RESET}\n")
     return result
 

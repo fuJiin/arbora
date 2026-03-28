@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from step.cortex.circuit_types import ConnectionRole
 from step.cortex.motor import MotorRegion
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 class TrainResult:
     """Result of a train() run. All metrics live in probe_snapshots."""
 
-    probe_snapshots: dict[str, dict] = field(default_factory=dict)
+    probe_snapshots: dict[str, Any] = field(default_factory=dict)
     elapsed_seconds: float = 0.0
     # Inter-region signal time series
     surprise_modulators: dict[str, list[float]] = field(default_factory=dict)
