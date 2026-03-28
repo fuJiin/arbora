@@ -194,6 +194,10 @@ class CorticalRegion:
         self._apical_source_dim: int = 0
         self._apical_context = np.zeros(0, dtype=np.float64)
 
+        # Optional goal drive (initialized lazily via init_goal_drive())
+        self._goal_drive: np.ndarray | None = None
+        self._goal_weights: np.ndarray | None = None
+
         # --- Feedforward weights ---
         # Target the input lamina: L4 in granular regions, L2/3 in agranular.
         _ff_n_per_col = self.input_lamina.n_per_col
@@ -295,8 +299,19 @@ class CorticalRegion:
         """
         self._efference_copy = encoding
 
-    def process(self, encoding: np.ndarray) -> np.ndarray:
-        """Feedforward an encoding through L4 → L2/3 pipeline."""
+    def process(
+        self,
+        encoding: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Feedforward an encoding through the input→association→output pipeline.
+
+        Args:
+            encoding: Input encoding vector.
+            forced_columns: If provided, skip k-WTA and use these columns.
+                Used for motor babbling / exploration.
+        """
         flat = encoding.flatten().astype(np.float64)
 
         neuron_drive = flat @ self.ff_weights
@@ -308,11 +323,33 @@ class CorticalRegion:
             neuron_drive -= self.efference_gain * predicted_drive
             self._efference_copy = None
 
+        # Optional goal drive (PFC→motor additive signal)
+        if self._goal_drive is not None and self._goal_weights is not None:
+            goal_drive = self._goal_drive @ self._goal_weights
+            neuron_drive += goal_drive
+            if hasattr(self, "_goal_eligibility"):
+                self._goal_eligibility *= self.eligibility_decay
+                self._pending_goal_signal = self._goal_drive
+            self._goal_drive = None
+
         _n_per = self.input_lamina.n_per_col
         self.last_column_drive = neuron_drive.reshape(self.n_columns, _n_per).max(
             axis=1
         )
-        active = self.step(neuron_drive)
+        active = self.step(neuron_drive, forced_columns=forced_columns)
+
+        # Goal eligibility for winner neurons
+        if hasattr(self, "_goal_eligibility") and hasattr(self, "_pending_goal_signal"):
+            winner_cols = np.nonzero(self.active_columns)[0]
+            if len(winner_cols) > 0:
+                winner_neurons = []
+                for col in winner_cols:
+                    winner_neurons.extend(range(col * _n_per, (col + 1) * _n_per))
+                goal_lr = self.learning_rate * 0.1
+                self._goal_eligibility[:, winner_neurons] += (
+                    goal_lr * self._pending_goal_signal[:, np.newaxis]
+                )
+            del self._pending_goal_signal
 
         if self.learning_enabled:
             self._learn_ff(flat)
@@ -789,18 +826,25 @@ class CorticalRegion:
         """
         return np.nonzero(self._predict_from_segments())[0]
 
-    def step(self, drive: np.ndarray) -> np.ndarray:
+    def step(
+        self,
+        drive: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Run one timestep given per-neuron feedforward drive.
 
         Args:
             drive: Per-neuron feedforward drive targeting the input lamina.
                    Shape (n_l4_total,) for granular, (n_l23_total,) for agranular.
+            forced_columns: If provided, skip k-WTA and use these column
+                indices instead. Used for motor babbling / exploration.
 
         Returns:
             Array of global indices of active input-lamina neurons.
         """
         if not self.has_l4:
-            return self._step_no_l4(drive)
+            return self._step_no_l4(drive, forced_columns=forced_columns)
 
         # 1. Decay voltages
         self.l4.voltage *= self.voltage_decay
@@ -833,7 +877,11 @@ class CorticalRegion:
 
         # 6. Activate L4: top-k columns, then burst/precise per column
         scores_l4 = self.l4.voltage + self.l4.excitability
-        top_cols = self._select_columns(scores_l4)
+        top_cols = (
+            forced_columns
+            if forced_columns is not None
+            else self._select_columns(scores_l4)
+        )
         self._activate_l4_burst(top_cols, scores_l4)
 
         # 6b. Update L4 firing rate (EMA) so L4→L2/3 weights see non-zero drive
@@ -884,7 +932,12 @@ class CorticalRegion:
 
         return np.nonzero(self.l4.active)[0]
 
-    def _step_no_l4(self, drive: np.ndarray) -> np.ndarray:
+    def _step_no_l4(
+        self,
+        drive: np.ndarray,
+        *,
+        forced_columns: np.ndarray | None = None,
+    ) -> np.ndarray:
         """Agranular processing: feedforward drive targets L2/3 directly.
 
         Used when n_l4=0 (motor cortex, PFC). Input reception, column
@@ -914,7 +967,11 @@ class CorticalRegion:
 
         # 6. Column selection on L2/3
         scores = self.l23.voltage + self.l23.excitability
-        top_cols = self._select_columns_generic(scores, self.n_l23)
+        top_cols = (
+            forced_columns
+            if forced_columns is not None
+            else self._select_columns_generic(scores, self.n_l23)
+        )
 
         # 7. Burst/precise on L2/3
         self._activate_input_burst(top_cols, scores, self.l23, self.n_l23)

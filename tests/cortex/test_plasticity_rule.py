@@ -316,7 +316,7 @@ class TestMotorThreeFactorEndToEnd:
         )
         inp = np.zeros(8)
         inp[0] = 1.0
-        m1._process_with_goal(inp)
+        m1.process(inp)
         assert m1._ff_eligibility.sum() != 0.0
 
     def test_motor_reward_changes_weights(self):
@@ -332,7 +332,7 @@ class TestMotorThreeFactorEndToEnd:
         )
         inp = np.zeros(8)
         inp[0] = 1.0
-        m1._process_with_goal(inp)
+        m1.process(inp)
         weights_before = m1.ff_weights.copy()
         m1.apply_reward(1.0)
         assert not np.array_equal(m1.ff_weights, weights_before)
