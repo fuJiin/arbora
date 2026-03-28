@@ -389,15 +389,14 @@ class TestBurstGating:
         assert result.elapsed_seconds > 0
 
 
-class TestResultsMatchRunner:
-    def test_single_region_matches_run_cortex(self, encoder):
-        """run_cortex() and direct Circuit both produce valid results."""
+class TestDeterminism:
+    def test_same_seed_same_results(self, encoder):
+        """Same seed produces identical probe snapshots."""
         from step.probes.core import LaminaProbe
-        from step.runner import run_cortex
 
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(50)]
 
-        # Via run_cortex
+        probe1 = LaminaProbe()
         r1 = SensoryRegion(
             input_dim=4 * 5,
             encoding_width=5,
@@ -407,10 +406,11 @@ class TestResultsMatchRunner:
             k_columns=2,
             seed=42,
         )
-        probe1 = LaminaProbe()
-        result1 = run_cortex(r1, encoder, tokens, log_interval=1000, probes=[probe1])
+        c1 = Circuit(encoder)
+        c1.add_region("S1", r1, entry=True)
+        result1 = run_circuit(c1, tokens, probes=[probe1])
 
-        # Via Circuit directly (same seed → same region)
+        probe2 = LaminaProbe()
         r2 = SensoryRegion(
             input_dim=4 * 5,
             encoding_width=5,
@@ -420,12 +420,10 @@ class TestResultsMatchRunner:
             k_columns=2,
             seed=42,
         )
-        probe2 = LaminaProbe()
-        cortex = Circuit(encoder)
-        cortex.add_region("S1", r2, entry=True)
-        result2 = run_circuit(cortex, tokens, probes=[probe2])
+        c2 = Circuit(encoder)
+        c2.add_region("S1", r2, entry=True)
+        result2 = run_circuit(c2, tokens, probes=[probe2])
 
-        # Both should produce identical probe snapshots
         snap1 = result1.probe_snapshots["lamina"]["S1"]
         snap2 = result2.probe_snapshots["lamina"]["S1"]
         assert abs(snap1.l4.recall - snap2.l4.recall) < 1e-10

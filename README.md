@@ -86,13 +86,13 @@ Connection types (biologically grounded):
 uv sync  # Python 3.12+, requires uv
 
 # Stage 1: Sensory learning + motor pathway listening (300k tokens)
-uv run experiments/scripts/cortex_staged.py --stage sensory --tokens 300000
+uv run experiments/scripts/chat/train.py --stage sensory --tokens 300000
 
 # Stage 2: Interleaved listening + babbling (100k babble steps)
-uv run experiments/scripts/cortex_staged.py --stage babbling --tokens 100000
+uv run experiments/scripts/chat/train.py --stage babbling --tokens 100000
 
 # Interactive REPL
-uv run experiments/scripts/cortex_repl.py --checkpoint stage2_babbling --dataset babylm
+uv run experiments/scripts/chat/repl.py --checkpoint stage2_babbling --dataset babylm
 ```
 
 ## REPL commands
@@ -122,33 +122,42 @@ src/step/
 │   ├── premotor.py     # PremotorRegion (M2, temporal sequencing)
 │   ├── motor.py        # MotorRegion (M1, L5 output, three-factor, babbling)
 │   ├── pfc.py          # PFCRegion (slow decay, global gate, confidence)
-│   ├── circuit.py      # Region wiring, run loops, shared step methods
+│   ├── circuit.py      # Region wiring, pure process() neural computation
 │   ├── stages.py       # Training stage definitions
 │   ├── reward.py       # CuriosityReward, CaregiverReward, EchoReward
 │   ├── basal_ganglia.py # Go/no-go gating with three-factor plasticity
 │   └── modulators.py   # Surprise, reward, thalamic gate
+├── harness/
+│   └── chat/
+│       └── train.py    # ChatTrainHarness (env + agent + probes + reporter)
 ├── probes/
-│   ├── centroid_bpc.py # Non-learned BPC probe (primary metric)
-│   ├── diagnostics.py  # Per-step diagnostics
-│   └── representation.py # Selectivity, discrimination, RF quality
+│   ├── core.py         # Probe protocol, LaminaProbe (L4/L2/3 KPIs)
+│   └── chat.py         # ChatLaminaProbe (linear probe, ctx disc), ChatMotorProbe
+├── snapshots/
+│   ├── core.py         # L4Snapshot, L23Snapshot, LaminaRegionSnapshot
+│   └── chat.py         # ChatL23Snapshot, MotorRegionSnapshot
+├── reporting/
+│   └── chat.py         # ChatReporter (periodic log lines from probes)
+├── agent/
+│   └── chat.py         # ChatAgent (encode, process, decode, reset)
 ├── encoders/
 │   └── positional.py   # Positional character encoder
 ├── config.py           # Region configs and factory functions
-├── data.py             # BabyLM, TinyDialogues, PersonaChat loaders
-└── runs.py             # Run saving utilities
+└── data.py             # BabyLM, TinyDialogues, PersonaChat loaders
 
 experiments/scripts/
-├── cortex_staged.py    # Staged training runner
-├── cortex_repl.py      # Interactive REPL with PFC goal drive
-├── cortex_run.py       # Single-stage runner (legacy)
-└── cortex_dashboard.py # Web visualization dashboard
+└── chat/               # Chat modality experiments
+    ├── train.py        # Staged training (sensory → babbling → echo)
+    ├── repl.py         # Interactive REPL with PFC goal drive
+    └── sweep_s1.py     # S1 parameter sweeps
 ```
 
 ## Development
 
 ```bash
-uv run python -m pytest tests/ -v   # 192 tests
+uv run python -m pytest tests/ -v   # 369 tests
 uv run ruff check src/ tests/       # lint
+uv run ty check src/step/           # typecheck
 ```
 
 ## Key results
