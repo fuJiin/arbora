@@ -688,21 +688,22 @@ class CorticalRegion:
         lam.region = self
         self.laminae[lam.id] = lam
 
-    def get_lamina(self, lid: LaminaID) -> Lamina:
-        """Look up a lamina by ID."""
-        return self.laminae[lid]
+    def get_lamina(self, lid: LaminaID | str) -> Lamina:
+        """Look up a lamina by LaminaID or string ID."""
+        key = lid.value if isinstance(lid, LaminaID) else lid
+        return self.laminae[key]
 
     @property
     def l4(self) -> Lamina:
-        return self.laminae[LaminaID.L4]
+        return self.laminae["L4"]
 
     @property
     def l23(self) -> Lamina:
-        return self.laminae[LaminaID.L23]
+        return self.laminae["L2/3"]
 
     @property
     def l5(self) -> Lamina:
-        return self.laminae[LaminaID.L5]
+        return self.laminae["L5"]
 
     @property
     def has_l4(self) -> bool:

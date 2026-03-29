@@ -1,12 +1,7 @@
-"""NeuronGroup and Lamina: neuron group containers for circuit wiring.
+"""Lamina: cortex-specific neuron group with columnar structure.
 
-NeuronGroup — base class for any group of neurons with firing rate.
-  Used by circuit.connect() as the connectable surface.
-  Subcortical regions (BG, cerebellum) use NeuronGroup directly.
-
-Lamina(NeuronGroup) — cortex-specific: adds columns, voltage,
-  predictions, excitability, burst/precise dynamics. Each cortical
-  region has L4, L2/3, L5 laminae.
+Extends NeuronGroup with columns, voltage, predictions, excitability,
+and burst/precise dynamics. Each cortical region has L4, L2/3, L5 laminae.
 """
 
 from __future__ import annotations
@@ -15,64 +10,15 @@ import enum
 
 import numpy as np
 
+from step.neuron_group import NeuronGroup
+
 
 class LaminaID(enum.Enum):
-    """Identifies a neural population for connection routing."""
+    """Cortical layer identifiers. Values are the NeuronGroup string IDs."""
 
     L4 = "L4"  # Input layer — receives feedforward drive
     L23 = "L2/3"  # Associative layer — lateral context, corticocortical output
     L5 = "L5"  # Output layer — subcortical projections
-
-
-class NeuronGroup:
-    """A group of neurons — the minimal connectable surface.
-
-    circuit.connect() takes NeuronGroup objects to wire regions together.
-    Both cortical laminae and subcortical nuclei satisfy this interface.
-
-    Universal properties:
-        n_total: Number of neurons.
-        firing_rate: Output signal (read by downstream connections).
-        _modulation: Pending modulatory input (written by circuit).
-        id: Routing identifier for connection resolution.
-        region: Back-reference to the owning region.
-    """
-
-    def __init__(
-        self,
-        n_neurons: int,
-        *,
-        group_id: LaminaID,
-        region: object | None = None,
-    ):
-        self.n_total = n_neurons
-        self.n_per_col = n_neurons  # No column structure
-        self.n_columns = 1
-        self.id = group_id
-        self.region = region
-
-        # Universal: every neuron group has an output signal
-        self.firing_rate = np.zeros(n_neurons)
-
-        # Pending modulatory input (accumulated via add_modulation,
-        # consumed by the owning region during processing).
-        self.modulation: np.ndarray | None = None
-
-    def add_modulation(self, signal: np.ndarray) -> None:
-        """Accumulate a modulatory signal. Additive if multiple sources."""
-        if self.modulation is None:
-            self.modulation = signal.copy()
-        else:
-            self.modulation += signal
-
-    def clear_modulation(self) -> None:
-        """Consume pending modulation (called by region after applying)."""
-        self.modulation = None
-
-    def reset(self):
-        """Zero transient state."""
-        self.firing_rate[:] = 0.0
-        self.modulation = None
 
 
 class Lamina(NeuronGroup):
@@ -97,7 +43,7 @@ class Lamina(NeuronGroup):
     ):
         super().__init__(
             n_neurons=n_columns * n_per_col,
-            group_id=lamina_id,
+            group_id=lamina_id.value,
             region=region,
         )
         # Override: column structure
