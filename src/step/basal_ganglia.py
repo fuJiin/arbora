@@ -37,6 +37,10 @@ class BasalGangliaRegion:
     apply_reward(), reset_working_memory().
     """
 
+    # NeuronGroup IDs for circuit wiring
+    STRIATUM = "striatum"  # Input: cortical projections arrive here
+    GPI = "gpi"  # Output: disinhibition signal to thalamus → M1
+
     def __init__(
         self,
         input_dim: int,
@@ -73,10 +77,10 @@ class BasalGangliaRegion:
         # Striatum: where cortical projections arrive (input)
         # GPi: where disinhibition signal leaves (output to thalamus→M1)
         self._input_group = NeuronGroup(
-            n_neurons=input_dim, group_id="striatum", region=self
+            n_neurons=input_dim, group_id=self.STRIATUM, region=self
         )
         self._output_group = NeuronGroup(
-            n_neurons=n_actions, group_id="gpi", region=self
+            n_neurons=n_actions, group_id=self.GPI, region=self
         )
 
     @property
@@ -101,9 +105,9 @@ class BasalGangliaRegion:
         Accepts string IDs ("striatum", "gpi") or LaminaID enum values.
         """
         key = lid.value if hasattr(lid, "value") else str(lid)
-        if key in ("striatum", "L4"):
+        if key == self.STRIATUM:
             return self._input_group
-        if key in ("gpi", "L2/3"):
+        if key == self.GPI:
             return self._output_group
         raise KeyError(f"BasalGangliaRegion has no group {lid!r}")
 
