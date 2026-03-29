@@ -1,10 +1,10 @@
-"""NeuronPool and Lamina: neuron group containers for circuit wiring.
+"""NeuronGroup and Lamina: neuron group containers for circuit wiring.
 
-NeuronPool — base class for any group of neurons with firing rate.
+NeuronGroup — base class for any group of neurons with firing rate.
   Used by circuit.connect() as the connectable surface.
-  Subcortical regions (BG, cerebellum) use NeuronPool directly.
+  Subcortical regions (BG, cerebellum) use NeuronGroup directly.
 
-Lamina(NeuronPool) — cortex-specific: adds columns, predictions,
+Lamina(NeuronGroup) — cortex-specific: adds columns, predictions,
   excitability, burst/precise dynamics. Each cortical region has
   L4, L2/3, L5 laminae.
 """
@@ -28,10 +28,10 @@ class LaminaID(enum.Enum):
     L5 = "L5"  # Output layer — subcortical projections
 
 
-class NeuronPool:
+class NeuronGroup:
     """A group of neurons with firing rate — the minimal connectable surface.
 
-    circuit.connect() takes NeuronPool objects to wire regions together.
+    circuit.connect() takes NeuronGroup objects to wire regions together.
     Both cortical laminae and subcortical nuclei satisfy this interface.
 
     Attributes:
@@ -47,13 +47,13 @@ class NeuronPool:
         self,
         n_neurons: int,
         *,
-        pool_id: LaminaID,
+        group_id: LaminaID,
         region: object | None = None,
     ):
         self.n_total = n_neurons
         self.n_per_col = n_neurons  # No column structure; treat as single group
         self.n_columns = 1
-        self.id = pool_id
+        self.id = group_id
         self.region = region
 
         self.active = np.zeros(n_neurons, dtype=np.bool_)
@@ -71,10 +71,10 @@ class NeuronPool:
         self._modulation = None
 
 
-class Lamina(NeuronPool):
+class Lamina(NeuronGroup):
     """Per-layer state for a cortical region.
 
-    Extends NeuronPool with column structure (n_columns x n_per_col),
+    Extends NeuronGroup with column structure (n_columns x n_per_col),
     prediction tracking, excitability, and eligibility traces — all
     cortex-specific features for burst/precise dynamics.
 
@@ -92,7 +92,7 @@ class Lamina(NeuronPool):
     ):
         super().__init__(
             n_neurons=n_columns * n_per_col,
-            pool_id=lamina_id,
+            group_id=lamina_id,
             region=region,
         )
         # Override: column structure
