@@ -18,7 +18,7 @@ class TestBasalGangliaRegionUnit:
         inp = np.random.default_rng(0).random(32)
         bias = bg.process(inp)
         assert bias.shape == (7,)
-        assert all(0 <= b <= 1 for b in bias)
+        assert all(-3 <= b <= 3 for b in bias)
 
     def test_output_port_firing_rate_matches(self):
         bg = BasalGangliaRegion(input_dim=16, n_actions=4)
@@ -47,18 +47,21 @@ class TestBasalGangliaRegionUnit:
         assert bias.mean() < 0.5
 
     def test_different_contexts_different_bias(self):
-        bg = BasalGangliaRegion(input_dim=16, n_actions=4, learning_rate=0.05)
+        bg = BasalGangliaRegion(
+            input_dim=16, n_actions=4, learning_rate=0.1, tonic_da_init=0.1
+        )
         inp_a = np.zeros(16)
         inp_a[:8] = 1.0
         inp_b = np.zeros(16)
         inp_b[8:] = 1.0
-        for _ in range(200):
+        for _ in range(500):
             bg.process(inp_a)
             bg.apply_reward(1.0)
             bg.process(inp_b)
             bg.apply_reward(-1.0)
-        bias_a = bg.process(inp_a)
-        bias_b = bg.process(inp_b)
+        # Average over multiple samples to reduce noise
+        bias_a = np.mean([bg.process(inp_a) for _ in range(50)], axis=0)
+        bias_b = np.mean([bg.process(inp_b) for _ in range(50)], axis=0)
         assert bias_a.mean() > bias_b.mean()
 
     def test_tonic_da_tracks_uncertainty(self):

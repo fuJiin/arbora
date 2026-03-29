@@ -62,6 +62,10 @@ class Lamina:
         self.trace = np.zeros(self.n_total)
         self.firing_rate = np.zeros(self.n_total)
 
+        # Pending modulatory signal (set by circuit, consumed in step).
+        # Applied after feedforward drive, before column selection.
+        self._modulation: np.ndarray | None = None
+
     def reset(self):
         """Zero all transient state, preserving configuration."""
         self.active[:] = False

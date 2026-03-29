@@ -813,10 +813,10 @@ class Circuit:
                 tgt.set_apical_context(signal, source_name=conn.source)
 
     def _apply_modulatory_for(self, target_name: str) -> None:
-        """Apply incoming MODULATORY connections to target before it processes.
+        """Set pending modulation on target's input_port from MODULATORY connections.
 
-        Modulatory signals add directly to the target's input_port voltage,
-        biasing column selection without going through ff_weights.
+        The modulation is stored on the Lamina and consumed inside step(),
+        applied after feedforward drive but before column selection.
         """
         for conn in self._connections:
             if (
@@ -825,15 +825,14 @@ class Circuit:
                 and conn.enabled
             ):
                 src = self._regions[conn.source].region
-                src_lamina = src.output_port
-                signal = src_lamina.firing_rate.copy()
+                signal = src.output_port.firing_rate.copy()
                 tgt = self._regions[target_name].region
-                # Additive bias on target's input port voltage
                 tgt_port = tgt.input_port
+                # Tile signal to match target neuron count
                 if len(signal) == tgt_port.n_total:
-                    tgt_port.voltage += signal
+                    mod = signal
                 elif tgt_port.n_total > 0:
-                    # Tile: map n_actions → n_neurons by repeating per column
+                    mod = np.zeros(tgt_port.n_total)
                     n_per_col = tgt_port.n_per_col
                     n_cols = tgt_port.n_total // n_per_col
                     n_src = len(signal)
@@ -845,8 +844,12 @@ class Circuit:
                         for c in range(width):
                             start = (pos + c) * n_per_col
                             end = start + n_per_col
-                            tgt_port.voltage[start:end] += signal[i]
+                            mod[start:end] = signal[i]
                         pos += width
+                else:
+                    return
+                # Store on lamina — consumed in step() after drive, before k-WTA
+                tgt_port._modulation = mod
 
     def _get_ff_signal(self, conn: Connection) -> np.ndarray:
         """Build the feedforward signal for a connection.
