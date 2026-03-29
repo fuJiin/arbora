@@ -4,20 +4,16 @@ NeuronGroup — base class for any group of neurons with firing rate.
   Used by circuit.connect() as the connectable surface.
   Subcortical regions (BG, cerebellum) use NeuronGroup directly.
 
-Lamina(NeuronGroup) — cortex-specific: adds columns, predictions,
-  excitability, burst/precise dynamics. Each cortical region has
-  L4, L2/3, L5 laminae.
+Lamina(NeuronGroup) — cortex-specific: adds columns, voltage,
+  predictions, excitability, burst/precise dynamics. Each cortical
+  region has L4, L2/3, L5 laminae.
 """
 
 from __future__ import annotations
 
 import enum
-from typing import TYPE_CHECKING
 
 import numpy as np
-
-if TYPE_CHECKING:
-    pass
 
 
 class LaminaID(enum.Enum):
@@ -29,17 +25,16 @@ class LaminaID(enum.Enum):
 
 
 class NeuronGroup:
-    """A group of neurons with firing rate — the minimal connectable surface.
+    """A group of neurons — the minimal connectable surface.
 
     circuit.connect() takes NeuronGroup objects to wire regions together.
     Both cortical laminae and subcortical nuclei satisfy this interface.
 
-    Attributes:
-        n_total: Total number of neurons.
-        firing_rate: Per-neuron firing rate (read by downstream connections).
-        voltage: Per-neuron voltage (written to by modulatory connections).
-        active: Per-neuron binary activation state.
-        id: Routing identifier (LaminaID for cortex, arbitrary for subcortical).
+    Universal properties:
+        n_total: Number of neurons.
+        firing_rate: Output signal (read by downstream connections).
+        _modulation: Pending modulatory input (written by circuit).
+        id: Routing identifier for connection resolution.
         region: Back-reference to the owning region.
     """
 
@@ -51,22 +46,19 @@ class NeuronGroup:
         region: object | None = None,
     ):
         self.n_total = n_neurons
-        self.n_per_col = n_neurons  # No column structure; treat as single group
+        self.n_per_col = n_neurons  # No column structure
         self.n_columns = 1
         self.id = group_id
         self.region = region
 
-        self.active = np.zeros(n_neurons, dtype=np.bool_)
-        self.voltage = np.zeros(n_neurons)
+        # Universal: every neuron group has an output signal
         self.firing_rate = np.zeros(n_neurons)
 
-        # Pending modulatory signal (set by circuit, consumed in step).
+        # Universal: any region can receive modulatory input
         self._modulation: np.ndarray | None = None
 
     def reset(self):
-        """Zero all transient state."""
-        self.active[:] = False
-        self.voltage[:] = 0.0
+        """Zero transient state."""
         self.firing_rate[:] = 0.0
         self._modulation = None
 
@@ -74,12 +66,13 @@ class NeuronGroup:
 class Lamina(NeuronGroup):
     """Per-layer state for a cortical region.
 
-    Extends NeuronGroup with column structure (n_columns x n_per_col),
-    prediction tracking, excitability, and eligibility traces — all
-    cortex-specific features for burst/precise dynamics.
-
-    The orchestration logic (burst/precise selection, prediction, learning)
-    lives in CorticalRegion.step() because it crosses lamina boundaries.
+    Extends NeuronGroup with cortex-specific dynamics:
+    - Column structure (n_columns x n_per_col)
+    - Voltage (membrane potential accumulation)
+    - Active (binary spike state from k-WTA competition)
+    - Predicted (dendritic segment predictions)
+    - Excitability (homeostatic boosting of inactive neurons)
+    - Trace (eligibility for three-factor learning)
     """
 
     def __init__(
@@ -100,6 +93,8 @@ class Lamina(NeuronGroup):
         self.n_columns = n_columns
 
         # Cortex-specific per-neuron state
+        self.active = np.zeros(self.n_total, dtype=np.bool_)
+        self.voltage = np.zeros(self.n_total)
         self.predicted = np.zeros(self.n_total, dtype=np.bool_)
         self.excitability = np.zeros(self.n_total)
         self.trace = np.zeros(self.n_total)
@@ -107,6 +102,8 @@ class Lamina(NeuronGroup):
     def reset(self):
         """Zero all transient state, preserving configuration."""
         super().reset()
+        self.active[:] = False
+        self.voltage[:] = 0.0
         self.predicted[:] = False
         self.excitability[:] = 0.0
         self.trace[:] = 0.0
