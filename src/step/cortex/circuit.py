@@ -63,8 +63,6 @@ class Circuit:
         self._total_steps = 0
         # Pluggable reward source (None = use default turn-taking reward)
         self._reward_source = None
-        # Pre-allocated BG context buffer (lazily sized)
-        # (removed: _bg_ctx_buffer — BG is now a proper region)
 
     # ------------------------------------------------------------------
     # Finalization (DAG validation)
@@ -297,7 +295,8 @@ class Circuit:
                 perm_decay=self._decoder_perm_decay,
             )
 
-        # Word decoder for non-entry cortical regions (S2, S3, PFC, M2)
+        # TODO: WordDecoder is chat-specific. Move to ChatTrainHarness or
+        # make opt-in via add_region kwarg. Shouldn't be in circuit.
         if not entry and is_cortical:
             from step.decoders.word import WordDecoder
 
@@ -409,13 +408,15 @@ class Circuit:
         return self._regions[name].region
 
     def apply_reward(self, reward: float) -> None:
-        """Route environment reward to motor regions and basal ganglia.
+        """Route reward to all regions that accept it.
 
-        Three-factor consolidation: converts eligibility traces to weight
-        updates. Called by the agent after env.step() returns reward.
+        Each region decides internally whether to use the reward signal.
+        Motor regions consolidate eligibility traces into weights.
+        BG updates Go/NoGo weights via asymmetric RPE.
+        Sensory regions with three-factor plasticity also consolidate.
         """
         for _name, s in self._regions.items():
-            if s.motor or not isinstance(s.region, CorticalRegion):
+            if hasattr(s.region, "apply_reward"):
                 s.region.apply_reward(reward)
 
     def _resolve_region_name(self, region: Region) -> str:
