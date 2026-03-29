@@ -29,7 +29,6 @@ from step.config import (
     make_premotor_region,
     make_sensory_region,
 )
-from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker, ThalamicGate
 
@@ -148,12 +147,7 @@ def build_canonical_circuit(
     circuit.add_region("S1", s1, entry=True)
     circuit.add_region("S2", s2)
     circuit.add_region("S3", s3)
-    bg = BasalGanglia(
-        context_dim=s1.n_columns + 1,
-        learning_rate=bg_learning_rate,
-        seed=789,
-    )
-    circuit.add_region("M1", m1, basal_ganglia=bg)
+    circuit.add_region("M1", m1)
     circuit.add_region("PFC", pfc)
     circuit.add_region("M2", m2)
 

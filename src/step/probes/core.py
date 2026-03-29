@@ -48,7 +48,7 @@ class LaminaProbe:
     """Functional KPI accumulator. Works for any environment.
 
     Measures by function, not by lamina name:
-    - Input reception (recall, precision, sparsity): on input_lamina (L4 or L2/3)
+    - Input reception (recall, precision, sparsity): on input_port (L4 or L2/3)
     - Association (eff_dim): on L2/3
 
     Walks circuit._regions, routes to the correct lamina per region.
@@ -100,7 +100,7 @@ class LaminaProbe:
 
     def _observe_input(self, region, region_name: str) -> None:
         """Accumulate input reception KPIs on the input lamina."""
-        lamina = region.input_lamina
+        lamina = region.input_port
         predicted = lamina.predicted
         active = lamina.active
 

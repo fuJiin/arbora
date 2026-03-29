@@ -8,96 +8,96 @@ Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + thr
 
 ## Architecture
 ```
-ChatEnv.step(action) -> (obs, reward)
-  └── ChatAgent.step(obs) + decode_action()
-        └── Circuit.process(encoding, motor_active) -> ndarray  [pure neural]
+[Chat]     ChatEnv → ChatAgent → Circuit.process(encoding, motor_active)
+[MiniGrid] MiniGridEnv → MiniGridAgent → Circuit.process(encoding)
 
-ChatTrainHarness orchestrates: agent.step → probes.observe → agent.decode_action → env.step
+BaseAgent → Circuit.process() + apply_reward() → pure neural
 
 Topo: S1 → S2 → S3 → PFC → M2 → M1
-Layers: L4 (input) → L2/3 (associative) → L5 (output/feedback)
+Laminae by region type:
+  Sensory (S1):  L4 → L2/3       (n_l5=0)
+  Motor (M1):    L2/3 → L5       (n_l4=0, agranular)
+  Full (S2+):    L4 → L2/3 → L5
 
-Circuit.process() is environment-agnostic. No EOM state, no hooks, no logging.
-All telemetry flows through probes → typed snapshots.
+input_lamina / output_lamina properties route processing per region.
+Functional KPIs: InputSnapshot (recall/prec/sparse), AssociationSnapshot (eff_dim).
 ```
 
 ## Package structure
 ```
 src/step/
-├── cortex/          # Pure neural: Circuit, Region, connections, modulators
-├── harness/chat/    # ChatTrainHarness (env + agent + probes + reporter)
-├── agent/chat.py    # ChatAgent (step, decode_action, reset)
-├── probes/
-│   ├── core.py      # Probe protocol, LaminaProbe
-│   ├── chat.py      # ChatLaminaProbe, ChatMotorProbe
-│   └── modulators.py # ModulatorProbe (surprise, thalamic, reward)
-├── snapshots/
-│   ├── core.py      # L4Snapshot, L23Snapshot, LaminaRegionSnapshot
-│   └── chat.py      # ChatL23Snapshot, MotorRegionSnapshot
-├── reporting/chat.py # ChatReporter (log lines from typed probe snapshots)
-├── environment.py   # ChatEnv, ChatObs
-└── encoders/        # PositionalCharEncoder, CharbitEncoder
+├── cortex/              # Pure neural: Circuit, Region, connections, modulators
+│   ├── region.py        # CorticalRegion (agranular support: n_l4=0, n_l5=0)
+│   ├── motor.py         # MotorRegion (L5 output, exploration, goal drive)
+│   ├── basal_ganglia.py # BG go/no-go gating (NEEDS REDESIGN)
+│   └── circuit.py       # Circuit builder + apply_reward()
+├── environment/
+│   ├── chat.py          # ChatEnv, ChatObs
+│   └── minigrid.py      # MiniGridEnv, MiniGridObs
+├── agent/
+│   ├── base.py          # BaseAgent (shared state, apply_reward)
+│   ├── chat.py          # ChatAgent
+│   └── minigrid.py      # MiniGridAgent (epsilon-greedy TEMP)
+├── harness/
+│   ├── chat/train.py    # ChatTrainHarness, TrainResult
+│   └── minigrid/train.py # MiniGridHarness
+├── encoders/
+│   ├── positional.py    # PositionalCharEncoder (Encoder[str])
+│   ├── charbit.py       # CharbitEncoder (Encoder[str])
+│   └── minigrid.py      # MiniGridEncoder (Encoder[MiniGridObs], 984-bit)
+├── probes/core.py       # Probe protocol, LaminaProbe (functional KPIs)
+├── snapshots/core.py    # InputSnapshot, AssociationSnapshot
+└── reporting/chat.py    # ChatReporter
 
-experiments/scripts/chat/  # train.py, repl.py, sweep_s1.py
+experiments/scripts/
+├── chat/                # train.py, repl.py, sweep_s1.py
+└── minigrid/            # train_minigrid.py, benchmark.py, diagnose.py, visualize.py
 ```
 
-## Probe framework (complete)
+## Session: 2026-03-28 → 2026-03-29 (MiniGrid RL + agranular)
 
-All metrics flow through `probe.observe(circuit, **kwargs) → probe.snapshot()`.
-
-| Probe | Location | Metrics |
-|-------|----------|---------|
-| LaminaProbe | probes/core.py | L4 recall/precision/sparseness, L2/3 eff_dim |
-| ChatLaminaProbe | probes/chat.py | + linear probe accuracy, ctx discrimination |
-| ChatMotorProbe | probes/chat.py | Motor accuracy, BG gate, turn-taking, rewards |
-| ModulatorProbe | probes/modulators.py | Surprise, thalamic, reward modulator time series |
-
-TrainResult = `{probe_snapshots, elapsed_seconds}`. That's it.
-
-## Session: 2026-03-27 → 2026-03-28 (probe framework + simplification)
-
-### Merged PRs (10 total)
-1. PR #42 — Probe protocol, LaminaProbe, ChatLaminaProbe (STEP-80)
-2. PR #43 — Vectorize Hebbian learning hot paths
-3. PR #44 — Wire probes into train() (STEP-81)
-4. PR #45 — ChatMotorProbe, prune RunMetrics, kill run_hierarchy (STEP-82)
-5. PR #46 — Streamline Circuit: pure process(), remove EOM state (STEP-79)
-6. PR #47 — ChatReporter, delete RunHooks/RunMetrics/CortexResult (STEP-83)
-7. PR #48 — ChatTrainHarness, delete train.py, prune 14 scripts (STEP-84)
-8. PR #49 — Agent step/decode_action split (STEP-87)
-9. PR #50 — ModulatorProbe, simplify TrainResult (STEP-86)
+### Merged PRs
+1. PR #51 — MiniGrid Phase 0: pipeline end-to-end
+2. PR #52 — Agranular regions (STEP-77) + reward wiring (STEP-88) + consolidation
+3. PR #53 (pending) — Epsilon-greedy exploration, benchmark scripts
 
 ### Key decisions
-- **Harness not Runner** — ChatTrainHarness (instrumentation, not execution)
-- **Chat prefix convention** — chat-specific: ChatEnv, ChatAgent, ChatLaminaProbe, ChatMotorProbe, ChatTrainHarness
-- **Linear probe is L2/3 KPI** — dendritic decoder BPC → REPL-only
-- **Typed snapshots** — L4Snapshot, L23Snapshot, etc. in snapshots/ package
-- **Agent step/decode_action split** — harness calls step → probes → decode_action
-- **Scripts by modality** — experiments/scripts/chat/ (ready for scripts/rl/)
+- **Encoder[T] generic protocol** — Encoder[str] for chat, Encoder[MiniGridObs] for grid
+- **BaseAgent** — shared state, apply_reward() delegates to circuit
+- **environment/ package** — chat.py + minigrid.py with backward-compat re-exports
+- **Agranular regions** — n_l4=0 for motor, n_l5=0 for sensory. input_lamina/output_lamina route processing.
+- **Functional KPIs** — InputSnapshot/AssociationSnapshot measured on the function's lamina, not hardcoded L4/L23
+- **circuit.apply_reward()** — routes to BG + motor internally, harness never knows about BG
+- **forced_columns on step()/process()** — enables exploration without duplicating pipeline
+- **exploration_noise** (was babbling_noise) — modality-agnostic naming
+- **Goal drive in base CorticalRegion** — any region can receive goal signals, not just motor
 
-### Deleted
-- RunHooks (585 lines), RunMetrics, CortexResult, StepHooks
-- run_hierarchy(), HierarchyMetrics
-- runner.py, runs.py, viz/ module
-- 14 stale experiment scripts
-- RepresentationTracker calls from training loop
+### Key findings
+- S1 plateau: recall=0.73 by ep 20, holds flat without reward
+- Without exploration: M1 collapses to one action (toggle), 0.2% success vs 37% random
+- With epsilon-greedy: 49.9% success, peak 62% rolling, 13% faster episodes
+- **BG gate stuck at 1.0** — `motor_active=True` overrides gate to 1.0 (chat-specific hack)
+- Epsilon-greedy is not biologically grounded — need BG redesign
+
+## Current work: BG Redesign
+
+**Problem:** BG is a side-car (arg to add_region), not a real circuit participant. Gate is overridden to 1.0 when motor_active. Exploration is hacked into agent (epsilon-greedy) instead of circuit (BG-modulated action selection).
+
+**Goal:** BG as a proper region that receives cortical input, learns from reward, and modulates M1 action selection. Exploration emerges from BG-cortex loop, not agent policy.
 
 ## Remaining tickets
 
-**Done this session:**
-- [x] STEP-63 Probe protocol (parent, all 5 phases + 86 + 87)
-- [x] STEP-78 Fix L4 firing_rate bug
-- [x] STEP-79 Streamline Circuit
-- [x] STEP-80–84 Phases 1–5
-- [x] STEP-86 ModulatorProbe
-- [x] STEP-87 Agent step/decode split
+**Done:**
+- [x] STEP-63, STEP-78–84, STEP-86, STEP-87 (probe framework)
+- [x] STEP-77 Agranular regions (PR #52)
+- [x] STEP-88 Reward wiring (PR #52)
+- [x] MiniGrid Phase 0 (PR #51)
 
-**Next: RL/Puffer integration**
-- [ ] Puffer harness — pressure-test abstractions with RL environment
-- [ ] PFC/BG/cerebellum/hippocampus design in RL context
+**In progress:**
+- [ ] BG redesign — proper region, exploration via circuit not agent
+- [ ] STEP-89 MiniGrid Phase 2 — PFC working memory (blocked on BG)
 
 **Architecture:**
-- [ ] STEP-77 Agranular motor/PFC regions — skip L4 (M)
 - [ ] STEP-30 Region Protocol typing (M)
 
 **Features:**

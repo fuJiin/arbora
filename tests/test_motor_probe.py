@@ -1,7 +1,7 @@
 """Tests for ChatMotorProbe — chat-specific motor and turn-taking metrics."""
 
 from step.agent import ChatAgent
-from step.cortex.basal_ganglia import BasalGanglia
+from step.cortex.basal_ganglia import BasalGangliaRegion
 from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.modulators import SurpriseTracker
 from step.cortex.motor import MotorRegion
@@ -35,13 +35,17 @@ def _make_motor_circuit():
     )
     circuit = Circuit(encoder)
     circuit.add_region("S1", s1, entry=True)
-    circuit.add_region("M1", m1, basal_ganglia=BasalGanglia(context_dim=9))
+    bg = BasalGangliaRegion(input_dim=s1.n_l23_total, n_actions=7)
+    circuit.add_region("BG", bg)
+    circuit.add_region("M1", m1)
+    circuit.connect(s1.l23, bg.input_port, ConnectionRole.FEEDFORWARD)
     circuit.connect(
         s1.l23,
         m1.l4,
         ConnectionRole.FEEDFORWARD,
         surprise_tracker=SurpriseTracker(),
     )
+    circuit.connect(bg.output_port, m1.l4, ConnectionRole.MODULATORY)
     return circuit, encoder
 
 

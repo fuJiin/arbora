@@ -25,8 +25,8 @@ class TestNoL4:
         assert region.n_l4 == 0
         assert region.n_l4_total == 0
 
-    def test_input_lamina_is_l23(self, region):
-        assert region.input_lamina is region.l23
+    def test_input_port_is_l23(self, region):
+        assert region.input_port is region.l23
 
     def test_ff_weights_target_l23(self, region):
         assert region.ff_weights.shape == (20, region.n_l23_total)
@@ -105,8 +105,8 @@ class TestNoL5:
         assert region.n_l5 == 0
         assert region.n_l5_total == 0
 
-    def test_output_lamina_is_l23(self, region):
-        assert region.output_lamina is region.l23
+    def test_output_port_is_l23(self, region):
+        assert region.output_port is region.l23
 
     def test_l5_lamina_is_empty(self, region):
         assert region.l5.n_total == 0
@@ -155,11 +155,11 @@ class TestGranularUnchanged:
     def test_has_l5_true(self, region):
         assert region.has_l5
 
-    def test_input_lamina_is_l4(self, region):
-        assert region.input_lamina is region.l4
+    def test_input_port_is_l4(self, region):
+        assert region.input_port is region.l4
 
-    def test_output_lamina_is_l5(self, region):
-        assert region.output_lamina is region.l5
+    def test_output_port_is_l5(self, region):
+        assert region.output_port is region.l5
 
     def test_ff_weights_target_l4(self, region):
         assert region.ff_weights.shape == (20, region.n_l4_total)
