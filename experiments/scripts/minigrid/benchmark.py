@@ -28,13 +28,21 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
     s1 = SensoryRegion(
         input_dim=encoder.input_dim,
         encoding_width=encoder.encoding_width,
-        n_columns=64, n_l4=4, n_l23=4, n_l5=0,
-        k_columns=4, seed=42,
+        n_columns=64,
+        n_l4=4,
+        n_l23=4,
+        n_l5=0,
+        k_columns=4,
+        seed=42,
     )
     m1 = MotorRegion(
         input_dim=s1.n_l23_total,
-        n_columns=16, n_l4=0, n_l23=4,
-        k_columns=2, n_output_tokens=7, seed=456,
+        n_columns=16,
+        n_l4=0,
+        n_l23=4,
+        k_columns=2,
+        n_output_tokens=7,
+        seed=456,
     )
     bg = BasalGangliaRegion(input_dim=s1.n_l23_total, n_actions=7, seed=789)
     circuit = Circuit(encoder)
@@ -51,12 +59,12 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
 def run_random(n_episodes: int, seed: int = 0) -> dict:
     env = MiniGridEnv("MiniGrid-Empty-5x5-v0", max_episodes=n_episodes, seed=seed)
     rng = np.random.default_rng(seed)
-    obs = env.reset()
+    env.reset()
     successes = []
     steps_list = []
     current_steps = 0
     while not env.done:
-        obs, _ = env.step(int(rng.integers(7)))
+        _obs, _ = env.step(int(rng.integers(7)))
         current_steps += 1
         if env.episode_count > len(successes):
             successes.append(env.last_episode_terminated)
@@ -118,7 +126,11 @@ def main():
     rand_steps = rolling(rand["steps"])
     step_steps = rolling(step["steps"])
 
-    print(f"\n{'Episode':>10} {'Rand %':>8} {'STEP %':>8} {'Delta':>8} {'Rand steps':>12} {'STEP steps':>12}")
+    header = (
+        f"\n{'Episode':>10} {'Rand %':>8} {'STEP %':>8}"
+        f" {'Delta':>8} {'Rand steps':>12} {'STEP steps':>12}"
+    )
+    print(header)
     print("-" * 65)
     checkpoints = [50, 100, 200, 300, 500, 750, 1000, 1500, 2000]
     for ep in checkpoints:
@@ -127,12 +139,16 @@ def main():
             s = step_rates[ep - 1]
             rs = rand_steps[ep - 1]
             ss = step_steps[ep - 1]
-            print(f"{ep:>10} {r:>8.1%} {s:>8.1%} {s - r:>+8.1%} {rs:>12.1f} {ss:>12.1f}")
+            print(
+                f"{ep:>10} {r:>8.1%} {s:>8.1%} {s - r:>+8.1%} {rs:>12.1f} {ss:>12.1f}"
+            )
 
     rs = sum(rand["successes"])
     ss = sum(step["successes"])
-    print(f"\nTotal: Random={rs}/{n} ({rs/n:.1%})  STEP={ss}/{n} ({ss/n:.1%})")
-    print(f"Mean steps: Random={np.mean(rand['steps']):.1f}  STEP={np.mean(step['steps']):.1f}")
+    print(f"\nTotal: Random={rs}/{n} ({rs / n:.1%})  STEP={ss}/{n} ({ss / n:.1%})")
+    rm = np.mean(rand["steps"])
+    sm = np.mean(step["steps"])
+    print(f"Mean steps: Random={rm:.1f}  STEP={sm:.1f}")
 
 
 if __name__ == "__main__":

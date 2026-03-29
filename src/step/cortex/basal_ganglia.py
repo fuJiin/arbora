@@ -45,7 +45,7 @@ class BasalGangliaRegion:
         *,
         learning_rate: float = 0.01,
         eligibility_decay: float = 0.95,
-        tonic_da_init: float = 0.5,
+        tonic_da_init: float = 2.0,
         tonic_da_decay: float = 0.99,
         seed: int = 0,
     ):
@@ -127,20 +127,21 @@ class BasalGangliaRegion:
         # Action value: Go - NoGo
         action_value = go_act - nogo_act
 
-        # Tonic DA exploration noise
+        # Tonic DA exploration noise (large early → exploration, small late → exploit)
         noise = self._rng.normal(0, max(self._tonic_da, 0.01), size=self._n_actions)
         action_bias = action_value + noise
 
-        # Sigmoid to [0, 1] range for output
-        action_bias = 1.0 / (1.0 + np.exp(-np.clip(action_bias, -10, 10)))
+        # No sigmoid — allow strong signals to meaningfully bias M1 columns.
+        # Clamp to [-3, 3] to prevent extreme values.
+        np.clip(action_bias, -3.0, 3.0, out=action_bias)
 
-        # Update eligibility traces: record cortical input for all actions.
-        # The asymmetry comes at reward time (+RPE → Go, -RPE → NoGo),
-        # not at trace accumulation time.
+        # Update eligibility traces: decay old, accumulate current input.
+        # Trace magnitude decays over steps, recent inputs dominate.
         self._go_trace *= self.eligibility_decay
         self._nogo_trace *= self.eligibility_decay
-        self._go_trace += flat[:, np.newaxis]
-        self._nogo_trace += flat[:, np.newaxis]
+        # Only accumulate for the input, scaled to keep traces bounded
+        self._go_trace += (1 - self.eligibility_decay) * flat[:, np.newaxis]
+        self._nogo_trace += (1 - self.eligibility_decay) * flat[:, np.newaxis]
 
         # Set output port firing rate (consumed by MODULATORY connection)
         self._output_lam.firing_rate[:] = action_bias

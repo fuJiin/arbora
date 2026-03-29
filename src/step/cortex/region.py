@@ -875,6 +875,11 @@ class CorticalRegion:
         # Apical context acts via L5 segments (predicted_l5 boost in _activate_l5).
         self.l4.voltage[self.l4.predicted] += self.fb_boost
 
+        # 5b. Apply pending modulatory signal (from BG or other subcortical)
+        if self.l4._modulation is not None:
+            self.l4.voltage += self.l4._modulation
+            self.l4._modulation = None
+
         # 6. Activate L4: top-k columns, then burst/precise per column
         scores_l4 = self.l4.voltage + self.l4.excitability
         top_cols = (
@@ -964,6 +969,11 @@ class CorticalRegion:
 
         # 5. Prediction boost on L2/3
         self.l23.voltage[self.l23.predicted] += self.fb_boost
+
+        # 5b. Apply pending modulatory signal (from BG or other subcortical)
+        if self.l23._modulation is not None:
+            self.l23.voltage += self.l23._modulation
+            self.l23._modulation = None
 
         # 6. Column selection on L2/3
         scores = self.l23.voltage + self.l23.excitability
