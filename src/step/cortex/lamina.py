@@ -54,13 +54,25 @@ class NeuronGroup:
         # Universal: every neuron group has an output signal
         self.firing_rate = np.zeros(n_neurons)
 
-        # Universal: any region can receive modulatory input
-        self._modulation: np.ndarray | None = None
+        # Pending modulatory input (accumulated via add_modulation,
+        # consumed by the owning region during processing).
+        self.modulation: np.ndarray | None = None
+
+    def add_modulation(self, signal: np.ndarray) -> None:
+        """Accumulate a modulatory signal. Additive if multiple sources."""
+        if self.modulation is None:
+            self.modulation = signal.copy()
+        else:
+            self.modulation += signal
+
+    def clear_modulation(self) -> None:
+        """Consume pending modulation (called by region after applying)."""
+        self.modulation = None
 
     def reset(self):
         """Zero transient state."""
         self.firing_rate[:] = 0.0
-        self._modulation = None
+        self.modulation = None
 
 
 class Lamina(NeuronGroup):
