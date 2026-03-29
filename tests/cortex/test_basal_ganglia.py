@@ -89,11 +89,9 @@ class TestBasalGangliaRegionUnit:
         assert bg._nogo_trace.sum() == 0.0
 
     def test_get_lamina(self):
-        from step.cortex.lamina import LaminaID
-
         bg = BasalGangliaRegion(input_dim=16, n_actions=4)
-        assert bg.get_lamina(LaminaID.L4) is bg.input_port
-        assert bg.get_lamina(LaminaID.L23) is bg.output_port
+        assert bg.get_lamina(BasalGangliaRegion.STRIATUM) is bg.input_port
+        assert bg.get_lamina(BasalGangliaRegion.GPI) is bg.output_port
 
     def test_input_port_dims(self):
         bg = BasalGangliaRegion(input_dim=32, n_actions=7)
