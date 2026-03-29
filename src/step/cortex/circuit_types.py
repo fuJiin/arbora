@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 
-from step.cortex.lamina import Lamina, LaminaID
+from step.cortex.lamina import LaminaID, NeuronPool
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
 from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
 from step.probes.diagnostics import CortexDiagnostics
@@ -68,12 +68,12 @@ class Region(Protocol):
     """
 
     @property
-    def input_port(self) -> Lamina:
+    def input_port(self) -> NeuronPool:
         """Connectable input surface (target of feedforward/modulatory)."""
         ...
 
     @property
-    def output_port(self) -> Lamina:
+    def output_port(self) -> NeuronPool:
         """Connectable output surface (source of feedforward/modulatory)."""
         ...
 
@@ -87,7 +87,7 @@ class Region(Protocol):
         ...
 
     def apply_reward(self, reward: float) -> None:
-        """Consolidate eligibility traces using reward signal."""
+        """Route reward signal. No-op for regions without reward learning."""
         ...
 
     def reset_working_memory(self) -> None:
