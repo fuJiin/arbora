@@ -876,9 +876,9 @@ class CorticalRegion:
         self.l4.voltage[self.l4.predicted] += self.fb_boost
 
         # 5b. Apply pending modulatory signal (from BG or other subcortical)
-        if self.l4._modulation is not None:
-            self.l4.voltage += self.l4._modulation
-            self.l4._modulation = None
+        if self.l4.modulation is not None:
+            self.l4.voltage += self.l4.modulation
+            self.l4.clear_modulation()
 
         # 6. Activate L4: top-k columns, then burst/precise per column
         scores_l4 = self.l4.voltage + self.l4.excitability
@@ -971,9 +971,9 @@ class CorticalRegion:
         self.l23.voltage[self.l23.predicted] += self.fb_boost
 
         # 5b. Apply pending modulatory signal (from BG or other subcortical)
-        if self.l23._modulation is not None:
-            self.l23.voltage += self.l23._modulation
-            self.l23._modulation = None
+        if self.l23.modulation is not None:
+            self.l23.voltage += self.l23.modulation
+            self.l23.clear_modulation()
 
         # 6. Column selection on L2/3
         scores = self.l23.voltage + self.l23.excitability

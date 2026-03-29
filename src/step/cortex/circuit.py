@@ -843,7 +843,7 @@ class Circuit:
                 else:
                     return
                 # Store on lamina — consumed in step() after drive, before k-WTA
-                tgt_port._modulation = mod
+                tgt_port.add_modulation(mod)
 
     def _get_ff_signal(self, conn: Connection) -> np.ndarray:
         """Build the feedforward signal for a connection.
