@@ -24,18 +24,17 @@ from __future__ import annotations
 
 import numpy as np
 
-from step.cortex.lamina import Lamina, LaminaID
+from step.cortex.lamina import LaminaID, NeuronPool
 
 
 class BasalGangliaRegion:
     """Per-action Go/NoGo channels with tonic dopamine exploration.
 
-    Not a CorticalRegion — no dendritic segments, no k-WTA, no apical.
+    Not a CorticalRegion — no laminae, no columns, no dendritic segments.
+    Uses NeuronPool (not Lamina) for its input/output ports.
+
     Satisfies the Region protocol: has input_port/output_port, process(),
     apply_reward(), reset_working_memory().
-
-    The output_port's firing_rate IS the per-action disinhibition signal,
-    delivered to M1 via a MODULATORY connection.
     """
 
     def __init__(
@@ -54,6 +53,7 @@ class BasalGangliaRegion:
         self._n_actions = n_actions
         self.learning_rate = learning_rate
         self.eligibility_decay = eligibility_decay
+        self.learning_enabled = True
 
         # D1 (Go) and D2 (NoGo) corticostriatal weights
         self.go_weights = self._rng.normal(0, 0.01, size=(input_dim, n_actions))
@@ -69,25 +69,13 @@ class BasalGangliaRegion:
         self._rpe_var_ema = tonic_da_init**2
         self._reward_baseline = 0.0
 
-        # Lamina-compatible ports for circuit.connect()
-        # Input: single "column" with input_dim neurons
-        self._input_lam = Lamina(
-            n_columns=1, n_per_col=input_dim, lamina_id=LaminaID.L4
+        # NeuronPool ports for circuit.connect()
+        self._input_pool = NeuronPool(
+            n_neurons=input_dim, pool_id=LaminaID.L4, region=self
         )
-        self._input_lam.region = self
-        # Output: single "column" with n_actions neurons
-        self._output_lam = Lamina(
-            n_columns=1, n_per_col=n_actions, lamina_id=LaminaID.L23
+        self._output_pool = NeuronPool(
+            n_neurons=n_actions, pool_id=LaminaID.L23, region=self
         )
-        self._output_lam.region = self
-
-        # Stub properties for circuit compatibility
-        self.n_columns = 1
-        self.n_l4 = input_dim
-        self.n_l23 = n_actions
-        self.active_columns = np.ones(1, dtype=np.bool_)
-        self.bursting_columns = np.zeros(1, dtype=np.bool_)
-        self.learning_enabled = True
 
     @property
     def input_dim(self) -> int:
@@ -98,20 +86,20 @@ class BasalGangliaRegion:
         return self._n_actions
 
     @property
-    def input_port(self) -> Lamina:
-        return self._input_lam
+    def input_port(self) -> NeuronPool:
+        return self._input_pool
 
     @property
-    def output_port(self) -> Lamina:
-        return self._output_lam
+    def output_port(self) -> NeuronPool:
+        return self._output_pool
 
-    def get_lamina(self, lid: LaminaID) -> Lamina:
-        """Look up a lamina by ID (for circuit wiring compatibility)."""
+    def get_lamina(self, lid: LaminaID) -> NeuronPool:
+        """Look up a neuron pool by ID (for circuit wiring compatibility)."""
         if lid == LaminaID.L4:
-            return self._input_lam
+            return self._input_pool
         if lid == LaminaID.L23:
-            return self._output_lam
-        raise KeyError(f"BasalGangliaRegion has no lamina {lid}")
+            return self._output_pool
+        raise KeyError(f"BasalGangliaRegion has no pool for {lid}")
 
     def process(self, cortical_input: np.ndarray, **kwargs) -> np.ndarray:
         """Compute per-action disinhibition from cortical firing rate.
@@ -127,24 +115,21 @@ class BasalGangliaRegion:
         # Action value: Go - NoGo
         action_value = go_act - nogo_act
 
-        # Tonic DA exploration noise (large early → exploration, small late → exploit)
+        # Tonic DA exploration noise (large early -> exploration, small late -> exploit)
         noise = self._rng.normal(0, max(self._tonic_da, 0.01), size=self._n_actions)
         action_bias = action_value + noise
 
-        # No sigmoid — allow strong signals to meaningfully bias M1 columns.
-        # Clamp to [-3, 3] to prevent extreme values.
+        # Clamp to prevent extreme values
         np.clip(action_bias, -3.0, 3.0, out=action_bias)
 
         # Update eligibility traces: decay old, accumulate current input.
-        # Trace magnitude decays over steps, recent inputs dominate.
         self._go_trace *= self.eligibility_decay
         self._nogo_trace *= self.eligibility_decay
-        # Only accumulate for the input, scaled to keep traces bounded
         self._go_trace += (1 - self.eligibility_decay) * flat[:, np.newaxis]
         self._nogo_trace += (1 - self.eligibility_decay) * flat[:, np.newaxis]
 
-        # Set output port firing rate (consumed by MODULATORY connection)
-        self._output_lam.firing_rate[:] = action_bias
+        # Set output pool firing rate (consumed by MODULATORY connection)
+        self._output_pool.firing_rate[:] = action_bias
 
         return action_bias
 
@@ -180,5 +165,5 @@ class BasalGangliaRegion:
         """Reset transient state. Preserves learned weights + tonic DA."""
         self._go_trace[:] = 0.0
         self._nogo_trace[:] = 0.0
-        self._output_lam.firing_rate[:] = 0.5
+        self._output_pool.firing_rate[:] = 0.0
         self._reward_baseline = 0.0

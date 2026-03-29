@@ -408,16 +408,9 @@ class Circuit:
         return self._regions[name].region
 
     def apply_reward(self, reward: float) -> None:
-        """Route reward to all regions that accept it.
-
-        Each region decides internally whether to use the reward signal.
-        Motor regions consolidate eligibility traces into weights.
-        BG updates Go/NoGo weights via asymmetric RPE.
-        Sensory regions with three-factor plasticity also consolidate.
-        """
+        """Route reward to all regions. Each decides internally what to do."""
         for _name, s in self._regions.items():
-            if hasattr(s.region, "apply_reward"):
-                s.region.apply_reward(reward)
+            s.region.apply_reward(reward)
 
     def _resolve_region_name(self, region: Region) -> str:
         """Look up the registered name for a region."""

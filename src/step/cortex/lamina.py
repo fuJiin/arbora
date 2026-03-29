@@ -1,12 +1,12 @@
-"""Lamina: per-layer state container for cortical regions.
+"""NeuronPool and Lamina: neuron group containers for circuit wiring.
 
-Each cortical region has multiple laminae (L4, L2/3, L5) with similar
-state: neurons, voltage, activation, firing rate, etc. This class
-encapsulates the per-layer arrays to eliminate the _l4/_l23/_l5 suffix
-duplication in CorticalRegion.
+NeuronPool — base class for any group of neurons with firing rate.
+  Used by circuit.connect() as the connectable surface.
+  Subcortical regions (BG, cerebellum) use NeuronPool directly.
 
-Named 'Lamina' (neuroscience term for cortical layer) to avoid collision
-with ML 'Layer'.
+Lamina(NeuronPool) — cortex-specific: adds columns, predictions,
+  excitability, burst/precise dynamics. Each cortical region has
+  L4, L2/3, L5 laminae.
 """
 
 from __future__ import annotations
@@ -17,27 +17,69 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from step.cortex.region import CorticalRegion
+    pass
 
 
 class LaminaID(enum.Enum):
-    """Identifies a cortical layer for connection routing."""
+    """Identifies a neural population for connection routing."""
 
     L4 = "L4"  # Input layer — receives feedforward drive
     L23 = "L2/3"  # Associative layer — lateral context, corticocortical output
-    L5 = "L5"  # Output layer — subcortical projections (BG, cerebellum, thalamus)
+    L5 = "L5"  # Output layer — subcortical projections
 
 
-class Lamina:
+class NeuronPool:
+    """A group of neurons with firing rate — the minimal connectable surface.
+
+    circuit.connect() takes NeuronPool objects to wire regions together.
+    Both cortical laminae and subcortical nuclei satisfy this interface.
+
+    Attributes:
+        n_total: Total number of neurons.
+        firing_rate: Per-neuron firing rate (read by downstream connections).
+        voltage: Per-neuron voltage (written to by modulatory connections).
+        active: Per-neuron binary activation state.
+        id: Routing identifier (LaminaID for cortex, arbitrary for subcortical).
+        region: Back-reference to the owning region.
+    """
+
+    def __init__(
+        self,
+        n_neurons: int,
+        *,
+        pool_id: LaminaID,
+        region: object | None = None,
+    ):
+        self.n_total = n_neurons
+        self.n_per_col = n_neurons  # No column structure; treat as single group
+        self.n_columns = 1
+        self.id = pool_id
+        self.region = region
+
+        self.active = np.zeros(n_neurons, dtype=np.bool_)
+        self.voltage = np.zeros(n_neurons)
+        self.firing_rate = np.zeros(n_neurons)
+
+        # Pending modulatory signal (set by circuit, consumed in step).
+        self._modulation: np.ndarray | None = None
+
+    def reset(self):
+        """Zero all transient state."""
+        self.active[:] = False
+        self.voltage[:] = 0.0
+        self.firing_rate[:] = 0.0
+        self._modulation = None
+
+
+class Lamina(NeuronPool):
     """Per-layer state for a cortical region.
 
-    A lightweight state container, not a self-running unit. The
-    orchestration logic (burst/precise selection, prediction, learning)
-    lives in CorticalRegion.step() because it crosses lamina boundaries.
+    Extends NeuronPool with column structure (n_columns x n_per_col),
+    prediction tracking, excitability, and eligibility traces — all
+    cortex-specific features for burst/precise dynamics.
 
-    All features enabled by default. Can be selectively disabled
-    if a lamina genuinely doesn't need a particular state (e.g., a
-    lamina that only provides a readout with no competitive dynamics).
+    The orchestration logic (burst/precise selection, prediction, learning)
+    lives in CorticalRegion.step() because it crosses lamina boundaries.
     """
 
     def __init__(
@@ -46,31 +88,25 @@ class Lamina:
         n_per_col: int,
         *,
         lamina_id: LaminaID,
-        region: CorticalRegion | None = None,
+        region: object | None = None,
     ):
+        super().__init__(
+            n_neurons=n_columns * n_per_col,
+            pool_id=lamina_id,
+            region=region,
+        )
+        # Override: column structure
         self.n_per_col = n_per_col
         self.n_columns = n_columns
-        self.n_total = n_columns * n_per_col
-        self.id = lamina_id
-        self.region = region  # Set by CorticalRegion.register_lamina()
 
-        # Per-neuron state arrays (all laminae have all features)
-        self.active = np.zeros(self.n_total, dtype=np.bool_)
+        # Cortex-specific per-neuron state
         self.predicted = np.zeros(self.n_total, dtype=np.bool_)
-        self.voltage = np.zeros(self.n_total)
         self.excitability = np.zeros(self.n_total)
         self.trace = np.zeros(self.n_total)
-        self.firing_rate = np.zeros(self.n_total)
-
-        # Pending modulatory signal (set by circuit, consumed in step).
-        # Applied after feedforward drive, before column selection.
-        self._modulation: np.ndarray | None = None
 
     def reset(self):
         """Zero all transient state, preserving configuration."""
-        self.active[:] = False
+        super().reset()
         self.predicted[:] = False
-        self.voltage[:] = 0.0
         self.excitability[:] = 0.0
         self.trace[:] = 0.0
-        self.firing_rate[:] = 0.0
