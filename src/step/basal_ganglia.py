@@ -24,14 +24,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from step.cortex.lamina import LaminaID, NeuronPool
+from step.cortex.lamina import LaminaID, NeuronGroup
 
 
 class BasalGangliaRegion:
     """Per-action Go/NoGo channels with tonic dopamine exploration.
 
     Not a CorticalRegion — no laminae, no columns, no dendritic segments.
-    Uses NeuronPool (not Lamina) for its input/output ports.
+    Uses NeuronGroup (not Lamina) for its input/output ports.
 
     Satisfies the Region protocol: has input_port/output_port, process(),
     apply_reward(), reset_working_memory().
@@ -69,12 +69,12 @@ class BasalGangliaRegion:
         self._rpe_var_ema = tonic_da_init**2
         self._reward_baseline = 0.0
 
-        # NeuronPool ports for circuit.connect()
-        self._input_pool = NeuronPool(
-            n_neurons=input_dim, pool_id=LaminaID.L4, region=self
+        # NeuronGroup ports for circuit.connect()
+        self._input_group = NeuronGroup(
+            n_neurons=input_dim, group_id=LaminaID.L4, region=self
         )
-        self._output_pool = NeuronPool(
-            n_neurons=n_actions, pool_id=LaminaID.L23, region=self
+        self._output_group = NeuronGroup(
+            n_neurons=n_actions, group_id=LaminaID.L23, region=self
         )
 
     @property
@@ -86,19 +86,19 @@ class BasalGangliaRegion:
         return self._n_actions
 
     @property
-    def input_port(self) -> NeuronPool:
-        return self._input_pool
+    def input_port(self) -> NeuronGroup:
+        return self._input_group
 
     @property
-    def output_port(self) -> NeuronPool:
-        return self._output_pool
+    def output_port(self) -> NeuronGroup:
+        return self._output_group
 
-    def get_lamina(self, lid: LaminaID) -> NeuronPool:
-        """Look up a neuron pool by ID (for circuit wiring compatibility)."""
+    def get_lamina(self, lid: LaminaID) -> NeuronGroup:
+        """Look up a neuron group by ID (for circuit wiring compatibility)."""
         if lid == LaminaID.L4:
-            return self._input_pool
+            return self._input_group
         if lid == LaminaID.L23:
-            return self._output_pool
+            return self._output_group
         raise KeyError(f"BasalGangliaRegion has no pool for {lid}")
 
     def process(self, cortical_input: np.ndarray, **kwargs) -> np.ndarray:
@@ -128,8 +128,8 @@ class BasalGangliaRegion:
         self._go_trace += (1 - self.eligibility_decay) * flat[:, np.newaxis]
         self._nogo_trace += (1 - self.eligibility_decay) * flat[:, np.newaxis]
 
-        # Set output pool firing rate (consumed by MODULATORY connection)
-        self._output_pool.firing_rate[:] = action_bias
+        # Set output group firing rate (consumed by MODULATORY connection)
+        self._output_group.firing_rate[:] = action_bias
 
         return action_bias
 
@@ -165,5 +165,5 @@ class BasalGangliaRegion:
         """Reset transient state. Preserves learned weights + tonic DA."""
         self._go_trace[:] = 0.0
         self._nogo_trace[:] = 0.0
-        self._output_pool.firing_rate[:] = 0.0
+        self._output_group.firing_rate[:] = 0.0
         self._reward_baseline = 0.0

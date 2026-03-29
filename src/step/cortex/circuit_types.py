@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 
-from step.cortex.lamina import LaminaID, NeuronPool
+from step.cortex.lamina import LaminaID, NeuronGroup
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
 from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
 from step.probes.diagnostics import CortexDiagnostics
@@ -68,12 +68,12 @@ class Region(Protocol):
     """
 
     @property
-    def input_port(self) -> NeuronPool:
+    def input_port(self) -> NeuronGroup:
         """Connectable input surface (target of feedforward/modulatory)."""
         ...
 
     @property
-    def output_port(self) -> NeuronPool:
+    def output_port(self) -> NeuronGroup:
         """Connectable output surface (source of feedforward/modulatory)."""
         ...
 
