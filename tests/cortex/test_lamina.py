@@ -79,9 +79,9 @@ class TestLaminaRegionWiring:
 
     def test_lamina_instances_exist(self):
         r = self._make_region()
-        assert r.l4.id == LaminaID.L4
-        assert r.l23.id == LaminaID.L23
-        assert r.l5.id == LaminaID.L5
+        assert r.l4.id == "L4"
+        assert r.l23.id == "L2/3"
+        assert r.l5.id == "L5"
 
     def test_back_reference(self):
         r = self._make_region()
@@ -121,10 +121,10 @@ class TestLaminaRegionWiring:
 
     def test_register_lamina(self):
         r = self._make_region()
-        assert LaminaID.L4 in r.laminae
-        assert LaminaID.L23 in r.laminae
-        assert LaminaID.L5 in r.laminae
-        assert r.laminae[LaminaID.L4].region is r
+        assert "L4" in r.laminae
+        assert "L2/3" in r.laminae
+        assert "L5" in r.laminae
+        assert r.laminae["L4"].region is r
 
     def test_dimensions_match(self):
         r = self._make_region()
@@ -140,8 +140,8 @@ class TestConnectionLaminaFields:
         from step.cortex.circuit import Connection, ConnectionRole
 
         conn = Connection(source="S1", target="S2", role=ConnectionRole.FEEDFORWARD)
-        assert conn.source_lamina == LaminaID.L23
-        assert conn.target_lamina == LaminaID.L4
+        assert conn.source_lamina == "L2/3"
+        assert conn.target_lamina == "L4"
 
     def test_connection_custom_lamina(self):
         from step.cortex.circuit import Connection, ConnectionRole
@@ -150,10 +150,10 @@ class TestConnectionLaminaFields:
             source="S1",
             target="S2",
             role=ConnectionRole.FEEDFORWARD,
-            source_lamina=LaminaID.L5,
-            target_lamina=LaminaID.L4,
+            source_lamina="L5",
+            target_lamina="L4",
         )
-        assert conn.source_lamina == LaminaID.L5
+        assert conn.source_lamina == "L5"
 
     def test_connect_api_accepts_lamina(self):
         from step.cortex.circuit import Circuit, ConnectionRole
@@ -182,8 +182,8 @@ class TestConnectionLaminaFields:
         conn = cortex._connections[0]
         assert conn.source == "S1"
         assert conn.target == "S2"
-        assert conn.source_lamina == LaminaID.L23
-        assert conn.target_lamina == LaminaID.L4
+        assert conn.source_lamina == "L2/3"
+        assert conn.target_lamina == "L4"
 
     def test_connect_with_lamina_objects(self):
         from step.cortex.circuit import Circuit, ConnectionRole
@@ -213,8 +213,8 @@ class TestConnectionLaminaFields:
         conn = cortex._connections[0]
         assert conn.source == "S1"
         assert conn.target == "S2"
-        assert conn.source_lamina == LaminaID.L23
-        assert conn.target_lamina == LaminaID.L4
+        assert conn.source_lamina == "L2/3"
+        assert conn.target_lamina == "L4"
 
     def test_connect_lamina_l5_to_l4(self):
         from step.cortex.circuit import Circuit, ConnectionRole
@@ -242,5 +242,5 @@ class TestConnectionLaminaFields:
         # L5 -> L4 connection via Lamina objects
         cortex.connect(r1.l5, r2.l4, ConnectionRole.FEEDFORWARD)
         conn = cortex._connections[0]
-        assert conn.source_lamina == LaminaID.L5
-        assert conn.target_lamina == LaminaID.L4
+        assert conn.source_lamina == "L5"
+        assert conn.target_lamina == "L4"

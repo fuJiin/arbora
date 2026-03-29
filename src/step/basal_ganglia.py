@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from step.cortex.lamina import LaminaID, NeuronGroup
+from step.neuron_group import NeuronGroup
 
 
 class BasalGangliaRegion:
@@ -70,11 +70,13 @@ class BasalGangliaRegion:
         self._reward_baseline = 0.0
 
         # NeuronGroup ports for circuit.connect()
+        # Striatum: where cortical projections arrive (input)
+        # GPi: where disinhibition signal leaves (output to thalamus→M1)
         self._input_group = NeuronGroup(
-            n_neurons=input_dim, group_id=LaminaID.L4, region=self
+            n_neurons=input_dim, group_id="striatum", region=self
         )
         self._output_group = NeuronGroup(
-            n_neurons=n_actions, group_id=LaminaID.L23, region=self
+            n_neurons=n_actions, group_id="gpi", region=self
         )
 
     @property
@@ -93,13 +95,17 @@ class BasalGangliaRegion:
     def output_port(self) -> NeuronGroup:
         return self._output_group
 
-    def get_lamina(self, lid: LaminaID) -> NeuronGroup:
-        """Look up a neuron group by ID (for circuit wiring compatibility)."""
-        if lid == LaminaID.L4:
+    def get_lamina(self, lid: str | object) -> NeuronGroup:
+        """Look up a neuron group by ID (for circuit wiring compatibility).
+
+        Accepts string IDs ("striatum", "gpi") or LaminaID enum values.
+        """
+        key = lid.value if hasattr(lid, "value") else str(lid)
+        if key in ("striatum", "L4"):
             return self._input_group
-        if lid == LaminaID.L23:
+        if key in ("gpi", "L2/3"):
             return self._output_group
-        raise KeyError(f"BasalGangliaRegion has no pool for {lid}")
+        raise KeyError(f"BasalGangliaRegion has no group {lid!r}")
 
     def process(self, cortical_input: np.ndarray, **kwargs) -> np.ndarray:
         """Compute per-action disinhibition from cortical firing rate.

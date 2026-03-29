@@ -372,7 +372,7 @@ class Circuit:
                     f"Target {target_name!r} "
                     f"input_dim={tgt_region.input_dim} "
                     f"but buffer_depth={buffer_depth} * "
-                    f"source {source_lamina.value} "
+                    f"source {source_lamina} "
                     f"n_total={source.n_total} = {expected_dim}"
                 )
             conn._buffer = np.zeros((buffer_depth, source.n_total))
@@ -590,8 +590,8 @@ class Circuit:
                 "source": conn.source,
                 "target": conn.target,
                 "role": conn.role.value,
-                "source_lamina": conn.source_lamina.value,
-                "target_lamina": conn.target_lamina.value,
+                "source_lamina": conn.source_lamina,
+                "target_lamina": conn.target_lamina,
             }
             if conn.surprise_tracker is not None:
                 conn_data["surprise_burst_ema"] = conn.surprise_tracker._burst_ema

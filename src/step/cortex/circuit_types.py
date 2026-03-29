@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 
-from step.cortex.lamina import LaminaID, NeuronGroup
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
 from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
+from step.neuron_group import NeuronGroup
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
 from step.probes.timeline import Timeline
@@ -138,8 +138,8 @@ class Connection:
     source: str
     target: str
     role: ConnectionRole
-    source_lamina: LaminaID = LaminaID.L23
-    target_lamina: LaminaID = LaminaID.L4
+    source_lamina: str = "L2/3"
+    target_lamina: str = "L4"
     surprise_tracker: SurpriseTracker | None = None
     reward_modulator: RewardModulator | None = None
     buffer_depth: int = 1
