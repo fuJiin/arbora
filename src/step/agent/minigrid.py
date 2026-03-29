@@ -44,10 +44,16 @@ class MiniGridAgent(BaseAgent):
         circuit: Circuit,
         *,
         n_actions: int = 7,
+        epsilon: float = 1.0,
+        epsilon_decay: float = 0.995,
+        epsilon_min: float = 0.1,
         entry_name: str | None = None,
     ):
         super().__init__(encoder, circuit, entry_name=entry_name)
         self._n_actions = n_actions
+        self._epsilon = epsilon
+        self._epsilon_decay = epsilon_decay
+        self._epsilon_min = epsilon_min
         self._rng = np.random.default_rng(42)
 
     def step(self, obs: MiniGridObs) -> None:
@@ -62,18 +68,30 @@ class MiniGridAgent(BaseAgent):
         self.last_output = output
 
     def decode_action(self) -> int:
-        """Read motor region output. Always returns a valid action.
+        """Read motor region output with epsilon-greedy exploration.
 
-        If M1 produces no output (below confidence threshold), falls
-        back to a random action. MiniGrid requires an action every step.
+        With probability epsilon, choose a random action (exploration).
+        Otherwise, use M1's output if available (exploitation).
+        Epsilon decays each call toward epsilon_min.
         """
+        # Epsilon-greedy exploration
+        if self._rng.random() < self._epsilon:
+            self._epsilon = max(self._epsilon_min, self._epsilon * self._epsilon_decay)
+            action = int(self._rng.integers(self._n_actions))
+            self.last_action = action
+            return action
+
+        self._epsilon = max(self._epsilon_min, self._epsilon * self._epsilon_decay)
+
+        # Exploit M1 output
         for s in self._circuit._regions.values():
             if s.motor and isinstance(s.region, MotorRegion):
                 m_id, _conf = s.region.last_output
                 if m_id >= 0:
                     self.last_action = m_id
                     return m_id
-        # Random fallback
+
+        # Random fallback if M1 silent
         action = int(self._rng.integers(self._n_actions))
         self.last_action = action
         return action

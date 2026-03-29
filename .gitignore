@@ -16,3 +16,4 @@ experiments/checkpoints/
 experiments/figures/
 *.db
 *.pt
+*.gif
