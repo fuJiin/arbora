@@ -8,18 +8,21 @@ Biologically-plausible cortical learning. Minicolumn architecture, Hebbian + thr
 
 ## Architecture
 ```
-[Chat]     ChatEnv → ChatAgent → Circuit.process(encoding, motor_active)
+[Chat]     ChatEnv → ChatAgent → Circuit.process(encoding)
 [MiniGrid] MiniGridEnv → MiniGridAgent → Circuit.process(encoding)
 
 BaseAgent → Circuit.process() + apply_reward() → pure neural
 
-Topo: S1 → S2 → S3 → PFC → M2 → M1
+Topo: S1 → BG → M1 (MiniGrid) | S1 → S2 → S3 → PFC → M2 → M1 (Chat)
+Region protocol: input_port / output_port for circuit wiring
+ConnectionRole: FEEDFORWARD, APICAL, MODULATORY
+
 Laminae by region type:
   Sensory (S1):  L4 → L2/3       (n_l5=0)
   Motor (M1):    L2/3 → L5       (n_l4=0, agranular)
+  BG:            input → Go/NoGo → output (subcortical, not cortex)
   Full (S2+):    L4 → L2/3 → L5
 
-input_lamina / output_lamina properties route processing per region.
 Functional KPIs: InputSnapshot (recall/prec/sparse), AssociationSnapshot (eff_dim).
 ```
 

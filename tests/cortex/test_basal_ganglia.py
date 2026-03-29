@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from step.cortex.basal_ganglia import BasalGangliaRegion
+from step.basal_ganglia import BasalGangliaRegion
 
 
 class TestBasalGangliaRegionUnit:
@@ -135,8 +135,8 @@ class TestBasalGangliaCircuitIntegration:
         circuit.add_region("S1", s1, entry=True)
         circuit.add_region("BG", bg)
         circuit.add_region("M1", m1)
-        circuit.connect(s1.l23, bg.input_port, ConnectionRole.FEEDFORWARD)
-        circuit.connect(s1.l23, m1.l4, ConnectionRole.FEEDFORWARD)
+        circuit.connect(s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+        circuit.connect(s1.output_port, m1.l4, ConnectionRole.FEEDFORWARD)
         circuit.connect(bg.output_port, m1.l4, ConnectionRole.MODULATORY)
         circuit.finalize()
 
@@ -178,8 +178,8 @@ class TestBasalGangliaCircuitIntegration:
         circuit.add_region("S1", s1, entry=True)
         circuit.add_region("BG", bg)
         circuit.add_region("M1", m1)
-        circuit.connect(s1.l23, bg.input_port, ConnectionRole.FEEDFORWARD)
-        circuit.connect(s1.l23, m1.l4, ConnectionRole.FEEDFORWARD)
+        circuit.connect(s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+        circuit.connect(s1.output_port, m1.l4, ConnectionRole.FEEDFORWARD)
         circuit.connect(bg.output_port, m1.l4, ConnectionRole.MODULATORY)
         circuit.finalize()
 
