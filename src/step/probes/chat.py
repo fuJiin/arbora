@@ -270,8 +270,8 @@ class ChatMotorProbe:
             if circuit._total_steps == 0:
                 continue
 
-            # BG gate value
-            if s.basal_ganglia is not None:
+            # BG gate value (legacy — BG is now a separate region)
+            if hasattr(motor, "last_gate"):
                 self._bg_gate_values[name].append(motor.last_gate)
 
             # Motor output

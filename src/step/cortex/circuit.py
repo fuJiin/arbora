@@ -11,11 +11,11 @@ from collections import deque
 
 import numpy as np
 
-from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.circuit_types import (
     Connection,
     ConnectionRole,
     Encoder,
+    Region,
     _RegionState,
 )
 from step.cortex.lamina import Lamina
@@ -64,7 +64,7 @@ class Circuit:
         # Pluggable reward source (None = use default turn-taking reward)
         self._reward_source = None
         # Pre-allocated BG context buffer (lazily sized)
-        self._bg_ctx_buffer: np.ndarray | None = None
+        # (removed: _bg_ctx_buffer — BG is now a proper region)
 
     # ------------------------------------------------------------------
     # Finalization (DAG validation)
@@ -239,13 +239,12 @@ class Circuit:
     def add_region(
         self,
         name: str,
-        region: CorticalRegion,
+        region: Region,
         *,
         entry: bool = False,
         diagnostics: bool = True,
-        basal_ganglia: BasalGanglia | None = None,
     ) -> Circuit:
-        """Register a region. Exactly one must have entry=True."""
+        """Register a region (cortical or subcortical)."""
         if self._finalized:
             raise RuntimeError(
                 "Circuit is finalized. Cannot add regions after finalize()."
@@ -259,21 +258,26 @@ class Circuit:
                 )
             self._entry_name = name
 
+        is_cortical = isinstance(region, CorticalRegion)
+
         diag = (
             CortexDiagnostics(snapshot_interval=self._diagnostics_interval)
-            if diagnostics
+            if diagnostics and is_cortical
             else None
         )
-        timeline = Timeline() if self._enable_timeline else None
+        timeline = Timeline() if self._enable_timeline and is_cortical else None
 
         state = _RegionState(
             region=region,
-            rep_tracker=RepresentationTracker(region.n_columns, region.n_l4),
+            rep_tracker=(
+                RepresentationTracker(region.n_columns, region.n_l4)
+                if is_cortical
+                else None
+            ),
             diagnostics=diag,
             timeline=timeline,
             entry=entry,
             motor=isinstance(region, MotorRegion),
-            basal_ganglia=basal_ganglia,
         )
         if entry:
             state.decode_index = InvertedIndexDecoder()
@@ -293,8 +297,8 @@ class Circuit:
                 perm_decay=self._decoder_perm_decay,
             )
 
-        # Word decoder for non-entry regions (S2, S3, PFC, M2)
-        if not entry:
+        # Word decoder for non-entry cortical regions (S2, S3, PFC, M2)
+        if not entry and is_cortical:
             from step.decoders.word import WordDecoder
 
             state.word_decoder = WordDecoder(
@@ -411,12 +415,10 @@ class Circuit:
         updates. Called by the agent after env.step() returns reward.
         """
         for _name, s in self._regions.items():
-            if s.motor:
+            if s.motor or not isinstance(s.region, CorticalRegion):
                 s.region.apply_reward(reward)
-            if s.basal_ganglia is not None:
-                s.basal_ganglia.reward(reward)
 
-    def _resolve_region_name(self, region: CorticalRegion) -> str:
+    def _resolve_region_name(self, region: Region) -> str:
         """Look up the registered name for a region."""
         for name, state in self._regions.items():
             if state.region is region:
@@ -480,8 +482,6 @@ class Circuit:
         """
         for s in self._regions.values():
             s.region.reset_working_memory()
-            if s.basal_ganglia is not None:
-                s.basal_ganglia.reset()
         for conn in self._connections:
             if conn._trace is not None:
                 conn._trace[:] = 0.0
@@ -511,20 +511,6 @@ class Circuit:
                 motor_region = s.region
 
                 if self._total_steps > 0:
-                    # BG gating: always step (learns from both phases)
-                    gate = 1.0
-                    if s.basal_ganglia is not None:
-                        precision = (~entry_region.bursting_columns).astype(np.float64)
-                        prec_frac = precision.sum() / max(
-                            entry_region.n_columns,
-                            1,
-                        )
-                        ctx = self._build_bg_ctx(precision, prec_frac)
-                        gate = s.basal_ganglia.step(ctx)
-                        if motor_active:
-                            gate = 1.0
-                        motor_region.output_scores *= gate
-
                     if motor_active:
                         pop_id, pop_conf = motor_region.get_population_output()
                         m_id, m_conf = pop_id, pop_conf
@@ -532,7 +518,6 @@ class Circuit:
                         m_id, m_conf = -1, 0.0
 
                     motor_region.last_output = (m_id, m_conf)
-                    motor_region.last_gate = gate
                     motor_region.last_reward = 0.0
 
     # ------------------------------------------------------------------
@@ -588,10 +573,6 @@ class Circuit:
                 region_data["output_weights"] = r.output_weights
                 region_data["output_mask"] = r.output_mask
                 region_data["output_eligibility"] = r._output_eligibility
-
-            if s.basal_ganglia is not None:
-                region_data["bg_go_weights"] = s.basal_ganglia.go_weights
-                region_data["bg_trace"] = s.basal_ganglia._trace
 
             if s.dendritic_decoder is not None:
                 region_data["decoder_neurons"] = s.dendritic_decoder._neurons
@@ -688,10 +669,6 @@ class Circuit:
                 if "output_eligibility" in region_data:
                     r._output_eligibility[:] = region_data["output_eligibility"]
 
-            if s.basal_ganglia is not None and "bg_go_weights" in region_data:
-                s.basal_ganglia.go_weights[:] = region_data["bg_go_weights"]
-                s.basal_ganglia._trace[:] = region_data["bg_trace"]
-
             if s.dendritic_decoder is not None and "decoder_neurons" in region_data:
                 s.dendritic_decoder._neurons = region_data["decoder_neurons"]
 
@@ -765,6 +742,9 @@ class Circuit:
             elif s.motor and not (motor_active or s.region.learning_enabled):
                 pass  # Skip idle motor region
             else:
+                # Apply incoming MODULATORY signals before processing
+                self._apply_modulatory_for(name)
+
                 conns = self._ff_conns.get(name)
                 if not conns:
                     continue
@@ -832,14 +812,41 @@ class Circuit:
                     signal = signal * readiness
                 tgt.set_apical_context(signal, source_name=conn.source)
 
-    def _build_bg_ctx(self, precision: np.ndarray, prec_frac: float) -> np.ndarray:
-        """Build BG context vector using a pre-allocated buffer."""
-        n = precision.shape[0]
-        if self._bg_ctx_buffer is None or self._bg_ctx_buffer.shape[0] != n + 1:
-            self._bg_ctx_buffer = np.empty(n + 1, dtype=np.float64)
-        self._bg_ctx_buffer[:n] = precision
-        self._bg_ctx_buffer[n] = prec_frac
-        return self._bg_ctx_buffer
+    def _apply_modulatory_for(self, target_name: str) -> None:
+        """Apply incoming MODULATORY connections to target before it processes.
+
+        Modulatory signals add directly to the target's input_port voltage,
+        biasing column selection without going through ff_weights.
+        """
+        for conn in self._connections:
+            if (
+                conn.role == ConnectionRole.MODULATORY
+                and conn.target == target_name
+                and conn.enabled
+            ):
+                src = self._regions[conn.source].region
+                src_lamina = src.output_port
+                signal = src_lamina.firing_rate.copy()
+                tgt = self._regions[target_name].region
+                # Additive bias on target's input port voltage
+                tgt_port = tgt.input_port
+                if len(signal) == tgt_port.n_total:
+                    tgt_port.voltage += signal
+                elif tgt_port.n_total > 0:
+                    # Tile: map n_actions → n_neurons by repeating per column
+                    n_per_col = tgt_port.n_per_col
+                    n_cols = tgt_port.n_total // n_per_col
+                    n_src = len(signal)
+                    cols_per_src = n_cols // max(n_src, 1)
+                    remainder = n_cols % max(n_src, 1)
+                    pos = 0
+                    for i in range(n_src):
+                        width = cols_per_src + (1 if i < remainder else 0)
+                        for c in range(width):
+                            start = (pos + c) * n_per_col
+                            end = start + n_per_col
+                            tgt_port.voltage[start:end] += signal[i]
+                        pos += width
 
     def _get_ff_signal(self, conn: Connection) -> np.ndarray:
         """Build the feedforward signal for a connection.

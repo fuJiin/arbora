@@ -15,6 +15,7 @@ import argparse
 
 from step.agent.minigrid import MiniGridAgent
 from step.cortex import SensoryRegion
+from step.cortex.basal_ganglia import BasalGangliaRegion
 from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.motor import MotorRegion
 from step.encoders.minigrid import MiniGridEncoder
@@ -24,7 +25,7 @@ from step.probes.core import LaminaProbe
 
 
 def build_circuit(encoder: MiniGridEncoder) -> Circuit:
-    """Build minimal S1 -> M1 circuit for MiniGrid."""
+    """Build S1 -> BG -> M1 circuit for MiniGrid."""
     s1 = SensoryRegion(
         input_dim=encoder.input_dim,
         encoding_width=encoder.encoding_width,
@@ -34,6 +35,11 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
         n_l5=0,
         k_columns=4,
         seed=42,
+    )
+    bg = BasalGangliaRegion(
+        input_dim=s1.n_l23_total,
+        n_actions=7,
+        seed=789,
     )
     m1 = MotorRegion(
         input_dim=s1.n_l23_total,
@@ -46,8 +52,11 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
     )
     circuit = Circuit(encoder)
     circuit.add_region("S1", s1, entry=True)
+    circuit.add_region("BG", bg)
     circuit.add_region("M1", m1)
-    circuit.connect(s1.l23, m1.input_lamina, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s1.l23, bg.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s1.l23, m1.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(bg.output_port, m1.input_port, ConnectionRole.MODULATORY)
     circuit.finalize()
     return circuit
 

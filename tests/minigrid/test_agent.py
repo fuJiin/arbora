@@ -39,7 +39,7 @@ def circuit(encoder):
     c = Circuit(encoder)
     c.add_region("S1", s1, entry=True)
     c.add_region("M1", m1)
-    c.connect(s1.l23, m1.input_lamina, ConnectionRole.FEEDFORWARD)
+    c.connect(s1.l23, m1.input_port, ConnectionRole.FEEDFORWARD)
     c.finalize()
     return c
 

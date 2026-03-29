@@ -35,7 +35,7 @@ def test_full_loop_10_episodes():
     circuit = Circuit(encoder)
     circuit.add_region("S1", s1, entry=True)
     circuit.add_region("M1", m1)
-    circuit.connect(s1.l23, m1.input_lamina, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s1.l23, m1.input_port, ConnectionRole.FEEDFORWARD)
     circuit.finalize()
 
     env = MiniGridEnv("MiniGrid-Empty-5x5-v0", max_episodes=10)
