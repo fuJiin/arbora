@@ -86,12 +86,19 @@ class MiniGridHarness:
                 agent.apply_reward(reward)
 
             # Episode boundary detection (env auto-resets internally)
-            if env.episode_count > last_ep:
+            episode_ended = env.episode_count > last_ep
+            if episode_ended:
                 last_ep = env.episode_count
                 agent.reset()
                 for probe in probes:
                     if hasattr(probe, "boundary"):
                         probe.boundary()
+                    if hasattr(probe, "episode_end"):
+                        probe.episode_end(
+                            success=env.last_episode_terminated,
+                            steps=env.episode_steps,
+                            reward=env.episode_reward,
+                        )
 
             # Periodic logging
             if t > 0 and t % self._log_interval == 0:
