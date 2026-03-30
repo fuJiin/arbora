@@ -1,16 +1,16 @@
 """Tests for ChatMotorProbe — chat-specific motor and turn-taking metrics."""
 
-from step.agent import ChatAgent
-from step.basal_ganglia import BasalGangliaRegion
-from step.cortex.circuit import Circuit, ConnectionRole
-from step.cortex.modulators import SurpriseTracker
-from step.cortex.motor import MotorRegion
-from step.cortex.sensory import SensoryRegion
-from step.data import STORY_BOUNDARY
-from step.encoders.charbit import CharbitEncoder
-from step.environment import ChatEnv
-from step.harness.chat import ChatTrainHarness
-from step.probes.chat import ChatMotorProbe
+from arbor.agent import ChatAgent
+from arbor.basal_ganglia import BasalGangliaRegion
+from arbor.cortex.circuit import Circuit, ConnectionRole
+from arbor.cortex.modulators import SurpriseTracker
+from arbor.cortex.motor import MotorRegion
+from arbor.cortex.sensory import SensoryRegion
+from arbor.data import STORY_BOUNDARY
+from arbor.encoders.charbit import CharbitEncoder
+from arbor.environment import ChatEnv
+from arbor.harness.chat import ChatTrainHarness
+from arbor.probes.chat import ChatMotorProbe
 
 
 def _make_motor_circuit():

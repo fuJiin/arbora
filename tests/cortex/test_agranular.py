@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from step.cortex.region import CorticalRegion
+from arbor.cortex.region import CorticalRegion
 
 
 class TestNoL4:

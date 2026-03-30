@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from step.cortex.motor import MotorRegion
-from step.cortex.region import CorticalRegion
+from arbor.cortex.motor import MotorRegion
+from arbor.cortex.region import CorticalRegion
 
 
 class TestL5BaseLayer:

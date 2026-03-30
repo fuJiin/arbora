@@ -22,18 +22,18 @@ import argparse
 import os
 from dataclasses import replace
 
-import step.env  # noqa: F401
-from step.agent import ChatAgent
-from step.cortex.canonical import build_canonical_circuit
-from step.cortex.stages import (
+import arbor.env  # noqa: F401
+from arbor.agent import ChatAgent
+from arbor.cortex.canonical import build_canonical_circuit
+from arbor.cortex.stages import (
     BABBLING_STAGE,
     GUIDED_BABBLING_STAGE,
     SENSORY_STAGE,
 )
-from step.data import inject_eom_tokens, prepare_tokens_charlevel
-from step.encoders.positional import PositionalCharEncoder
-from step.environment import ChatEnv
-from step.harness.chat import ChatTrainHarness
+from arbor.data import inject_eom_tokens, prepare_tokens_charlevel
+from arbor.encoders.positional import PositionalCharEncoder
+from arbor.environment import ChatEnv
+from arbor.harness.chat import ChatTrainHarness
 
 CKPT_DIR = "experiments/checkpoints"
 
@@ -132,7 +132,7 @@ def run_stage(
 
     # Seed caregiver vocabulary from corpus if applicable
     if cortex._reward_source is not None:
-        from step.cortex.reward import CaregiverReward
+        from arbor.cortex.reward import CaregiverReward
 
         if isinstance(cortex._reward_source, CaregiverReward):
             vocab = _extract_vocabulary(tokens)
