@@ -21,7 +21,7 @@ from arbor.probes.representation import RepresentationTracker
 from arbor.probes.timeline import Timeline
 
 if TYPE_CHECKING:
-    from arbor.decoders.word import WordDecoder
+    pass
 
 
 # Contravariant: Encoder accepts observations (parameter position).
@@ -122,7 +122,7 @@ class _RegionState:
     # Motor region decoder (maps M1 L2/3 → token predictions):
     motor_decoder: DendriticDecoder | None = None
     # Word-level decoder (maps L2/3 → word predictions):
-    word_decoder: WordDecoder | None = None
+    word_decoder: object | None = None
 
 
 class ConnectionRole(enum.Enum):

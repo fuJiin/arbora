@@ -23,17 +23,18 @@ import sys
 
 import numpy as np
 
-import arbor.env  # noqa: F401
-from arbor.agent import ChatAgent
-from arbor.data import (
+from arbor.decoders.dendritic import DendriticDecoder  # for type hints
+from arbor.encoders.positional import PositionalCharEncoder
+from examples.chat.agent import ChatAgent
+from examples.chat.data import (
     EOM_TOKEN,
     prepare_tokens_personachat,
     prepare_tokens_tinydialogues,
 )
-from arbor.decoders.dendritic import DendriticDecoder  # for type hints
-from arbor.encoders.positional import PositionalCharEncoder
-from arbor.environment import EOM_OBS, ChatEnv, ChatObs
-from arbor.harness.chat import ChatTrainHarness
+from examples.chat.env import EOM_OBS, ChatEnv, ChatObs
+from examples.chat.harness import ChatTrainHarness
+
+from . import dotenv  # noqa: F401
 
 # ANSI colors
 DIM = "\033[2m"
@@ -65,7 +66,7 @@ def build_model(alphabet: str):
     Uses build_canonical_circuit() to ensure dimensions always match
     checkpoints saved by the staged pipeline.
     """
-    from arbor.cortex.canonical import build_canonical_circuit
+    from examples.chat.presets import build_canonical_circuit
 
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
 
@@ -819,7 +820,7 @@ def main():
         def load_fn(n, **kw):
             return prepare_tokens_tinydialogues(n, **kw)
     else:
-        from arbor.data import inject_eom_tokens, prepare_tokens_charlevel
+        from examples.chat.data import inject_eom_tokens, prepare_tokens_charlevel
 
         def load_fn(n, **kw):
             tokens = prepare_tokens_charlevel(n, dataset="babylm")

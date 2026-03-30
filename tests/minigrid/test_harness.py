@@ -1,13 +1,13 @@
 import pytest
 
-from arbor.agent.minigrid import MiniGridAgent
 from arbor.cortex import SensoryRegion
 from arbor.cortex.circuit import Circuit, ConnectionRole
 from arbor.cortex.motor import MotorRegion
-from arbor.encoders.minigrid import MiniGridEncoder
-from arbor.environment.minigrid import MiniGridEnv
-from arbor.harness.minigrid.train import MiniGridHarness
 from arbor.probes.core import LaminaProbe
+from examples.minigrid.agent import MiniGridAgent
+from examples.minigrid.encoder import MiniGridEncoder
+from examples.minigrid.env import MiniGridEnv
+from examples.minigrid.harness import MiniGridHarness
 
 
 @pytest.fixture()

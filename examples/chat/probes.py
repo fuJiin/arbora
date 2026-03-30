@@ -13,7 +13,7 @@ import numpy as np
 
 from arbor.cortex.motor import MotorRegion
 from arbor.probes.core import LaminaProbe
-from arbor.snapshots.chat import (
+from examples.chat.snapshots import (
     ChatAssociationSnapshot,
     ChatLaminaRegionSnapshot,
     MotorRegionSnapshot,

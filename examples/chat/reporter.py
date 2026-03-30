@@ -9,9 +9,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from arbor.probes.chat import ChatMotorProbe
     from arbor.probes.core import LaminaProbe
     from arbor.probes.modulators import ModulatorProbe
+    from examples.chat.probes import ChatMotorProbe
 
 
 def _rolling_mean(vals: list[float], window: int) -> float:

@@ -2,12 +2,12 @@
 
 import numpy as np
 
-from arbor.agent import ChatAgent
 from arbor.cortex import CorticalRegion
 from arbor.cortex.circuit import Circuit
 from arbor.encoders.positional import PositionalCharEncoder
-from arbor.environment import ChatEnv
-from arbor.harness.chat import ChatTrainHarness, TrainResult
+from examples.chat.agent import ChatAgent
+from examples.chat.env import ChatEnv
+from examples.chat.harness import ChatTrainHarness, TrainResult
 
 
 def make_circuit(n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42):

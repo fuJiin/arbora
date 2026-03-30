@@ -295,14 +295,8 @@ class Circuit:
                 perm_decay=self._decoder_perm_decay,
             )
 
-        # TODO: WordDecoder is chat-specific. Move to ChatTrainHarness or
-        # make opt-in via add_region kwarg. Shouldn't be in circuit.
-        if not entry and is_cortical:
-            from arbor.decoders.word import WordDecoder
-
-            state.word_decoder = WordDecoder(
-                region.n_l23_total, seed=hash(name) % (2**31)
-            )
+        # WordDecoder creation removed — chat-specific, lives in examples/chat/.
+        # Set by harness if needed.
 
         self._regions[name] = state
         return self
