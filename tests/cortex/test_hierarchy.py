@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-from step.cortex import SensoryRegion
-from step.cortex.circuit import Circuit, ConnectionRole
-from step.cortex.modulators import SurpriseTracker
-from step.data import STORY_BOUNDARY
-from step.encoders.charbit import CharbitEncoder
-from step.probes.modulators import ModulatorProbe
+from arbor.cortex import SensoryRegion
+from arbor.cortex.circuit import Circuit, ConnectionRole
+from arbor.cortex.modulators import SurpriseTracker
+from arbor.data import STORY_BOUNDARY
+from arbor.encoders.charbit import CharbitEncoder
+from arbor.probes.modulators import ModulatorProbe
 from tests.conftest import run_circuit
 
 # ---------------------------------------------------------------------------

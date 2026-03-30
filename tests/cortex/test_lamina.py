@@ -1,6 +1,6 @@
 """Tests for Lamina state container and LaminaID enum."""
 
-from step.cortex.lamina import Lamina, LaminaID
+from arbor.cortex.lamina import Lamina, LaminaID
 
 
 class TestLaminaID:
@@ -67,7 +67,7 @@ class TestLaminaRegionWiring:
     """Lamina instances on CorticalRegion share arrays with aliases."""
 
     def _make_region(self):
-        from step.cortex.region import CorticalRegion
+        from arbor.cortex.region import CorticalRegion
 
         return CorticalRegion(
             input_dim=16,
@@ -137,14 +137,14 @@ class TestConnectionLaminaFields:
     """Verify Connection has source_lamina/target_lamina fields."""
 
     def test_connection_defaults(self):
-        from step.cortex.circuit import Connection, ConnectionRole
+        from arbor.cortex.circuit import Connection, ConnectionRole
 
         conn = Connection(source="S1", target="S2", role=ConnectionRole.FEEDFORWARD)
         assert conn.source_lamina == "L2/3"
         assert conn.target_lamina == "L4"
 
     def test_connection_custom_lamina(self):
-        from step.cortex.circuit import Connection, ConnectionRole
+        from arbor.cortex.circuit import Connection, ConnectionRole
 
         conn = Connection(
             source="S1",
@@ -156,9 +156,9 @@ class TestConnectionLaminaFields:
         assert conn.source_lamina == "L5"
 
     def test_connect_api_accepts_lamina(self):
-        from step.cortex.circuit import Circuit, ConnectionRole
-        from step.cortex.region import CorticalRegion
-        from step.encoders.positional import PositionalCharEncoder
+        from arbor.cortex.circuit import Circuit, ConnectionRole
+        from arbor.cortex.region import CorticalRegion
+        from arbor.encoders.positional import PositionalCharEncoder
 
         encoder = PositionalCharEncoder("abc", max_positions=4)
         r1 = CorticalRegion(
@@ -186,9 +186,9 @@ class TestConnectionLaminaFields:
         assert conn.target_lamina == "L4"
 
     def test_connect_with_lamina_objects(self):
-        from step.cortex.circuit import Circuit, ConnectionRole
-        from step.cortex.region import CorticalRegion
-        from step.encoders.positional import PositionalCharEncoder
+        from arbor.cortex.circuit import Circuit, ConnectionRole
+        from arbor.cortex.region import CorticalRegion
+        from arbor.encoders.positional import PositionalCharEncoder
 
         encoder = PositionalCharEncoder("abc", max_positions=4)
         r1 = CorticalRegion(
@@ -217,9 +217,9 @@ class TestConnectionLaminaFields:
         assert conn.target_lamina == "L4"
 
     def test_connect_lamina_l5_to_l4(self):
-        from step.cortex.circuit import Circuit, ConnectionRole
-        from step.cortex.region import CorticalRegion
-        from step.encoders.positional import PositionalCharEncoder
+        from arbor.cortex.circuit import Circuit, ConnectionRole
+        from arbor.cortex.region import CorticalRegion
+        from arbor.encoders.positional import PositionalCharEncoder
 
         encoder = PositionalCharEncoder("abc", max_positions=4)
         r1 = CorticalRegion(

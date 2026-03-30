@@ -15,13 +15,13 @@ import argparse
 
 import numpy as np
 
-from step.agent.minigrid import MiniGridAgent
-from step.basal_ganglia import BasalGangliaRegion
-from step.cortex import SensoryRegion
-from step.cortex.circuit import Circuit, ConnectionRole
-from step.cortex.motor import MotorRegion
-from step.encoders.minigrid import MiniGridEncoder
-from step.environment.minigrid import MiniGridEnv
+from arbor.agent.minigrid import MiniGridAgent
+from arbor.basal_ganglia import BasalGangliaRegion
+from arbor.cortex import SensoryRegion
+from arbor.cortex.circuit import Circuit, ConnectionRole
+from arbor.cortex.motor import MotorRegion
+from arbor.encoders.minigrid import MiniGridEncoder
+from arbor.environment.minigrid import MiniGridEnv
 
 
 def build_circuit(encoder: MiniGridEncoder) -> Circuit:
