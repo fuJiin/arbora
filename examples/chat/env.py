@@ -266,7 +266,7 @@ class ChatEnv:
         self.total_listen_steps += 1
 
         # Translate sentinel values to ChatObs flags
-        from arbor.data import EOM_TOKEN, STORY_BOUNDARY
+        from examples.chat.data import EOM_TOKEN, STORY_BOUNDARY
 
         if token_id == STORY_BOUNDARY:
             self._in_eom = False

@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from arbor.encoders.minigrid import MiniGridEncoder
-from arbor.environment.minigrid import MiniGridObs
+from examples.minigrid.encoder import MiniGridEncoder
+from examples.minigrid.env import MiniGridObs
 
 
 @pytest.fixture()

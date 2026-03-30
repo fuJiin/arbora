@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from arbor.probes.chat import ChatLaminaProbe
 from arbor.probes.core import LaminaProbe, Probe, _participation_ratio
+from examples.chat.probes import ChatLaminaProbe
 from tests.conftest import make_circuit, step_circuit
 
 # ---------------------------------------------------------------------------

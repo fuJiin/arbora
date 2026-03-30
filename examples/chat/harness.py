@@ -19,15 +19,15 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from arbor.probes.chat import ChatMotorProbe
 from arbor.probes.core import LaminaProbe, Probe
 from arbor.probes.modulators import ModulatorProbe
-from arbor.reporting.chat import ChatReporter
+from examples.chat.probes import ChatMotorProbe
+from examples.chat.reporter import ChatReporter
 
 if TYPE_CHECKING:
-    from arbor.agent import ChatAgent
     from arbor.cortex.circuit import Circuit
-    from arbor.environment import ChatEnv
+    from examples.chat.agent import ChatAgent
+    from examples.chat.env import ChatEnv
 
 
 @dataclass

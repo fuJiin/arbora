@@ -16,12 +16,12 @@ import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from arbor.harness.chat.train import TrainResult
+from arbor.agent import TrainResult
 from arbor.probes.core import LaminaProbe, Probe
 
 if TYPE_CHECKING:
-    from arbor.agent.minigrid import MiniGridAgent
-    from arbor.environment.minigrid import MiniGridEnv
+    from examples.minigrid.agent import MiniGridAgent
+    from examples.minigrid.env import MiniGridEnv
 
 
 class MiniGridHarness:

@@ -5,10 +5,10 @@ from arbor.cortex.circuit import Circuit, ConnectionRole
 from arbor.cortex.modulators import SurpriseTracker, ThalamicGate
 from arbor.cortex.motor import MotorRegion
 from arbor.cortex.sensory import SensoryRegion
-from arbor.data import STORY_BOUNDARY
 from arbor.encoders.charbit import CharbitEncoder
-from arbor.probes.chat import ChatMotorProbe
 from arbor.probes.modulators import ModulatorProbe
+from examples.chat.data import STORY_BOUNDARY
+from examples.chat.probes import ChatMotorProbe
 from tests.conftest import run_circuit
 
 

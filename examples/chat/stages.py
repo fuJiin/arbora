@@ -90,11 +90,11 @@ def _apply_motor_settings(
 def _apply_reward_source(circuit, reward_source: str) -> None:
     """Set the reward source on the circuit."""
     if reward_source == "caregiver":
-        from arbor.cortex.reward import CaregiverReward
+        from examples.chat.reward import CaregiverReward
 
         circuit.set_reward_source(CaregiverReward())
     elif reward_source == "curiosity":
-        from arbor.cortex.reward import CuriosityReward
+        from examples.chat.reward import CuriosityReward
 
         circuit.set_reward_source(CuriosityReward())
     else:
