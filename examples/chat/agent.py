@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from arbor.agent.base import BaseAgent
+from arbor.agent import BaseAgent
 from arbor.cortex.motor import MotorRegion
-from arbor.environment import ChatObs
+from examples.chat.env import ChatObs
 
 if TYPE_CHECKING:
     from arbor.cortex.circuit import Circuit

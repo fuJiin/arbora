@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from arbor.environment.minigrid import MiniGridEnv, MiniGridObs
+from examples.minigrid.env import MiniGridEnv, MiniGridObs
 
 
 class TestMiniGridObs:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from arbor.data import EOM_TOKEN, STORY_BOUNDARY, prepare_tokens_tinydialogues
+from examples.chat.data import EOM_TOKEN, STORY_BOUNDARY, prepare_tokens_tinydialogues
 
 
 @pytest.mark.slow

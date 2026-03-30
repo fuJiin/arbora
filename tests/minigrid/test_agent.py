@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-from arbor.agent.minigrid import MiniGridAgent
 from arbor.cortex import SensoryRegion
 from arbor.cortex.circuit import Circuit, ConnectionRole
 from arbor.cortex.motor import MotorRegion
-from arbor.encoders.minigrid import MiniGridEncoder
-from arbor.environment.minigrid import MiniGridEnv, MiniGridObs
+from examples.minigrid.agent import MiniGridAgent
+from examples.minigrid.encoder import MiniGridEncoder
+from examples.minigrid.env import MiniGridEnv, MiniGridObs
 
 
 @pytest.fixture()
