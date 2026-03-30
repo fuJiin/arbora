@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from step.agent.minigrid import MiniGridAgent
+from step.basal_ganglia import BasalGangliaRegion
 from step.cortex import SensoryRegion
-from step.cortex.basal_ganglia import BasalGanglia
 from step.cortex.circuit import Circuit, ConnectionRole
 from step.cortex.motor import MotorRegion
 from step.encoders.minigrid import MiniGridEncoder
@@ -40,11 +40,14 @@ def setup(encoder):
         n_output_tokens=7,
         seed=123,
     )
-    bg = BasalGanglia(context_dim=s1.n_columns + 1, seed=789)
+    bg = BasalGangliaRegion(input_dim=s1.n_l23_total, n_actions=7, seed=789)
     circuit = Circuit(encoder)
     circuit.add_region("S1", s1, entry=True)
-    circuit.add_region("M1", m1, basal_ganglia=bg)
-    circuit.connect(s1.l23, m1.input_lamina, ConnectionRole.FEEDFORWARD)
+    circuit.add_region("BG", bg)
+    circuit.add_region("M1", m1)
+    circuit.connect(s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(s1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(bg.output_port, m1.input_port, ConnectionRole.MODULATORY)
     circuit.finalize()
     return circuit, m1, bg
 

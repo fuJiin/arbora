@@ -200,8 +200,8 @@ class CorticalRegion:
 
         # --- Feedforward weights ---
         # Target the input lamina: L4 in granular regions, L2/3 in agranular.
-        _ff_n_per_col = self.input_lamina.n_per_col
-        _ff_n_total = self.input_lamina.n_total
+        _ff_n_per_col = self.input_port.n_per_col
+        _ff_n_total = self.input_port.n_total
         col_mask = self._build_ff_mask(input_dim)
         self.ff_mask = np.repeat(col_mask, _ff_n_per_col, axis=1)
         self.ff_weights = np.zeros((input_dim, _ff_n_total))
@@ -332,7 +332,7 @@ class CorticalRegion:
                 self._pending_goal_signal = self._goal_drive
             self._goal_drive = None
 
-        _n_per = self.input_lamina.n_per_col
+        _n_per = self.input_port.n_per_col
         self.last_column_drive = neuron_drive.reshape(self.n_columns, _n_per).max(
             axis=1
         )
@@ -369,7 +369,7 @@ class CorticalRegion:
         if len(columns) == 0:
             return np.zeros(self.input_dim)
 
-        n_per = self.input_lamina.n_per_col
+        n_per = self.input_port.n_per_col
         neuron_indices = []
         for col in columns:
             neuron_indices.extend(range(col * n_per, (col + 1) * n_per))
@@ -388,7 +388,7 @@ class CorticalRegion:
         if len(active_cols) == 0:
             return np.empty(0, dtype=np.intp)
 
-        lamina = self.input_lamina
+        lamina = self.input_port
         n_per_col = lamina.n_per_col
         voltage_by_col = lamina.voltage.reshape(self.n_columns, n_per_col)
         active_by_col = lamina.active.reshape(self.n_columns, n_per_col)
@@ -500,7 +500,7 @@ class CorticalRegion:
             # aggressive (would weaken inputs that were active recently).
             ltd_rate = self.ltd_rate * neuromod
             inactive_input = 1.0 - flat_input
-            _n_per = self.input_lamina.n_per_col
+            _n_per = self.input_port.n_per_col
             winner_cols = winner_indices // _n_per
             # col_masks == neuron_masks since ff_mask = repeat(col_mask, n_l4)
             col_masks = self._col_mask[:, winner_cols]
@@ -688,21 +688,22 @@ class CorticalRegion:
         lam.region = self
         self.laminae[lam.id] = lam
 
-    def get_lamina(self, lid: LaminaID) -> Lamina:
-        """Look up a lamina by ID."""
-        return self.laminae[lid]
+    def get_lamina(self, lid: LaminaID | str) -> Lamina:
+        """Look up a lamina by LaminaID or string ID."""
+        key = lid.value if isinstance(lid, LaminaID) else lid
+        return self.laminae[key]
 
     @property
     def l4(self) -> Lamina:
-        return self.laminae[LaminaID.L4]
+        return self.laminae["L4"]
 
     @property
     def l23(self) -> Lamina:
-        return self.laminae[LaminaID.L23]
+        return self.laminae["L2/3"]
 
     @property
     def l5(self) -> Lamina:
-        return self.laminae[LaminaID.L5]
+        return self.laminae["L5"]
 
     @property
     def has_l4(self) -> bool:
@@ -715,12 +716,12 @@ class CorticalRegion:
         return self.n_l5 > 0
 
     @property
-    def input_lamina(self) -> Lamina:
+    def input_port(self) -> Lamina:
         """The lamina that receives feedforward drive (L4 or L2/3)."""
         return self.l4 if self.has_l4 else self.l23
 
     @property
-    def output_lamina(self) -> Lamina:
+    def output_port(self) -> Lamina:
         """The lamina that provides output (L5 or L2/3)."""
         return self.l5 if self.has_l5 else self.l23
 
@@ -875,6 +876,11 @@ class CorticalRegion:
         # Apical context acts via L5 segments (predicted_l5 boost in _activate_l5).
         self.l4.voltage[self.l4.predicted] += self.fb_boost
 
+        # 5b. Apply pending modulatory signal (from BG or other subcortical)
+        if self.l4.modulation is not None:
+            self.l4.voltage += self.l4.modulation
+            self.l4.clear_modulation()
+
         # 6. Activate L4: top-k columns, then burst/precise per column
         scores_l4 = self.l4.voltage + self.l4.excitability
         top_cols = (
@@ -964,6 +970,11 @@ class CorticalRegion:
 
         # 5. Prediction boost on L2/3
         self.l23.voltage[self.l23.predicted] += self.fb_boost
+
+        # 5b. Apply pending modulatory signal (from BG or other subcortical)
+        if self.l23.modulation is not None:
+            self.l23.voltage += self.l23.modulation
+            self.l23.clear_modulation()
 
         # 6. Column selection on L2/3
         scores = self.l23.voltage + self.l23.excitability

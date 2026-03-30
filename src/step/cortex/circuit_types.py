@@ -9,15 +9,13 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 
-from step.cortex.basal_ganglia import BasalGanglia
-from step.cortex.lamina import LaminaID
 from step.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from step.cortex.region import CorticalRegion
 from step.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
+from step.neuron_group import NeuronGroup
 from step.probes.diagnostics import CortexDiagnostics
 from step.probes.representation import RepresentationTracker
 from step.probes.timeline import Timeline
@@ -54,17 +52,69 @@ class Encoder(Protocol[T_obs]):
     def encode(self, obs: T_obs) -> np.ndarray: ...
 
 
+# ---------------------------------------------------------------------------
+# Region protocol — shared interface for circuit participation
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class Region(Protocol):
+    """Minimal interface for anything that participates in a Circuit.
+
+    CorticalRegion (sensory, motor, PFC) and subcortical regions (BG)
+    both satisfy this protocol. The circuit uses input_port/output_port
+    for wiring, process() for computation, and apply_reward()/
+    reset_working_memory() for lifecycle.
+    """
+
+    @property
+    def input_port(self) -> NeuronGroup:
+        """Connectable input surface (target of feedforward/modulatory)."""
+        ...
+
+    @property
+    def output_port(self) -> NeuronGroup:
+        """Connectable output surface (source of feedforward/modulatory)."""
+        ...
+
+    @property
+    def input_dim(self) -> int:
+        """Expected input dimension for validation."""
+        ...
+
+    def process(self, encoding: np.ndarray, **kwargs) -> np.ndarray:
+        """Transform input → output. Called once per circuit step."""
+        ...
+
+    def apply_reward(self, reward: float) -> None:
+        """Route reward signal. No-op for regions without reward learning."""
+        ...
+
+    def reset_working_memory(self) -> None:
+        """Reset transient state at episode/story boundaries."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Per-region bookkeeping
+# ---------------------------------------------------------------------------
+
+
 @dataclass
 class _RegionState:
-    """Per-region bookkeeping created by add_region()."""
+    """Per-region bookkeeping created by add_region().
 
-    region: CorticalRegion
-    rep_tracker: RepresentationTracker
+    Supports both cortical and subcortical regions. Cortical-specific
+    fields (rep_tracker, diagnostics, timeline, decoders) are None
+    for non-cortical regions.
+    """
+
+    region: Region  # type: ignore[assignment]
+    rep_tracker: RepresentationTracker | None
     diagnostics: CortexDiagnostics | None
     timeline: Timeline | None
     entry: bool = False
     motor: bool = False
-    basal_ganglia: BasalGanglia | None = None
     # Entry region only:
     decode_index: InvertedIndexDecoder | None = None
     syn_decoder: SynapticDecoder | None = None
@@ -76,10 +126,11 @@ class _RegionState:
 
 
 class ConnectionRole(enum.Enum):
-    """Structural role of a connection between cortical regions."""
+    """Structural role of a connection between regions."""
 
     FEEDFORWARD = "feedforward"
     APICAL = "apical"
+    MODULATORY = "modulatory"
 
 
 @dataclass
@@ -87,8 +138,8 @@ class Connection:
     source: str
     target: str
     role: ConnectionRole
-    source_lamina: LaminaID = LaminaID.L23
-    target_lamina: LaminaID = LaminaID.L4
+    source_lamina: str = "L2/3"
+    target_lamina: str = "L4"
     surprise_tracker: SurpriseTracker | None = None
     reward_modulator: RewardModulator | None = None
     buffer_depth: int = 1
