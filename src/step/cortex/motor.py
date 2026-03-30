@@ -116,7 +116,7 @@ class MotorRegion(CorticalRegion):
         Called once when PFC is connected. Creates learned weights that
         map PFC's L2/3 firing rate to additive M1 neuron drive.
         """
-        _target_dim = self.input_lamina.n_total
+        _target_dim = self.input_port.n_total
         self._goal_weights = self._rng.uniform(
             0,
             0.01,
@@ -163,15 +163,15 @@ class MotorRegion(CorticalRegion):
 
         if encoding is not None:
             # Force high voltage on chosen columns so forced_columns wins
-            input_lam = self.input_lamina
+            input_lam = self.input_port
             n_per = input_lam.n_per_col
             for col in cols:
                 input_lam.voltage[col * n_per : (col + 1) * n_per] = 1.0
             return super().process(encoding, forced_columns=cols)
 
         # No encoding: just force columns via step directly
-        drive = np.zeros(self.input_lamina.n_total)
-        n_per = self.input_lamina.n_per_col
+        drive = np.zeros(self.input_port.n_total)
+        n_per = self.input_port.n_per_col
         for col in cols:
             drive[col * n_per : (col + 1) * n_per] = 1.0
         return self.step(drive, forced_columns=cols)
