@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from step.cortex.region import CorticalRegion
-from step.cortex.sensory import SensoryRegion
+from arbor.cortex.region import CorticalRegion
+from arbor.cortex.sensory import SensoryRegion
 
 
 class TestL23SegmentInit:

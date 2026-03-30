@@ -2,16 +2,16 @@
 
 import pytest
 
-from step.cortex.circuit import Circuit, ConnectionRole
-from step.cortex.modulators import RewardModulator
-from step.cortex.motor import MotorRegion
-from step.cortex.reward import EchoReward
-from step.cortex.sensory import SensoryRegion
-from step.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
-from step.encoders.charbit import CharbitEncoder
-from step.environment import ChatEnv
-from step.probes.chat import ChatMotorProbe
-from step.probes.modulators import ModulatorProbe
+from arbor.cortex.circuit import Circuit, ConnectionRole
+from arbor.cortex.modulators import RewardModulator
+from arbor.cortex.motor import MotorRegion
+from arbor.cortex.reward import EchoReward
+from arbor.cortex.sensory import SensoryRegion
+from arbor.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
+from arbor.encoders.charbit import CharbitEncoder
+from arbor.environment import ChatEnv
+from arbor.probes.chat import ChatMotorProbe
+from arbor.probes.modulators import ModulatorProbe
 from tests.conftest import run_circuit
 
 

@@ -23,17 +23,17 @@ import sys
 
 import numpy as np
 
-import step.env  # noqa: F401
-from step.agent import ChatAgent
-from step.data import (
+import arbor.env  # noqa: F401
+from arbor.agent import ChatAgent
+from arbor.data import (
     EOM_TOKEN,
     prepare_tokens_personachat,
     prepare_tokens_tinydialogues,
 )
-from step.decoders.dendritic import DendriticDecoder  # for type hints
-from step.encoders.positional import PositionalCharEncoder
-from step.environment import EOM_OBS, ChatEnv, ChatObs
-from step.harness.chat import ChatTrainHarness
+from arbor.decoders.dendritic import DendriticDecoder  # for type hints
+from arbor.encoders.positional import PositionalCharEncoder
+from arbor.environment import EOM_OBS, ChatEnv, ChatObs
+from arbor.harness.chat import ChatTrainHarness
 
 # ANSI colors
 DIM = "\033[2m"
@@ -65,7 +65,7 @@ def build_model(alphabet: str):
     Uses build_canonical_circuit() to ensure dimensions always match
     checkpoints saved by the staged pipeline.
     """
-    from step.cortex.canonical import build_canonical_circuit
+    from arbor.cortex.canonical import build_canonical_circuit
 
     encoder = PositionalCharEncoder(alphabet, max_positions=8)
 
@@ -89,7 +89,7 @@ def warmup(cortex, encoder, tokens, log_interval=2000):
     n = len(tokens)
     print(f"{DIM}Warming up on {n:,} chars...{RESET}")
 
-    from step.probes.core import LaminaProbe
+    from arbor.probes.core import LaminaProbe
 
     env = ChatEnv(tokens)
     agent = ChatAgent(encoder=encoder, circuit=cortex)
@@ -419,7 +419,7 @@ def run_probe(cortex, word_decoder=None):
             )
 
         # PFC-specific: confidence and gate
-        from step.cortex.pfc import PFCRegion
+        from arbor.cortex.pfc import PFCRegion
 
         if isinstance(r, PFCRegion):
             print(
@@ -453,7 +453,7 @@ def run_echo(agent, motor, word: str):
     2. PFC snapshots goal, gate closes
     3. Speak: M1 produces chars, compare to target
     """
-    from step.cortex.pfc import PFCRegion
+    from arbor.cortex.pfc import PFCRegion
 
     cortex = agent.circuit
 
@@ -819,7 +819,7 @@ def main():
         def load_fn(n, **kw):
             return prepare_tokens_tinydialogues(n, **kw)
     else:
-        from step.data import inject_eom_tokens, prepare_tokens_charlevel
+        from arbor.data import inject_eom_tokens, prepare_tokens_charlevel
 
         def load_fn(n, **kw):
             tokens = prepare_tokens_charlevel(n, dataset="babylm")

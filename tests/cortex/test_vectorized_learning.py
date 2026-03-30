@@ -7,7 +7,7 @@ neuromodulation gating, and edge cases.
 
 import numpy as np
 
-from step.cortex import CorticalRegion
+from arbor.cortex import CorticalRegion
 
 # ---------------------------------------------------------------------------
 # Fixtures

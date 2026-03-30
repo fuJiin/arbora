@@ -21,11 +21,11 @@ from pathlib import Path
 
 import numpy as np
 
-from step.cortex.sensory import SensoryRegion
-from step.data import STORY_BOUNDARY, prepare_tokens_tinydialogues
-from step.decoders.dendritic import DendriticDecoder
-from step.probes.bpc import BPCProbe
-from step.probes.diagnostics import CortexDiagnostics
+from arbor.cortex.sensory import SensoryRegion
+from arbor.data import STORY_BOUNDARY, prepare_tokens_tinydialogues
+from arbor.decoders.dendritic import DendriticDecoder
+from arbor.probes.bpc import BPCProbe
+from arbor.probes.diagnostics import CortexDiagnostics
 
 # --- Encoder (matches canonical S1) ---
 

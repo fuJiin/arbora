@@ -1,13 +1,13 @@
 """End-to-end smoke test: build circuit, train episodes, verify result."""
 
-from step.agent.minigrid import MiniGridAgent
-from step.cortex import SensoryRegion
-from step.cortex.circuit import Circuit, ConnectionRole
-from step.cortex.motor import MotorRegion
-from step.encoders.minigrid import MiniGridEncoder
-from step.environment.minigrid import MiniGridEnv
-from step.harness.minigrid.train import MiniGridHarness
-from step.probes.core import LaminaProbe
+from arbor.agent.minigrid import MiniGridAgent
+from arbor.cortex import SensoryRegion
+from arbor.cortex.circuit import Circuit, ConnectionRole
+from arbor.cortex.motor import MotorRegion
+from arbor.encoders.minigrid import MiniGridEncoder
+from arbor.environment.minigrid import MiniGridEnv
+from arbor.harness.minigrid.train import MiniGridHarness
+from arbor.probes.core import LaminaProbe
 
 
 def test_full_loop_10_episodes():

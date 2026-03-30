@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from step.encoders.charbit import CharbitEncoder
+from arbor.encoders.charbit import CharbitEncoder
 
 # Default test alphabet: printable ASCII (space through ~)
 PRINTABLE_ASCII = "".join(chr(c) for c in range(32, 127))
