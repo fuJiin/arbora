@@ -1,5 +1,5 @@
 [project]
-name = "step"
+name = "arbor"
 version = "0.0.1"
 requires-python = ">=3.12"
 dependencies = [
@@ -27,7 +27,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/step"]
+packages = ["src/arbor"]
 
 [tool.ruff]
 line-length = 88
@@ -50,21 +50,21 @@ invalid-return-type = "warn"
 no-matching-overload = "warn"
 
 [[tool.ty.overrides]]
-include = ["src/step/data.py"]
+include = ["src/arbor/data.py"]
 
 [tool.ty.overrides.rules]
 unresolved-attribute = "ignore"
 invalid-argument-type = "ignore"
 
 [[tool.ty.overrides]]
-include = ["src/step/viz/**"]
+include = ["src/arbor/viz/**"]
 
 [tool.ty.overrides.rules]
 # plotly is an optional dependency (viz extra), not installed in CI
 unresolved-import = "ignore"
 
 [[tool.ty.overrides]]
-include = ["src/step/environment/minigrid.py", "src/step/encoders/minigrid.py", "src/step/agent/minigrid.py", "src/step/harness/minigrid/**"]
+include = ["src/arbor/environment/minigrid.py", "src/arbor/encoders/minigrid.py", "src/arbor/agent/minigrid.py", "src/arbor/harness/minigrid/**"]
 
 [tool.ty.overrides.rules]
 # gymnasium/minigrid are optional deps, not installed in CI

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from step.cortex.region import CorticalRegion
+from arbor.cortex.region import CorticalRegion
 
 
 def _make_region(**kwargs):

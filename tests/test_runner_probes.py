@@ -9,15 +9,15 @@ Verifies that train() and run_cortex() correctly wire probes:
 
 import pytest
 
-from step.agent import ChatAgent
-from step.cortex import CorticalRegion
-from step.cortex.circuit import Circuit
-from step.cortex.sensory import SensoryRegion
-from step.data import STORY_BOUNDARY
-from step.encoders.positional import PositionalCharEncoder
-from step.environment import ChatEnv
-from step.harness.chat import ChatTrainHarness
-from step.probes.core import LaminaProbe
+from arbor.agent import ChatAgent
+from arbor.cortex import CorticalRegion
+from arbor.cortex.circuit import Circuit
+from arbor.cortex.sensory import SensoryRegion
+from arbor.data import STORY_BOUNDARY
+from arbor.encoders.positional import PositionalCharEncoder
+from arbor.environment import ChatEnv
+from arbor.harness.chat import ChatTrainHarness
+from arbor.probes.core import LaminaProbe
 
 # ---------------------------------------------------------------------------
 # Spy probe for verifying call protocol
@@ -248,7 +248,7 @@ class TestEndToEndProbeKPIs:
     def test_chat_lamina_probe_via_train(self):
         """ChatLaminaProbe produces linear probe accuracy through train()."""
         pytest.importorskip("sklearn")
-        from step.probes.chat import ChatLaminaProbe
+        from arbor.probes.chat import ChatLaminaProbe
 
         env, agent, _ = _make_circuit_and_env("abcdefgh" * 250)
         probe = ChatLaminaProbe(

@@ -2,9 +2,9 @@
 
 import numpy as np
 
-from step.agent import ChatAgent
-from step.data import EOM_TOKEN, STORY_BOUNDARY
-from step.environment import BOUNDARY_OBS, EOM_OBS, ChatEnv, ChatObs
+from arbor.agent import ChatAgent
+from arbor.data import EOM_TOKEN, STORY_BOUNDARY
+from arbor.environment import BOUNDARY_OBS, EOM_OBS, ChatEnv, ChatObs
 
 
 class TestChatObs:
@@ -128,8 +128,8 @@ class TestChatEnvInterleaved:
 
 class TestChatAgent:
     def _make_agent(self):
-        from step.cortex.canonical import build_canonical_circuit
-        from step.encoders.positional import PositionalCharEncoder
+        from arbor.cortex.canonical import build_canonical_circuit
+        from arbor.encoders.positional import PositionalCharEncoder
 
         alphabet = "abcdefghijklmnopqrstuvwxyz .,"
         encoder = PositionalCharEncoder(alphabet, max_positions=4)

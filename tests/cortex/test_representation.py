@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from step.probes.representation import RepresentationTracker
+from arbor.probes.representation import RepresentationTracker
 
 
 @pytest.fixture
