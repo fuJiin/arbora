@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from arbor.environment.minigrid import MiniGridObs
+from examples.minigrid.env import MiniGridObs
 
 # MiniGrid symbolic encoding ranges
 _N_OBJECT_TYPES = 11

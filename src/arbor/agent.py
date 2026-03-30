@@ -1,13 +1,15 @@
-"""Base agent with shared state for all STEP agents.
+"""Base agent and training result for Arbor circuits.
 
-Provides encoder/circuit wiring, last-step state tracking, and
-base reset behavior. Subclasses implement step(), decode_action(),
-and act() for their specific modality.
+BaseAgent — shared state and wiring for all agents.
+TrainResult — result of a training run (probe snapshots + elapsed time).
+
+Concrete agents (ChatAgent, MiniGridAgent) live in examples/.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -16,8 +18,16 @@ if TYPE_CHECKING:
     from arbor.cortex.circuit_types import Encoder
 
 
+@dataclass
+class TrainResult:
+    """Result of a training run. All metrics live in probe_snapshots."""
+
+    probe_snapshots: dict[str, Any] = field(default_factory=dict)
+    elapsed_seconds: float = 0.0
+
+
 class BaseAgent:
-    """Shared state and wiring for all STEP agents.
+    """Shared state and wiring for all Arbor agents.
 
     Subclasses must implement:
     - step(obs) — encode + process

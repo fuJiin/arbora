@@ -4,9 +4,9 @@ import pytest
 from arbor.cortex import SensoryRegion
 from arbor.cortex.circuit import Circuit, ConnectionRole
 from arbor.cortex.modulators import SurpriseTracker
-from arbor.data import STORY_BOUNDARY
 from arbor.encoders.charbit import CharbitEncoder
 from arbor.probes.modulators import ModulatorProbe
+from examples.chat.data import STORY_BOUNDARY
 from tests.conftest import run_circuit
 
 # ---------------------------------------------------------------------------

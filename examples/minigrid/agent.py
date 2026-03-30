@@ -13,13 +13,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from arbor.agent.base import BaseAgent
+from arbor.agent import BaseAgent
 from arbor.cortex.motor import MotorRegion
-from arbor.environment.minigrid import MiniGridObs
+from examples.minigrid.env import MiniGridObs
 
 if TYPE_CHECKING:
     from arbor.cortex.circuit import Circuit
-    from arbor.encoders.minigrid import MiniGridEncoder
+    from examples.minigrid.encoder import MiniGridEncoder
 
 
 class MiniGridAgent(BaseAgent):

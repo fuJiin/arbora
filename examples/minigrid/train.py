@@ -13,15 +13,15 @@ from __future__ import annotations
 
 import argparse
 
-from arbor.agent.minigrid import MiniGridAgent
 from arbor.basal_ganglia import BasalGangliaRegion
 from arbor.cortex import SensoryRegion
 from arbor.cortex.circuit import Circuit, ConnectionRole
 from arbor.cortex.motor import MotorRegion
-from arbor.encoders.minigrid import MiniGridEncoder
-from arbor.environment.minigrid import MiniGridEnv
-from arbor.harness.minigrid.train import MiniGridHarness
 from arbor.probes.core import LaminaProbe
+from examples.minigrid.agent import MiniGridAgent
+from examples.minigrid.encoder import MiniGridEncoder
+from examples.minigrid.env import MiniGridEnv
+from examples.minigrid.harness import MiniGridHarness
 
 
 def build_circuit(encoder: MiniGridEncoder) -> Circuit:
