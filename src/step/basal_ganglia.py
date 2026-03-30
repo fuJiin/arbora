@@ -49,7 +49,8 @@ class BasalGangliaRegion:
         learning_rate: float = 0.01,
         eligibility_decay: float = 0.95,
         tonic_da_init: float = 2.0,
-        tonic_da_decay: float = 0.99,
+        tonic_da_decay: float = 0.995,
+        tonic_da_min: float = 0.3,
         seed: int = 0,
     ):
         self._rng = np.random.default_rng(seed)
@@ -67,9 +68,11 @@ class BasalGangliaRegion:
         self._go_trace = np.zeros((input_dim, n_actions))
         self._nogo_trace = np.zeros((input_dim, n_actions))
 
-        # Tonic DA: tracks reward uncertainty for exploration
+        # Tonic DA: tracks reward uncertainty for exploration.
+        # Floor prevents exploration collapse when RPE variance drops.
         self._tonic_da = tonic_da_init
         self._tonic_da_decay = tonic_da_decay
+        self._tonic_da_min = tonic_da_min
         self._rpe_var_ema = tonic_da_init**2
         self._reward_baseline = 0.0
 
@@ -169,7 +172,7 @@ class BasalGangliaRegion:
             self._tonic_da_decay * self._rpe_var_ema
             + (1 - self._tonic_da_decay) * rpe**2
         )
-        self._tonic_da = float(np.sqrt(self._rpe_var_ema))
+        self._tonic_da = max(float(np.sqrt(self._rpe_var_ema)), self._tonic_da_min)
 
     def reset_working_memory(self) -> None:
         """Reset transient state. Preserves learned weights + tonic DA."""
