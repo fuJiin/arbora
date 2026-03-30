@@ -13,8 +13,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --dev
-      - run: uv run ruff check src/ tests/ experiments/
-      - run: uv run ruff format --check src/ tests/ experiments/
+      - run: uv run ruff check src/ tests/ examples/
+      - run: uv run ruff format --check src/ tests/ examples/
 
   typecheck:
     runs-on: ubuntu-latest
