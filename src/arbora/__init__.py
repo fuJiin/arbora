@@ -26,6 +26,7 @@ __version__ = "0.1.0"
 # Base classes
 from arbora.agent import BaseAgent, TrainResult
 from arbora.basal_ganglia import BasalGangliaRegion
+from arbora.thalamus import ThalamicNucleus
 from arbora.config import PlasticityRule
 from arbora.cortex import (
     Circuit,
@@ -72,6 +73,7 @@ __all__ = [
     "SensoryRegion",
     "SurpriseTracker",
     "ThalamicGate",
+    "ThalamicNucleus",
     "TrainResult",
     "__version__",
 ]
