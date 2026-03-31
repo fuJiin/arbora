@@ -1,8 +1,10 @@
-"""ARC-AGI-3 agent: V1 → BG → M1 with efference copy and intrinsic reward.
+"""ARC-AGI-3 agent: V1 → pulvinar → V2 → BG → M1 with efference copy.
 
-Biological sensorimotor loop:
-  V1 encodes grid → BG selects action → M1 executes → V1 gets efference
-  copy of expected next state → mismatch (burst rate) drives intrinsic
+Biological sensorimotor loop with hierarchical visual processing:
+  V1 encodes grid → pulvinar relays V1 L5 to V2 (transthalamic pathway)
+  → V2 learns higher-level abstractions → V2 gates pulvinar (attention)
+  → V2 sends apical feedback to V1 → BG selects action → M1 executes
+  → V1 gets efference copy → mismatch (burst rate) drives intrinsic
   reward → BG learns from surprise signal.
 
 No epsilon-greedy or other hacks. Exploration comes from BG's tonic DA.
@@ -20,6 +22,7 @@ from arbor.basal_ganglia import BasalGangliaRegion
 from arbor.cortex import SensoryRegion
 from arbor.cortex.circuit import Circuit, ConnectionRole
 from arbor.cortex.motor import MotorRegion
+from arbor.thalamus import ThalamicNucleus
 from examples.arc.encoder import ArcGridEncoder
 
 if TYPE_CHECKING:
@@ -35,21 +38,34 @@ def build_circuit(
     v1_columns: int = 128,
     v1_k: int = 16,
     v1_cells: int = 4,
+    # V2 config — 64 cols, k=8 (higher-level, more abstract)
+    v2_columns: int = 64,
+    v2_k: int = 8,
+    v2_cells: int = 4,
     # BG config — higher learning rate for sparse reward
     bg_learning_rate: float = 0.1,
     seed: int = 42,
 ) -> Circuit:
-    """Build a V1 → BG → M1 circuit for ARC-AGI-3."""
+    """Build a V1 → pulvinar → V2 → BG → M1 circuit for ARC-AGI-3.
+
+    Transthalamic pathway: V1 L5 → pulvinar → V2 L4.
+    All cortico-cortical communication passes through the thalamus —
+    there are no direct V1→V2 connections. The pulvinar gates what
+    gets relayed based on V2's top-down attention signal.
+
+    V2 sends apical feedback to V1, modulating L5 output via BAC
+    firing (coincident feedforward + apical → amplified response).
+    """
     v1 = SensoryRegion(
         input_dim=encoder.input_dim,
         encoding_width=encoder.encoding_width,
         n_columns=v1_columns,
         n_l4=v1_cells,
         n_l23=v1_cells,
-        # L5 provides saliency-weighted output for BG.
+        # L5 provides saliency-weighted output for BG and pulvinar.
         # Bursting columns → all L5 cells fire (strong signal).
         # Predicted columns → 1 L5 cell fires (weak signal).
-        # This routes spatial novelty to action selection.
+        # This routes spatial novelty to action selection and V2.
         n_l5=v1_cells,
         k_columns=v1_k,
         n_l4_lat_segments=8,
@@ -57,6 +73,40 @@ def build_circuit(
         seg_activation_threshold=4,
         seed=seed,
     )
+
+    # Pulvinar: higher-order thalamic relay between V1 and V2.
+    # Driver input: V1 L5 (saliency-weighted cortical output).
+    # Modulatory gate: V2 L2/3 (top-down attention — what to relay).
+    # Gate starts closed — V2 must learn what to attend to before
+    # the relay opens. This prevents noise from flooding V2 early.
+    pulvinar = ThalamicNucleus(
+        input_dim=v1.n_l5_total,  # V1 L5: 128 cols * 4 cells = 512
+        relay_dim=v1.n_l5_total,  # Same dimensionality for relay
+        relay_gain=1.0,
+        burst_gain=3.0,
+        gate_threshold=0.0,
+        learning_rate=0.01,
+        seed=seed + 100,
+    )
+
+    # V2: higher-level visual region. Fewer columns (more abstract),
+    # same cells per column (maintains representational capacity).
+    # Input comes from pulvinar relay, not raw encoding — no encoding_width.
+    v2 = SensoryRegion(
+        input_dim=pulvinar.relay_dim,  # 512 (pulvinar relay output)
+        n_columns=v2_columns,
+        n_l4=v2_cells,
+        n_l23=v2_cells,
+        # L5 for future corticostriatal projections (V2→BG).
+        # Not wired to BG yet — V1 L5→BG handles saliency for now.
+        n_l5=v2_cells,
+        k_columns=v2_k,
+        n_l4_lat_segments=8,
+        n_synapses_per_segment=32,
+        seg_activation_threshold=4,
+        seed=seed + 50,
+    )
+
     bg = BasalGangliaRegion(
         # BG receives V1 L5 (saliency-weighted), not L2/3 (full representation).
         # Corticostriatal projections come from L5 — biologically grounded.
@@ -82,14 +132,37 @@ def build_circuit(
 
     circuit = Circuit(encoder)
     circuit.add_region("V1", v1, entry=True)
+    circuit.add_region("pulvinar", pulvinar)
+    circuit.add_region("V2", v2)
     circuit.add_region("BG", bg)
     circuit.add_region("M1", m1)
-    # V1 L5 → BG: saliency-weighted corticostriatal projection.
+
+    # --- Transthalamic pathway: V1 → pulvinar → V2 ---
+    # V1 L5 → pulvinar: driver input (corticothalamic from L5).
+    circuit.connect(v1.l5, pulvinar.input_port, ConnectionRole.FEEDFORWARD)
+    # Pulvinar → V2 L4: relay output drives V2's input layer.
+    circuit.connect(pulvinar.output_port, v2.input_port, ConnectionRole.FEEDFORWARD)
+    # V2 L2/3 → pulvinar: top-down attention gate (MODULATORY).
+    # V2's learned representations modulate what V1 activity gets relayed.
+    # Gate starts closed — V2 must learn useful representations before
+    # it can selectively gate the relay.
+    circuit.connect(v2.l23, pulvinar.input_port, ConnectionRole.MODULATORY)
+
+    # --- V2 → V1 apical feedback ---
+    # V2 L2/3 sends context to V1 L5 via apical dendrites.
+    # This enables BAC firing: V1 L5 neurons that receive both
+    # feedforward drive (from L2/3) AND apical context (from V2)
+    # fire more strongly than those with feedforward alone.
+    circuit.connect(v2.l23, v1.l5, ConnectionRole.APICAL)
+
+    # --- V1 L5 → BG: saliency pathway (unchanged) ---
     # Bursting columns send 4x signal vs predicted columns.
     circuit.connect(v1.l5, bg.input_port, ConnectionRole.FEEDFORWARD)
-    # V1 L2/3 → M1: full representation for motor commands.
+
+    # --- V1 L2/3 → M1: motor pathway (unchanged) ---
     circuit.connect(v1.l23, m1.input_port, ConnectionRole.FEEDFORWARD)
     circuit.connect(bg.output_port, m1.input_port, ConnectionRole.MODULATORY)
+
     circuit.finalize()
     return circuit
 

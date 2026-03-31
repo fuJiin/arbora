@@ -813,27 +813,34 @@ class Circuit:
                 and conn.enabled
             ):
                 src = self._regions[conn.source].region
-                signal = src.output_port.firing_rate.copy()
+                src_lamina = src.get_lamina(conn.source_lamina)
+                signal = src_lamina.firing_rate.copy()
                 tgt = self._regions[target_name].region
                 tgt_port = tgt.input_port
                 # Tile signal to match target neuron count
                 if len(signal) == tgt_port.n_total:
                     mod = signal
                 elif tgt_port.n_total > 0:
-                    mod = np.zeros(tgt_port.n_total)
                     n_per_col = tgt_port.n_per_col
                     n_cols = tgt_port.n_total // n_per_col
                     n_src = len(signal)
-                    cols_per_src = n_cols // max(n_src, 1)
-                    remainder = n_cols % max(n_src, 1)
-                    pos = 0
-                    for i in range(n_src):
-                        width = cols_per_src + (1 if i < remainder else 0)
-                        for c in range(width):
-                            start = (pos + c) * n_per_col
-                            end = start + n_per_col
-                            mod[start:end] = signal[i]
-                        pos += width
+                    if n_cols <= 1:
+                        # Flat target (e.g., ThalamicNucleus): broadcast
+                        # mean signal. The target's process() extracts what
+                        # it needs (e.g., ThalamicNucleus takes .mean()).
+                        mod = np.full(tgt_port.n_total, signal.mean())
+                    else:
+                        mod = np.zeros(tgt_port.n_total)
+                        cols_per_src = n_cols // max(n_src, 1)
+                        remainder = n_cols % max(n_src, 1)
+                        pos = 0
+                        for i in range(n_src):
+                            width = cols_per_src + (1 if i < remainder else 0)
+                            for c in range(width):
+                                start = (pos + c) * n_per_col
+                                end = start + n_per_col
+                                mod[start:end] = signal[i]
+                            pos += width
                 else:
                     return
                 # Store on lamina — consumed in step() after drive, before k-WTA
