@@ -46,7 +46,11 @@ def build_circuit(
         n_columns=v1_columns,
         n_l4=v1_cells,
         n_l23=v1_cells,
-        n_l5=0,
+        # L5 provides saliency-weighted output for BG.
+        # Bursting columns → all L5 cells fire (strong signal).
+        # Predicted columns → 1 L5 cell fires (weak signal).
+        # This routes spatial novelty to action selection.
+        n_l5=v1_cells,
         k_columns=v1_k,
         n_l4_lat_segments=8,
         n_synapses_per_segment=32,
@@ -54,7 +58,9 @@ def build_circuit(
         seed=seed,
     )
     bg = BasalGangliaRegion(
-        input_dim=v1.n_l23_total,
+        # BG receives V1 L5 (saliency-weighted), not L2/3 (full representation).
+        # Corticostriatal projections come from L5 — biologically grounded.
+        input_dim=v1.n_l5_total,
         n_actions=n_actions,
         learning_rate=bg_learning_rate,
         tonic_da_init=2.0,
@@ -78,8 +84,11 @@ def build_circuit(
     circuit.add_region("V1", v1, entry=True)
     circuit.add_region("BG", bg)
     circuit.add_region("M1", m1)
-    circuit.connect(v1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
-    circuit.connect(v1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
+    # V1 L5 → BG: saliency-weighted corticostriatal projection.
+    # Bursting columns send 4x signal vs predicted columns.
+    circuit.connect(v1.l5, bg.input_port, ConnectionRole.FEEDFORWARD)
+    # V1 L2/3 → M1: full representation for motor commands.
+    circuit.connect(v1.l23, m1.input_port, ConnectionRole.FEEDFORWARD)
     circuit.connect(bg.output_port, m1.input_port, ConnectionRole.MODULATORY)
     circuit.finalize()
     return circuit
