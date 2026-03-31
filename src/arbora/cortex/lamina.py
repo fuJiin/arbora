@@ -10,7 +10,7 @@ import enum
 
 import numpy as np
 
-from arbor.neuron_group import NeuronGroup
+from arbora.neuron_group import NeuronGroup
 
 
 class LaminaID(enum.Enum):

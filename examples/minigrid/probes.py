@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from arbor.cortex.motor import MotorRegion
+from arbora.cortex.motor import MotorRegion
 
 if TYPE_CHECKING:
-    from arbor.cortex.circuit import Circuit
+    from arbora.cortex.circuit import Circuit
 
 
 @dataclass
@@ -111,7 +111,7 @@ class MiniGridMotorProbe:
                 self._prev_output_weights[name] = motor.output_weights.copy()
 
         # Track BG tonic DA
-        from arbor.basal_ganglia import BasalGangliaRegion
+        from arbora.basal_ganglia import BasalGangliaRegion
 
         for _name, s in circuit._regions.items():
             if isinstance(s.region, BasalGangliaRegion):

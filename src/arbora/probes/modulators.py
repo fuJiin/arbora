@@ -10,10 +10,10 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from arbor.cortex.circuit_types import ConnectionRole
+from arbora.cortex.circuit_types import ConnectionRole
 
 if TYPE_CHECKING:
-    from arbor.cortex.circuit import Circuit
+    from arbora.cortex.circuit import Circuit
 
 
 @dataclass

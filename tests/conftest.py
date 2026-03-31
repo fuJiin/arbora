@@ -2,9 +2,9 @@
 
 import numpy as np
 
-from arbor.cortex import CorticalRegion
-from arbor.cortex.circuit import Circuit
-from arbor.encoders.positional import PositionalCharEncoder
+from arbora.cortex import CorticalRegion
+from arbora.cortex.circuit import Circuit
+from arbora.encoders.positional import PositionalCharEncoder
 from examples.chat.agent import ChatAgent
 from examples.chat.env import ChatEnv
 from examples.chat.harness import ChatTrainHarness, TrainResult

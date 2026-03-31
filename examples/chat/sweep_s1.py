@@ -21,10 +21,10 @@ from pathlib import Path
 
 import numpy as np
 
-from arbor.cortex.sensory import SensoryRegion
-from arbor.decoders.dendritic import DendriticDecoder
-from arbor.probes.bpc import BPCProbe
-from arbor.probes.diagnostics import CortexDiagnostics
+from arbora.cortex.sensory import SensoryRegion
+from arbora.decoders.dendritic import DendriticDecoder
+from arbora.probes.bpc import BPCProbe
+from arbora.probes.diagnostics import CortexDiagnostics
 from examples.chat.data import STORY_BOUNDARY, prepare_tokens_tinydialogues
 
 # --- Encoder (matches canonical S1) ---

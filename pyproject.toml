@@ -1,5 +1,5 @@
 [project]
-name = "arbor"
+name = "arbora"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -27,7 +27,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/arbor"]
+packages = ["src/arbora"]
 
 [tool.ruff]
 line-length = 88
@@ -50,21 +50,21 @@ invalid-return-type = "warn"
 no-matching-overload = "warn"
 
 [[tool.ty.overrides]]
-include = ["src/arbor/data.py"]
+include = ["src/arbora/data.py"]
 
 [tool.ty.overrides.rules]
 unresolved-attribute = "ignore"
 invalid-argument-type = "ignore"
 
 [[tool.ty.overrides]]
-include = ["src/arbor/viz/**"]
+include = ["src/arbora/viz/**"]
 
 [tool.ty.overrides.rules]
 # plotly is an optional dependency (viz extra), not installed in CI
 unresolved-import = "ignore"
 
 [[tool.ty.overrides]]
-include = ["src/arbor/environment/minigrid.py", "src/arbor/encoders/minigrid.py", "src/arbor/agent/minigrid.py", "src/arbor/harness/minigrid/**"]
+include = ["src/arbora/environment/minigrid.py", "src/arbora/encoders/minigrid.py", "src/arbora/agent/minigrid.py", "src/arbora/harness/minigrid/**"]
 
 [tool.ty.overrides.rules]
 # gymnasium/minigrid are optional deps, not installed in CI

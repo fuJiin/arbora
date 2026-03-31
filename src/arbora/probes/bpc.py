@@ -15,7 +15,7 @@ import math
 
 import numpy as np
 
-from arbor.decoders.dendritic import DendriticDecoder
+from arbora.decoders.dendritic import DendriticDecoder
 
 
 class BPCProbe:

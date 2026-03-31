@@ -1,9 +1,9 @@
 """End-to-end smoke test: build circuit, train episodes, verify result."""
 
-from arbor.cortex import SensoryRegion
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.motor import MotorRegion
-from arbor.probes.core import LaminaProbe
+from arbora.cortex import SensoryRegion
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.motor import MotorRegion
+from arbora.probes.core import LaminaProbe
 from examples.minigrid.agent import MiniGridAgent
 from examples.minigrid.encoder import MiniGridEncoder
 from examples.minigrid.env import MiniGridEnv

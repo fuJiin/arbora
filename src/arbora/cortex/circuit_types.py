@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING, Protocol, TypeVar, runtime_checkable
 
 import numpy as np
 
-from arbor.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from arbor.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
-from arbor.neuron_group import NeuronGroup
-from arbor.probes.diagnostics import CortexDiagnostics
-from arbor.probes.representation import RepresentationTracker
-from arbor.probes.timeline import Timeline
+from arbora.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
+from arbora.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
+from arbora.neuron_group import NeuronGroup
+from arbora.probes.diagnostics import CortexDiagnostics
+from arbora.probes.representation import RepresentationTracker
+from arbora.probes.timeline import Timeline
 
 if TYPE_CHECKING:
     pass

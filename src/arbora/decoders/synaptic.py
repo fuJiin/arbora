@@ -12,7 +12,7 @@ to tokens via inverted index, avoiding burst-inflated neuron sets.
 
 import numpy as np
 
-from arbor.cortex.region import CorticalRegion
+from arbora.cortex.region import CorticalRegion
 
 
 class SynapticDecoder:

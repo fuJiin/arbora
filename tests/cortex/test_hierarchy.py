@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
 
-from arbor.cortex import SensoryRegion
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.modulators import SurpriseTracker
-from arbor.encoders.charbit import CharbitEncoder
-from arbor.probes.modulators import ModulatorProbe
+from arbora.cortex import SensoryRegion
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.modulators import SurpriseTracker
+from arbora.encoders.charbit import CharbitEncoder
+from arbora.probes.modulators import ModulatorProbe
 from examples.chat.data import STORY_BOUNDARY
 from tests.conftest import run_circuit
 

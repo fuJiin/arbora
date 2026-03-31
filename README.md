@@ -1,4 +1,4 @@
-# Arbor
+# Arbora
 
 Biologically-plausible cortical learning framework. Build neural circuits from cortical regions, wire them together, and train with Hebbian + three-factor reward-modulated learning. No backprop.
 
@@ -7,7 +7,7 @@ Named for dendritic arbors -- the branching structures through which neurons rec
 ## Quick start
 
 ```python
-from arbor import (
+from arbora import (
     Circuit, SensoryRegion, MotorRegion, BasalGangliaRegion,
     ConnectionRole, PlasticityRule,
 )
@@ -37,7 +37,7 @@ circuit.apply_reward(reward)
 
 A framework for building biologically-grounded neural circuits that learn from reward, not gradients. Every component maps to real neuroscience:
 
-| Arbor concept | Biology | What it does |
+| Arbora concept | Biology | What it does |
 |---------------|---------|-------------|
 | `SensoryRegion` | Granular cortex (V1, S1) | L4 input reception, L2/3 association, dendritic prediction |
 | `MotorRegion` | Agranular cortex (M1) | L2/3 input, L5 action output, three-factor RL |
@@ -79,7 +79,7 @@ Requires Python 3.12+.
 
 ## Examples
 
-See `examples/` for complete applications built on Arbor:
+See `examples/` for complete applications built on Arbora:
 
 - **`examples/chat/`** -- Character-level text learning with sensory-motor hierarchy (S1->S2->S3->PFC->M2->M1)
 - **`examples/minigrid/`** -- Grid navigation with MiniGrid (S1->BG->M1)
@@ -94,7 +94,7 @@ uv run examples/minigrid/benchmark.py --episodes 1000
 ## Core package
 
 ```
-src/arbor/
+src/arbora/
   neuron_group.py       NeuronGroup base
   basal_ganglia.py      BasalGangliaRegion (Go/NoGo + tonic DA)
   agent.py              BaseAgent, TrainResult
@@ -119,7 +119,7 @@ src/arbor/
 ```bash
 uv run pytest tests/              # 445 tests
 uv run ruff check src/ tests/     # lint
-uv run ty check src/arbor/        # typecheck
+uv run ty check src/arbora/        # typecheck
 ```
 
 ## Version

@@ -23,8 +23,8 @@ import sys
 
 import numpy as np
 
-from arbor.decoders.dendritic import DendriticDecoder  # for type hints
-from arbor.encoders.positional import PositionalCharEncoder
+from arbora.decoders.dendritic import DendriticDecoder  # for type hints
+from arbora.encoders.positional import PositionalCharEncoder
 from examples.chat.agent import ChatAgent
 from examples.chat.data import (
     EOM_TOKEN,
@@ -90,7 +90,7 @@ def warmup(cortex, encoder, tokens, log_interval=2000):
     n = len(tokens)
     print(f"{DIM}Warming up on {n:,} chars...{RESET}")
 
-    from arbor.probes.core import LaminaProbe
+    from arbora.probes.core import LaminaProbe
 
     env = ChatEnv(tokens)
     agent = ChatAgent(encoder=encoder, circuit=cortex)
@@ -420,7 +420,7 @@ def run_probe(cortex, word_decoder=None):
             )
 
         # PFC-specific: confidence and gate
-        from arbor.cortex.pfc import PFCRegion
+        from arbora.cortex.pfc import PFCRegion
 
         if isinstance(r, PFCRegion):
             print(
@@ -454,7 +454,7 @@ def run_echo(agent, motor, word: str):
     2. PFC snapshots goal, gate closes
     3. Speak: M1 produces chars, compare to target
     """
-    from arbor.cortex.pfc import PFCRegion
+    from arbora.cortex.pfc import PFCRegion
 
     cortex = agent.circuit
 

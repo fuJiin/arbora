@@ -1,12 +1,12 @@
 import numpy as np
 import pytest
 
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.modulators import SurpriseTracker, ThalamicGate
-from arbor.cortex.motor import MotorRegion
-from arbor.cortex.sensory import SensoryRegion
-from arbor.encoders.charbit import CharbitEncoder
-from arbor.probes.modulators import ModulatorProbe
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.modulators import SurpriseTracker, ThalamicGate
+from arbora.cortex.motor import MotorRegion
+from arbora.cortex.sensory import SensoryRegion
+from arbora.encoders.charbit import CharbitEncoder
+from arbora.probes.modulators import ModulatorProbe
 from examples.chat.data import STORY_BOUNDARY
 from examples.chat.probes import ChatMotorProbe
 from tests.conftest import run_circuit
@@ -47,7 +47,7 @@ def motor(region1):
 
 class TestMotorRegion:
     def test_is_cortical_subclass(self, motor):
-        from arbor.cortex.region import CorticalRegion
+        from arbora.cortex.region import CorticalRegion
 
         assert isinstance(motor, CorticalRegion)
 

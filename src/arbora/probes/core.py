@@ -13,14 +13,14 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 
-from arbor.snapshots.core import (
+from arbora.snapshots.core import (
     AssociationSnapshot,
     InputSnapshot,
     LaminaRegionSnapshot,
 )
 
 if TYPE_CHECKING:
-    from arbor.cortex.circuit import Circuit
+    from arbora.cortex.circuit import Circuit
 
 
 # ---------------------------------------------------------------------------

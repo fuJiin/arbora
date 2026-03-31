@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from arbor.basal_ganglia import BasalGangliaRegion
+from arbora.basal_ganglia import BasalGangliaRegion
 
 
 class TestBasalGangliaRegionUnit:
@@ -105,10 +105,10 @@ class TestBasalGangliaRegionUnit:
 class TestBasalGangliaCircuitIntegration:
     def test_bg_as_region_in_circuit(self):
         """BG wired as proper region with MODULATORY output to M1."""
-        from arbor.cortex import SensoryRegion
-        from arbor.cortex.circuit import Circuit, ConnectionRole
-        from arbor.cortex.motor import MotorRegion
-        from arbor.encoders.charbit import CharbitEncoder
+        from arbora.cortex import SensoryRegion
+        from arbora.cortex.circuit import Circuit, ConnectionRole
+        from arbora.cortex.motor import MotorRegion
+        from arbora.encoders.charbit import CharbitEncoder
 
         encoder = CharbitEncoder(length=4, width=5, chars="abcd")
         s1 = SensoryRegion(
@@ -143,10 +143,10 @@ class TestBasalGangliaCircuitIntegration:
         circuit.process(enc, motor_active=True)
 
     def test_reward_routes_to_bg(self):
-        from arbor.cortex import SensoryRegion
-        from arbor.cortex.circuit import Circuit, ConnectionRole
-        from arbor.cortex.motor import MotorRegion
-        from arbor.encoders.charbit import CharbitEncoder
+        from arbora.cortex import SensoryRegion
+        from arbora.cortex.circuit import Circuit, ConnectionRole
+        from arbora.cortex.motor import MotorRegion
+        from arbora.encoders.charbit import CharbitEncoder
 
         encoder = CharbitEncoder(length=4, width=5, chars="abcd")
         s1 = SensoryRegion(

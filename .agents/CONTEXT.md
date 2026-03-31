@@ -1,15 +1,15 @@
-# Context: Arbor
+# Context: Arbora
 
 ## Overview
 Biologically-plausible cortical learning framework. Minicolumn architecture, Hebbian + three-factor RL, no backprop. Public neuroAI framework at v0.1.0.
 
 ## Integrations
 - **Linear Project:** STEP (Sparse Temporal Eligibility Propagation)
-- **GitHub:** fuJiin/arbor
+- **GitHub:** fuJiin/arbora
 
 ## Architecture
 ```
-from arbor import Circuit, SensoryRegion, MotorRegion, BasalGangliaRegion
+from arbora import Circuit, SensoryRegion, MotorRegion, BasalGangliaRegion
 
 NeuronGroup          -- universal base (firing_rate + modulation)
   Lamina             -- cortex-specific (+ voltage, active, predicted, trace)
@@ -26,7 +26,7 @@ Region protocol: input_port / output_port (NeuronGroup)
 
 ## Package structure (v0.1.0)
 ```
-src/arbor/               # Core framework
+src/arbora/               # Core framework
   __init__.py            # 24 public exports
   neuron_group.py        # NeuronGroup base
   basal_ganglia.py       # BasalGangliaRegion
@@ -53,8 +53,8 @@ examples/                # Application-specific
 6. PR #58 — Public API + README + v0.1.0
 
 ### Key decisions
-- **Arbor** — renamed from STEP. Dendritic arbors + cultivating a framework.
-- **Core vs examples** — framework building blocks in src/arbor/, app-specific in examples/
+- **Arbora** — renamed from STEP/Arbor. Dendritic arbors + cultivating a framework.
+- **Core vs examples** — framework building blocks in src/arbora/, app-specific in examples/
 - **NeuronGroup** — universal connectable surface (Brian2 naming). String group_id.
 - **Lamina(NeuronGroup)** — cortex-specific dynamics
 - **Region protocol** — input_port/output_port, process, apply_reward, reset
@@ -74,7 +74,7 @@ Exploring ARC-AGI as next example/benchmark. Few-shot spatial reasoning — fund
 
 **Done:**
 - [x] STEP-63, 77, 78-84, 86-90 (probes + agranular + reward + BG)
-- [x] Rename to Arbor, restructure for public framework
+- [x] Rename to Arbora, restructure for public framework
 
 **Open:**
 - [ ] STEP-93 Tune BG tonic DA

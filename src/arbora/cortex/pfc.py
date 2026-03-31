@@ -30,8 +30,8 @@ Development mirrors infant PFC:
 
 import numpy as np
 
-from arbor.config import PlasticityRule
-from arbor.cortex.region import CorticalRegion
+from arbora.config import PlasticityRule
+from arbora.cortex.region import CorticalRegion
 
 
 class PFCRegion(CorticalRegion):
