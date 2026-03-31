@@ -1259,17 +1259,23 @@ class CorticalRegion:
         self._activate_downstream(top_cols, self.l4, self.l23, self.l4_to_l23_weights)
 
     def _activate_l5(self, top_cols: np.ndarray):
-        """Activate L5 via graded population coding from L2/3 drive.
+        """Activate L5 via BAC firing model (Larkum 2013).
 
-        Unlike L4 and L2/3 which use burst/precise all-or-nothing switching,
-        L5 uses drive-proportional activation: the number of L5 neurons
-        that fire in a column reflects how many L2/3 neurons drove it.
+        Two firing modes per column:
 
-        Bursting columns (all L2/3 cells active) → strong drive → many L5 fire.
-        Predicted columns (1 L2/3 cell active) → weak drive → few L5 fire.
+        1. **Regular spiking** (feedforward only): L2/3 drive alone activates
+           L5 proportionally — n_winners = max(1, n_active_l23). This is the
+           graded population code: predicted columns (1 L2/3 cell) fire few
+           L5 neurons, bursting columns (all L2/3 cells) fire many.
 
-        This produces a graded saliency signal without a hardcoded burst
-        mechanism. L5 population size naturally encodes input certainty.
+        2. **BAC firing** (feedforward + apical coincidence): when L2/3 drive
+           coincides with active apical dendritic input from a higher region,
+           ALL L5 neurons in the column fire (calcium-mediated burst). This
+           requires BOTH signals — apical alone cannot trigger firing.
+
+        The BAC burst amplifies columns that are both active (feedforward) and
+        contextually predicted (apical feedback), producing a strong output
+        signal for downstream targets (BG, thalamus).
         """
         if self.n_l5 == 0:
             return
@@ -1293,9 +1299,18 @@ class CorticalRegion:
         boost = self.l23_prediction_boost or self.fb_boost
         self.l5.voltage[self.l5.predicted] += boost
 
-        # Drive-proportional activation: for each column, the number of
-        # L5 winners scales with how many L2/3 neurons are active.
-        # This is the core mechanism: L2/3 population → L5 population.
+        # --- BAC firing: determine which columns have apical context ---
+        # A column has apical input if any of its L5 neurons are predicted
+        # by apical dendritic segments (context from higher cortical areas).
+        # _compute_predictions() already ran, but l5.predicted includes both
+        # lateral and apical. Recompute apical-only to isolate the signal.
+        apical_cols = np.zeros(self.n_columns, dtype=np.bool_)
+        if self._apical_sources:
+            apical_pred = self._predict_from_apical_segments(LaminaID.L5)
+            apical_by_col = apical_pred.reshape(self.n_columns, n_l5)
+            apical_cols = apical_by_col.any(axis=1)
+
+        # Drive-proportional activation with BAC amplification.
         l23_active = self.l23.active.reshape(self.n_columns, n_l23)
         l5_scores = (self.l5.voltage + self.l5.excitability).reshape(
             self.n_columns, n_l5
@@ -1303,9 +1318,12 @@ class CorticalRegion:
 
         for col in top_cols:
             n_active_l23 = int(l23_active[col].sum())
-            # Scale L5 winners: 1 L2/3 active → 1 L5 winner,
-            # all L2/3 active → all L5 fire.
-            n_winners = max(1, min(n_l5, n_active_l23))
+            if apical_cols[col]:
+                # BAC firing: feedforward + apical coincidence → all L5 fire
+                n_winners = n_l5
+            else:
+                # Regular spiking: drive-proportional
+                n_winners = max(1, min(n_l5, n_active_l23))
             if n_winners >= n_l5:
                 self.l5.active[col * n_l5 : (col + 1) * n_l5] = True
             else:

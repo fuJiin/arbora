@@ -89,7 +89,18 @@ class TestL5ApicalPrediction:
 
 
 class TestL5ApicalBACFiring:
-    """Predicted L5 neurons get boosted in competitive selection."""
+    """BAC firing: feedforward + apical coincidence triggers L5 burst."""
+
+    def _wire_column_apical(self, r, col, source_name="S2"):
+        """Wire all L5 neurons in a column so apical segments fire."""
+        src = r._apical_sources[source_name]
+        n_l5 = r.n_l5
+        for i in range(n_l5):
+            neuron_idx = col * n_l5 + i
+            src["seg_indices"][neuron_idx, 0, :] = 0
+            src["seg_perm"][neuron_idx, 0, :] = 1.0
+        src["context"][:] = 0.0
+        src["context"][0] = 1.0
 
     def test_apical_boost_biases_winner(self):
         r = _make_region(fb_boost=0.5)
@@ -137,6 +148,111 @@ class TestL5ApicalBACFiring:
         r.step(rng.random(r.n_l4_total))
         # No context was set, so no apical predictions
         assert not r.l5.predicted.any()
+
+    def test_bac_all_l5_fire_with_apical(self):
+        """BAC: feedforward + apical → all L5 neurons fire in column."""
+        r = _make_region()
+        r.init_apical_context(source_dim=32, source_name="S2")
+        self._wire_column_apical(r, col=0)
+
+        # Set up: column 0 active with only 1 L2/3 neuron active
+        # (predicted column — normally only 1 L5 would fire)
+        r.l23.active[:] = False
+        r.l23.active[0] = True  # only 1 L2/3 neuron in col 0
+        r.l23.firing_rate[:] = 0.0
+        r.l23.firing_rate[0] = 1.0
+        r.l5.voltage[:] = 0.0
+        r.l5.excitability[:] = 0.0
+        r.l23_to_l5_weights[:] = 0.1
+        r.active_columns[:] = False
+        r.active_columns[0] = True
+
+        r._compute_predictions()
+        r._activate_l5(np.array([0]))
+
+        # BAC burst: ALL L5 neurons in column 0 should fire
+        l5_col0 = r.l5.active[: r.n_l5]
+        assert l5_col0.all(), (
+            f"BAC burst should activate all L5 in column, got {l5_col0.sum()}/{r.n_l5}"
+        )
+
+    def test_no_bac_without_apical(self):
+        """Without apical context, drive-proportional fires fewer L5."""
+        r = _make_region()
+        # No apical context initialized
+
+        # Set up: column 0 active with only 1 L2/3 neuron active
+        r.l23.active[:] = False
+        r.l23.active[0] = True  # only 1 L2/3 neuron in col 0
+        r.l23.firing_rate[:] = 0.0
+        r.l23.firing_rate[0] = 1.0
+        r.l5.voltage[:] = 0.0
+        r.l5.excitability[:] = 0.0
+        r.l23_to_l5_weights[:] = 0.1
+        r.active_columns[:] = False
+        r.active_columns[0] = True
+
+        r._activate_l5(np.array([0]))
+
+        # Drive-proportional: only 1 L2/3 active → only 1 L5 fires
+        l5_col0 = r.l5.active[: r.n_l5]
+        assert l5_col0.sum() == 1, (
+            f"Without apical, 1 L2/3 should drive 1 L5, got {l5_col0.sum()}"
+        )
+
+    def test_bac_requires_feedforward(self):
+        """Apical alone does NOT activate L5 — requires feedforward."""
+        r = _make_region()
+        r.init_apical_context(source_dim=32, source_name="S2")
+        self._wire_column_apical(r, col=0)
+
+        # No columns active (no feedforward drive)
+        r._compute_predictions()
+        r._activate_l5(np.array([], dtype=np.intp))
+
+        # No L5 should be active — apical alone is insufficient
+        assert not r.l5.active.any(), (
+            "Apical alone should not activate L5 without feedforward"
+        )
+
+    def test_bac_amplifies_only_apical_columns(self):
+        """BAC amplifies only columns with apical, others stay proportional."""
+        r = _make_region()
+        r.init_apical_context(source_dim=32, source_name="S2")
+        # Wire apical only for column 0, not column 1
+        self._wire_column_apical(r, col=0)
+
+        n_l5 = r.n_l5
+        n_l23 = r.n_l23
+
+        # Both columns active, each with 1 L2/3 neuron
+        r.l23.active[:] = False
+        r.l23.active[0] = True  # col 0, neuron 0
+        r.l23.active[n_l23] = True  # col 1, neuron 0
+        r.l23.firing_rate[:] = 0.0
+        r.l23.firing_rate[0] = 1.0
+        r.l23.firing_rate[n_l23] = 1.0
+        r.l5.voltage[:] = 0.0
+        r.l5.excitability[:] = 0.0
+        r.l23_to_l5_weights[:] = 0.1
+        r.active_columns[:] = False
+        r.active_columns[0] = True
+        r.active_columns[1] = True
+
+        r._compute_predictions()
+        r._activate_l5(np.array([0, 1]))
+
+        # Column 0: BAC burst → all L5 fire
+        l5_col0 = r.l5.active[: n_l5]
+        assert l5_col0.all(), (
+            f"Column 0 (apical) should BAC burst, got {l5_col0.sum()}/{n_l5}"
+        )
+
+        # Column 1: no apical → drive-proportional (1 L2/3 → 1 L5)
+        l5_col1 = r.l5.active[n_l5 : 2 * n_l5]
+        assert l5_col1.sum() == 1, (
+            f"Column 1 (no apical) should fire 1 L5, got {l5_col1.sum()}"
+        )
 
 
 class TestL5ApicalLearning:
