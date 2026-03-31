@@ -47,6 +47,9 @@ def build_circuit(
         n_l23=v1_cells,
         n_l5=0,
         k_columns=v1_k,
+        n_l4_lat_segments=8,
+        n_synapses_per_segment=32,
+        seg_activation_threshold=4,
         seed=seed,
     )
     bg = BasalGangliaRegion(
@@ -182,5 +185,6 @@ class ArcAgent(BaseAgent):
     def reset_episode(self) -> None:
         """Reset per-episode state. Learned weights persist."""
         self._circuit.reset()
+        self._encoder.reset()
         self._last_encoding = None
         self._step_count = 0

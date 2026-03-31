@@ -3,13 +3,14 @@
 Encodes a 64x64 grid frame (16 colors) from the arc-agi SDK into a
 sparse binary vector suitable for SensoryRegion input.
 
-The 64x64 grid is downsampled to 16x16 via 4x4 block mode-pooling
-(most common color per block), then each cell is one-hot encoded
-over 16 colors.
+Two encoding channels, concatenated:
+1. **Spatial channel**: 2x2 block mode-pooled → 32x32, one-hot 16 colors.
+   Captures the static structure of the grid.
+2. **Temporal channel**: per-cell change detection vs previous frame.
+   Captures what CHANGED — like retinal ganglion ON/OFF cells.
 
-Layout: 16*16 cells × 16 colors = 4096 dimensions.
-encoding_width = 16 (one cell's color bits), so SensoryRegion tiles
-its columns across the 256 spatial positions — a natural retinotopic map.
+Layout: (32*32*16) + (32*32*2) = 16384 + 2048 = 18432 dimensions.
+encoding_width = 18 (16 color bits + 2 change bits per position).
 """
 
 from __future__ import annotations
@@ -17,22 +18,30 @@ from __future__ import annotations
 import numpy as np
 
 _GRID_SIZE = 64
-_BLOCK_SIZE = 4
-_DOWNSAMPLED = _GRID_SIZE // _BLOCK_SIZE  # 16
+_BLOCK_SIZE = 2
+_DOWNSAMPLED = _GRID_SIZE // _BLOCK_SIZE  # 32
 _N_COLORS = 16
-_N_CELLS = _DOWNSAMPLED * _DOWNSAMPLED  # 256
-_TOTAL_DIM = _N_CELLS * _N_COLORS  # 4096
+_N_CHANGE = 2  # changed / unchanged
+_N_CELLS = _DOWNSAMPLED * _DOWNSAMPLED  # 1024
+_SPATIAL_DIM = _N_CELLS * _N_COLORS  # 16384
+_TEMPORAL_DIM = _N_CELLS * _N_CHANGE  # 2048
+_TOTAL_DIM = _SPATIAL_DIM + _TEMPORAL_DIM  # 18432
+_ENCODING_WIDTH = _N_COLORS + _N_CHANGE  # 18
 
 
 class ArcGridEncoder:
-    """Encode a 64x64 ARC-AGI-3 grid frame as a sparse binary vector.
+    """Encode a 64x64 ARC-AGI-3 grid frame with spatial + temporal channels.
 
-    Downsamples via 4x4 block mode-pooling, then one-hot encodes
-    each cell's color. Produces a 4096-bit vector with 256 active bits
-    (one per downsampled cell).
+    Spatial: 2x2 block mode-pool → 32x32, one-hot color (16384 bits).
+    Temporal: per-cell change vs previous frame (2048 bits).
 
-    Properties match the Encoder protocol for SensoryRegion integration.
+    The temporal channel acts like retinal ON/OFF cells — it highlights
+    what changed between frames, giving V1 a change signal even when
+    the static spatial content is fully predicted.
     """
+
+    def __init__(self) -> None:
+        self._prev_down: np.ndarray | None = None
 
     @property
     def input_dim(self) -> int:
@@ -40,35 +49,43 @@ class ArcGridEncoder:
 
     @property
     def encoding_width(self) -> int:
-        return _N_COLORS
+        return _ENCODING_WIDTH
 
     def encode(self, grid: np.ndarray) -> np.ndarray:
         """Encode a 64x64 grid frame.
 
-        Parameters
-        ----------
-        grid : np.ndarray
-            Shape (64, 64), dtype int8, values 0-15.
-
-        Returns
-        -------
-        np.ndarray
-            Boolean vector of shape (4096,) with 256 active bits.
+        Returns a boolean vector of shape (18432,).
+        Active bits: 1024 spatial + ~50-200 temporal change bits.
         """
-        # Downsample via 4x4 block mode pooling
         downsampled = _block_mode_pool(grid, _BLOCK_SIZE)
-
-        # One-hot encode
         out = np.zeros(_TOTAL_DIM, dtype=np.bool_)
+
         flat = downsampled.ravel()
+
+        # Spatial channel: one-hot color per cell
         for i, color in enumerate(flat):
             c = int(color)
             if 0 <= c < _N_COLORS:
-                out[i * _N_COLORS + c] = True
+                out[i * _ENCODING_WIDTH + c] = True
+
+        # Temporal channel: change detection vs previous frame
+        if self._prev_down is not None:
+            prev_flat = self._prev_down.ravel()
+            for i in range(len(flat)):
+                changed = flat[i] != prev_flat[i]
+                # Bit 0 of change channel = changed, bit 1 = unchanged
+                out[i * _ENCODING_WIDTH + _N_COLORS + (0 if changed else 1)] = True
+        else:
+            # First frame: mark all as "changed" (novel)
+            for i in range(len(flat)):
+                out[i * _ENCODING_WIDTH + _N_COLORS + 0] = True
+
+        self._prev_down = downsampled.copy()
         return out
 
     def reset(self) -> None:
-        """No-op (stateless encoder)."""
+        """Reset temporal state (new episode)."""
+        self._prev_down = None
 
 
 def _block_mode_pool(grid: np.ndarray, block_size: int) -> np.ndarray:
@@ -83,7 +100,6 @@ def _block_mode_pool(grid: np.ndarray, block_size: int) -> np.ndarray:
                 r * block_size : (r + 1) * block_size,
                 c * block_size : (c + 1) * block_size,
             ]
-            # Mode: most common value in the block
             counts = np.bincount(block.ravel(), minlength=_N_COLORS)
             out[r, c] = np.argmax(counts)
     return out
