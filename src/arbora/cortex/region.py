@@ -1259,10 +1259,58 @@ class CorticalRegion:
         self._activate_downstream(top_cols, self.l4, self.l23, self.l4_to_l23_weights)
 
     def _activate_l5(self, top_cols: np.ndarray):
-        """Activate L5 via L2/3 → L5 per-column weights."""
+        """Activate L5 via graded population coding from L2/3 drive.
+
+        Unlike L4 and L2/3 which use burst/precise all-or-nothing switching,
+        L5 uses drive-proportional activation: the number of L5 neurons
+        that fire in a column reflects how many L2/3 neurons drove it.
+
+        Bursting columns (all L2/3 cells active) → strong drive → many L5 fire.
+        Predicted columns (1 L2/3 cell active) → weak drive → few L5 fire.
+
+        This produces a graded saliency signal without a hardcoded burst
+        mechanism. L5 population size naturally encodes input certainty.
+        """
         if self.n_l5 == 0:
             return
-        self._activate_downstream(top_cols, self.l23, self.l5, self.l23_to_l5_weights)
+
+        n_l23 = self.n_l23
+        n_l5 = self.n_l5
+
+        self.l5.active[:] = False
+        if len(top_cols) == 0:
+            return
+
+        # L2/3 → L5 drive via per-column weights
+        src_fr = self.l23.firing_rate.reshape(self.n_columns, n_l23)
+        drive = np.einsum(
+            "ci,cij->cj", src_fr[top_cols], self.l23_to_l5_weights[top_cols]
+        )
+        l5_v = self.l5.voltage.reshape(self.n_columns, n_l5)
+        l5_v[top_cols] += drive
+
+        # L5 prediction boost (from lateral segments)
+        boost = self.l23_prediction_boost or self.fb_boost
+        self.l5.voltage[self.l5.predicted] += boost
+
+        # Drive-proportional activation: for each column, the number of
+        # L5 winners scales with how many L2/3 neurons are active.
+        # This is the core mechanism: L2/3 population → L5 population.
+        l23_active = self.l23.active.reshape(self.n_columns, n_l23)
+        l5_scores = (self.l5.voltage + self.l5.excitability).reshape(
+            self.n_columns, n_l5
+        )
+
+        for col in top_cols:
+            n_active_l23 = int(l23_active[col].sum())
+            # Scale L5 winners: 1 L2/3 active → 1 L5 winner,
+            # all L2/3 active → all L5 fire.
+            n_winners = max(1, min(n_l5, n_active_l23))
+            if n_winners >= n_l5:
+                self.l5.active[col * n_l5 : (col + 1) * n_l5] = True
+            else:
+                top_idx = np.argpartition(l5_scores[col], -n_winners)[-n_winners:]
+                self.l5.active[col * n_l5 + top_idx] = True
 
     def _learn_apical(self):
         """Update apical segment permanences on all target laminae.
