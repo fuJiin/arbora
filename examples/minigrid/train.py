@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import argparse
 
-from arbor.basal_ganglia import BasalGangliaRegion
-from arbor.cortex import SensoryRegion
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.motor import MotorRegion
-from arbor.probes.core import LaminaProbe
+from arbora.basal_ganglia import BasalGangliaRegion
+from arbora.cortex import SensoryRegion
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.motor import MotorRegion
+from arbora.probes.core import LaminaProbe
 from examples.minigrid.agent import MiniGridAgent
 from examples.minigrid.encoder import MiniGridEncoder
 from examples.minigrid.env import MiniGridEnv

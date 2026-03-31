@@ -128,7 +128,7 @@ class TestChatEnvInterleaved:
 
 class TestChatAgent:
     def _make_agent(self):
-        from arbor.encoders.positional import PositionalCharEncoder
+        from arbora.encoders.positional import PositionalCharEncoder
         from examples.chat.presets import build_canonical_circuit
 
         alphabet = "abcdefghijklmnopqrstuvwxyz .,"

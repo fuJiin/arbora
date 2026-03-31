@@ -2,12 +2,12 @@
 
 import pytest
 
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.modulators import RewardModulator
-from arbor.cortex.motor import MotorRegion
-from arbor.cortex.sensory import SensoryRegion
-from arbor.encoders.charbit import CharbitEncoder
-from arbor.probes.modulators import ModulatorProbe
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.modulators import RewardModulator
+from arbora.cortex.motor import MotorRegion
+from arbora.cortex.sensory import SensoryRegion
+from arbora.encoders.charbit import CharbitEncoder
+from arbora.probes.modulators import ModulatorProbe
 from examples.chat.data import EOM_TOKEN, STORY_BOUNDARY, inject_eom_tokens
 from examples.chat.env import ChatEnv
 from examples.chat.probes import ChatMotorProbe

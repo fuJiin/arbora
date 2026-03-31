@@ -5,7 +5,7 @@ Called from CorticalRegion methods to replace hot Python/NumPy paths
 that create large temporaries or require per-element branching.
 
 Import pattern:
-    from arbor.cortex._numba_kernels import predict_segments, ...
+    from arbora.cortex._numba_kernels import predict_segments, ...
 
 Falls back gracefully if numba is not installed (pure numpy path remains).
 """

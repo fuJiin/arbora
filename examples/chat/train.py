@@ -22,7 +22,7 @@ import argparse
 import os
 from dataclasses import replace
 
-from arbor.encoders.positional import PositionalCharEncoder
+from arbora.encoders.positional import PositionalCharEncoder
 from examples.chat.agent import ChatAgent
 from examples.chat.data import inject_eom_tokens, prepare_tokens_charlevel
 from examples.chat.env import ChatEnv

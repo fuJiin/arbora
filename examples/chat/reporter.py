@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from arbor.probes.core import LaminaProbe
-    from arbor.probes.modulators import ModulatorProbe
+    from arbora.probes.core import LaminaProbe
+    from arbora.probes.modulators import ModulatorProbe
     from examples.chat.probes import ChatMotorProbe
 
 

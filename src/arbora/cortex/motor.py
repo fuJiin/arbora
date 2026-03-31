@@ -11,8 +11,8 @@ most frequently activates it, forming a self-organizing motor map.
 
 import numpy as np
 
-from arbor.config import PlasticityRule
-from arbor.cortex.region import CorticalRegion
+from arbora.config import PlasticityRule
+from arbora.cortex.region import CorticalRegion
 
 
 class MotorRegion(CorticalRegion):

@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-import arbor.cortex.circuit  # noqa: F401  # resolve circular import chain
-from arbor.probes.bpc import BPCProbe
+import arbora.cortex.circuit  # noqa: F401  # resolve circular import chain
+from arbora.probes.bpc import BPCProbe
 
 
 def _make_decoder(n_tokens: int = 10, scores: dict | None = None):

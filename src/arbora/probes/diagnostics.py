@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from arbor.cortex.region import CorticalRegion
+from arbora.cortex.region import CorticalRegion
 
 
 @dataclass

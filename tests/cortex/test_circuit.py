@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
 
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.modulators import SurpriseTracker, ThalamicGate
-from arbor.cortex.sensory import SensoryRegion
-from arbor.encoders.charbit import CharbitEncoder
-from arbor.probes.modulators import ModulatorProbe
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.modulators import SurpriseTracker, ThalamicGate
+from arbora.cortex.sensory import SensoryRegion
+from arbora.encoders.charbit import CharbitEncoder
+from arbora.probes.modulators import ModulatorProbe
 from examples.chat.data import STORY_BOUNDARY
 from tests.conftest import run_circuit
 
@@ -395,7 +395,7 @@ class TestBurstGating:
 class TestDeterminism:
     def test_same_seed_same_results(self, encoder):
         """Same seed produces identical probe snapshots."""
-        from arbor.probes.core import LaminaProbe
+        from arbora.probes.core import LaminaProbe
 
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(50)]
 

@@ -1,11 +1,11 @@
 """Tests for ChatMotorProbe — chat-specific motor and turn-taking metrics."""
 
-from arbor.basal_ganglia import BasalGangliaRegion
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.modulators import SurpriseTracker
-from arbor.cortex.motor import MotorRegion
-from arbor.cortex.sensory import SensoryRegion
-from arbor.encoders.charbit import CharbitEncoder
+from arbora.basal_ganglia import BasalGangliaRegion
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.modulators import SurpriseTracker
+from arbora.cortex.motor import MotorRegion
+from arbora.cortex.sensory import SensoryRegion
+from arbora.encoders.charbit import CharbitEncoder
 from examples.chat.agent import ChatAgent
 from examples.chat.data import STORY_BOUNDARY
 from examples.chat.env import ChatEnv

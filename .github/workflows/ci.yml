@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --dev
-      - run: uv run ty check src/arbor/
+      - run: uv run ty check src/arbora/
 
   test:
     runs-on: ubuntu-latest

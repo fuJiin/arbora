@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from arbor.neuron_group import NeuronGroup
+from arbora.neuron_group import NeuronGroup
 
 
 class BasalGangliaRegion:

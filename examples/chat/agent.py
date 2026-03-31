@@ -13,13 +13,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from arbor.agent import BaseAgent
-from arbor.cortex.motor import MotorRegion
+from arbora.agent import BaseAgent
+from arbora.cortex.motor import MotorRegion
 from examples.chat.env import ChatObs
 
 if TYPE_CHECKING:
-    from arbor.cortex.circuit import Circuit
-    from arbor.cortex.circuit_types import Encoder
+    from arbora.cortex.circuit import Circuit
+    from arbora.cortex.circuit_types import Encoder
 
 
 # ---------------------------------------------------------------------------

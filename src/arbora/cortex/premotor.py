@@ -23,8 +23,8 @@ Biologically maps to Broca's area / ventral premotor cortex:
 
 import numpy as np
 
-from arbor.config import PlasticityRule
-from arbor.cortex.region import CorticalRegion
+from arbora.config import PlasticityRule
+from arbora.cortex.region import CorticalRegion
 
 
 class PremotorRegion(CorticalRegion):

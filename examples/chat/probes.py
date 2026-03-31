@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from arbor.cortex.motor import MotorRegion
-from arbor.probes.core import LaminaProbe
+from arbora.cortex.motor import MotorRegion
+from arbora.probes.core import LaminaProbe
 from examples.chat.snapshots import (
     ChatAssociationSnapshot,
     ChatLaminaRegionSnapshot,
@@ -20,7 +20,7 @@ from examples.chat.snapshots import (
 )
 
 if TYPE_CHECKING:
-    from arbor.cortex.circuit import Circuit
+    from arbora.cortex.circuit import Circuit
 
 
 class ChatLaminaProbe(LaminaProbe):

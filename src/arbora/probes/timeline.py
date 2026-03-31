@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from arbor.cortex.region import CorticalRegion
+from arbora.cortex.region import CorticalRegion
 
 
 @dataclass
@@ -54,7 +54,7 @@ class Timeline:
         n_apical_pred = 0
         if region.has_apical and region._apical_sources:
             # Count L5 neurons predicted by apical segments
-            from arbor.cortex.lamina import LaminaID
+            from arbora.cortex.lamina import LaminaID
 
             n_apical_pred = int(region._predict_from_apical_segments(LaminaID.L5).sum())
 
