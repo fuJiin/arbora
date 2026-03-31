@@ -28,6 +28,7 @@ from arcengine import GameAction
 
 from examples.arc.agent import ArcAgent, build_circuit
 from examples.arc.encoder import ArcGridEncoder
+from examples.arc.probes import ArcProbeBundle
 
 # GameAction enum doesn't support GameAction(int) — build a lookup table.
 _ACTION_BY_VALUE = {a.value: a for a in GameAction}
@@ -41,6 +42,7 @@ def run_episode(
     *,
     max_steps: int = 500,
     verbose: bool = False,
+    probes: ArcProbeBundle | None = None,
 ) -> dict:
     """Run one episode of a game. Returns results dict."""
     env = arcade.make(game_id)
@@ -54,11 +56,18 @@ def run_episode(
 
     # Reset per-episode state (but preserve learned weights)
     agent.reset_episode()
+    if probes is not None:
+        probes.reset()
 
     for step_i in range(max_steps):
         # Agent processes frame and picks action
         # Reward is applied inside act() from previous step
         action_id, data = agent.act(grid, 0.0)
+
+        # Probe observation: after circuit.process() (inside act()),
+        # record V1/V2 state relative to the grid that was just processed.
+        if probes is not None:
+            probes.observe(agent._circuit, encoder, grid)
 
         # Step environment
         game_action = _ACTION_BY_VALUE[action_id]
@@ -114,6 +123,7 @@ def train_game(
     max_steps: int = 500,
     seed: int = 42,
     verbose: bool = True,
+    probes: ArcProbeBundle | None = None,
 ) -> dict:
     """Train an agent on one game over multiple episodes.
 
@@ -146,6 +156,7 @@ def train_game(
         result = run_episode(
             game_id, arcade, agent, encoder,
             max_steps=max_steps, verbose=verbose,
+            probes=probes,
         )
         episode_results.append(result)
 
@@ -155,6 +166,9 @@ def train_game(
                 f"  Ep {ep+1:3d}: {result['levels_completed']}/{win_levels} levels, "
                 f"{result['total_steps']:4d} steps, {status}"
             )
+
+        if probes is not None:
+            probes.print_report()
 
     # Summary
     best_levels = max(r["levels_completed"] for r in episode_results)
@@ -214,6 +228,7 @@ def main():
     parser.add_argument("--max-steps", type=int, default=500, help="Max steps per episode")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--share-weights", action="store_true", help="Share weights across games")
+    parser.add_argument("--probes", action="store_true", help="Enable visual decodability probes")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -227,10 +242,14 @@ def main():
     else:
         game_ids = [e.game_id.split("-")[0] for e in arcade.get_environments()]
 
+    probe_bundle = ArcProbeBundle() if args.probes else None
+
     if verbose:
         print(f"Training {len(game_ids)} games, {args.episodes} episodes each")
         if args.share_weights:
             print("  (sharing weights across games)")
+        if args.probes:
+            print("  (visual decodability probes enabled)")
         print()
 
     # Shared agent for cross-game learning (if enabled).
@@ -262,6 +281,7 @@ def main():
             max_steps=args.max_steps,
             seed=args.seed,
             verbose=verbose,
+            probes=probe_bundle,
         )
         results.append(result)
         if verbose:
