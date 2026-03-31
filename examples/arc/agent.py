@@ -30,9 +30,10 @@ def build_circuit(
     encoder: ArcGridEncoder,
     *,
     n_actions: int = 7,
-    # V1 config
-    v1_columns: int = 64,
-    v1_k: int = 8,
+    # V1 config — 128 cols, k=16 (12.5% sparsity, enough capacity for
+    # diverse visual features without forgetting)
+    v1_columns: int = 128,
+    v1_k: int = 16,
     v1_cells: int = 4,
     # BG config — higher learning rate for sparse reward
     bg_learning_rate: float = 0.1,
@@ -57,7 +58,7 @@ def build_circuit(
         n_actions=n_actions,
         learning_rate=bg_learning_rate,
         tonic_da_init=2.0,
-        tonic_da_min=0.5,
+        tonic_da_min=1.0,
         # No seed: biological tonic DA noise is genuinely stochastic.
         # This is the primary exploration mechanism — different noise
         # each episode produces different action sequences.
@@ -131,19 +132,16 @@ class ArcAgent(BaseAgent):
         self.last_output = output
 
         # Intrinsic reward from V1 burst rate.
-        # High burst = unexpected state = positive surprise → curiosity reward.
-        # Low burst = predicted state = expected → no reward.
-        # This is the dopaminergic response to novel stimuli.
+        # Pass raw burst rate as reward — let BG's own RPE baseline
+        # adapt to the typical level. Above-baseline bursts (genuine
+        # surprise) produce positive RPE → Go pathway. Below-baseline
+        # (habituated) produces negative RPE → NoGo pathway.
+        # No centering or scaling — the BG's reward_baseline handles it.
         n_active = max(int(v1.active_columns.sum()), 1)
         n_bursting = int(v1.bursting_columns.sum())
         burst_rate = n_bursting / n_active
 
-        # Convert burst rate to intrinsic reward:
-        # baseline burst rate ~0.5 for random input, so center around that.
-        # Above baseline = positive surprise, below = negative (boring/expected).
-        intrinsic_reward = (burst_rate - 0.5) * 0.1
-        if abs(intrinsic_reward) > 0.001:
-            self.apply_reward(intrinsic_reward)
+        self.apply_reward(burst_rate)
 
         # Save encoding for next step's efference copy
         self._last_encoding = encoding.copy()

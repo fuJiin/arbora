@@ -69,20 +69,22 @@ def run_episode(
         total_steps += 1
         level_steps += 1
 
-        # Game over (death) — apply negative reward
+        # Game over — no external penalty. The agent's intrinsic
+        # signals (burst rate) are the only reward source. External
+        # events like death should be learned, not hardcoded.
         if not frame.frame:
             died = True
-            agent.apply_reward(-1.0)
             if verbose:
                 print(f"    Died at step {total_steps} ({frame.state})")
             break
 
         grid = frame.frame[0]
 
-        # Level completion — apply positive reward
+        # Level completion — tracked for scoring. No external reward;
+        # the visual change to a new level naturally produces a burst
+        # spike which is the intrinsic signal.
         new_levels = frame.levels_completed
         if new_levels > levels_completed:
-            agent.apply_reward(1.0)
             if verbose:
                 print(f"    Level {new_levels} at step {total_steps} ({level_steps} actions)")
             levels_completed = new_levels
