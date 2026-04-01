@@ -5,7 +5,6 @@ behavior without requiring the ARC-AGI SDK.
 """
 
 import numpy as np
-import pytest
 
 from arbora.cortex import SensoryRegion
 from arbora.cortex.circuit import Circuit, ConnectionRole
@@ -17,7 +16,6 @@ from examples.arc.probes import (
     RepresentationStabilityProbe,
     TimerSelectivityProbe,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

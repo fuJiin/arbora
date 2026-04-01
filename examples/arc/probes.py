@@ -146,9 +146,9 @@ class ChangeLocalizationProbe:
 
         # Keep only recent window
         if len(self._change_fractions) > self._window * 2:
-            self._change_fractions = self._change_fractions[-self._window:]
-            self._burst_fractions = self._burst_fractions[-self._window:]
-            self._localization_scores = self._localization_scores[-self._window:]
+            self._change_fractions = self._change_fractions[-self._window :]
+            self._burst_fractions = self._burst_fractions[-self._window :]
+            self._localization_scores = self._localization_scores[-self._window :]
 
     def snapshot(self) -> dict:
         """Return summary metrics."""
@@ -162,9 +162,9 @@ class ChangeLocalizationProbe:
                 "mean_change_frac": 0.0,
             }
 
-        recent_change = np.array(self._change_fractions[-self._window:])
-        recent_burst = np.array(self._burst_fractions[-self._window:])
-        recent_loc = np.array(self._localization_scores[-self._window:])
+        recent_change = np.array(self._change_fractions[-self._window :])
+        recent_burst = np.array(self._burst_fractions[-self._window :])
+        recent_loc = np.array(self._localization_scores[-self._window :])
 
         # Pearson correlation between change fraction and burst fraction
         if np.std(recent_change) > 1e-8 and np.std(recent_burst) > 1e-8:
@@ -232,13 +232,9 @@ class TimerSelectivityProbe:
         self._prev_down = curr_down.copy()
 
         # Did the timer region change?
-        timer_changed = bool(
-            changed[_TIMER_ROW_START:_TIMER_ROW_END, :].any()
-        )
+        timer_changed = bool(changed[_TIMER_ROW_START:_TIMER_ROW_END, :].any())
         # Did anything OUTSIDE the timer change?
-        non_timer_changed = bool(
-            changed[:_TIMER_ROW_START, :].any()
-        )
+        non_timer_changed = bool(changed[:_TIMER_ROW_START, :].any())
 
         burst_cols = np.nonzero(v1.bursting_columns)[0]
 
@@ -267,9 +263,7 @@ class TimerSelectivityProbe:
                 "mean_nontimer_burst_rate": 0.0,
             }
 
-        all_cols = set(self._timer_bursts.keys()) | set(
-            self._nontimer_bursts.keys()
-        )
+        all_cols = set(self._timer_bursts.keys()) | set(self._nontimer_bursts.keys())
 
         selective = []
         timer_rates = []
@@ -277,9 +271,7 @@ class TimerSelectivityProbe:
 
         for col in sorted(all_cols):
             timer_rate = self._timer_bursts.get(col, 0) / self._timer_frames
-            nontimer_rate = (
-                self._nontimer_bursts.get(col, 0) / self._nontimer_frames
-            )
+            nontimer_rate = self._nontimer_bursts.get(col, 0) / self._nontimer_frames
             timer_rates.append(timer_rate)
             nontimer_rates.append(nontimer_rate)
 
@@ -366,7 +358,7 @@ class RepresentationStabilityProbe:
 
         # Keep only recent window
         if len(self._jaccard_history) > self._window * 2:
-            self._jaccard_history = self._jaccard_history[-self._window:]
+            self._jaccard_history = self._jaccard_history[-self._window :]
 
     def snapshot(self) -> dict:
         """Return representation stability metrics."""
@@ -381,7 +373,7 @@ class RepresentationStabilityProbe:
                 "max_jaccard": 0.0,
             }
 
-        recent = np.array(self._jaccard_history[-self._window:])
+        recent = np.array(self._jaccard_history[-self._window :])
         return {
             "region": self._region_name,
             "n_steps": n,
@@ -468,12 +460,8 @@ class ArcProbeBundle:
                     f"non-timer={sc['nontimer_burst_rate']:.3f} "
                     f"ratio={sc['selectivity_ratio']}"
                 )
-        print(
-            f"    mean timer burst rate:     {ts['mean_timer_burst_rate']:.3f}"
-        )
-        print(
-            f"    mean non-timer burst rate: {ts['mean_nontimer_burst_rate']:.3f}"
-        )
+        print(f"    mean timer burst rate:     {ts['mean_timer_burst_rate']:.3f}")
+        print(f"    mean non-timer burst rate: {ts['mean_nontimer_burst_rate']:.3f}")
 
         rs = snap["representation_stability"]
         print(f"\n  V2 Representation Stability ({rs['n_steps']} steps):")

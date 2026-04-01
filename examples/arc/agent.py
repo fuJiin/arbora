@@ -26,7 +26,7 @@ from arbora.thalamus import ThalamicNucleus
 from examples.arc.encoder import ArcGridEncoder
 
 if TYPE_CHECKING:
-    from arcengine.enums import GameAction
+    pass
 
 
 def build_circuit(
@@ -199,7 +199,7 @@ class ArcAgent(BaseAgent):
         return {i: a for i, a in enumerate(available_actions)}
 
     def step(self, grid: np.ndarray) -> None:
-        """Encode grid with efference copy, process circuit, compute intrinsic reward."""
+        """Encode grid with efference copy, process circuit, reward."""
         v1 = self._circuit.region(self._entry_name)
 
         # Efference copy: V1 expects the grid to look like last frame.

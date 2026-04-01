@@ -52,8 +52,10 @@ class TestThalamicNucleusUnit:
     def test_burst_on_gate_reopen(self):
         """Gate reopening after closure triggers burst (amplified output)."""
         th = ThalamicNucleus(
-            input_dim=16, relay_dim=8,
-            burst_gain=3.0, gate_threshold=0.0,
+            input_dim=16,
+            relay_dim=8,
+            burst_gain=3.0,
+            gate_threshold=0.0,
         )
         inp = np.ones(16) * 0.5
         # Open the gate for several steps to establish tonic mode
@@ -95,8 +97,10 @@ class TestThalamicNucleusUnit:
     def test_relay_weights_learn(self):
         """Hebbian learning updates relay weights when gate is open."""
         th = ThalamicNucleus(
-            input_dim=16, relay_dim=8,
-            learning_rate=0.1, gate_threshold=-1.0,
+            input_dim=16,
+            relay_dim=8,
+            learning_rate=0.1,
+            gate_threshold=-1.0,
         )
         initial_weights = th.relay_weights.copy()
         inp = np.ones(16) * 0.5
@@ -130,15 +134,27 @@ class TestThalamicNucleusCircuitIntegration:
 
         encoder = CharbitEncoder(length=4, width=5, chars="abcd")
         v1 = SensoryRegion(
-            input_dim=4 * 5, encoding_width=5,
-            n_columns=8, n_l4=2, n_l23=2, n_l5=2, k_columns=2, seed=42,
+            input_dim=4 * 5,
+            encoding_width=5,
+            n_columns=8,
+            n_l4=2,
+            n_l23=2,
+            n_l5=2,
+            k_columns=2,
+            seed=42,
         )
         th = ThalamicNucleus(
-            input_dim=v1.n_l5_total, relay_dim=16, seed=0,
+            input_dim=v1.n_l5_total,
+            relay_dim=16,
+            seed=0,
         )
         v2 = SensoryRegion(
-            input_dim=th.relay_dim, n_columns=4, n_l4=2, n_l23=2,
-            k_columns=1, seed=99,
+            input_dim=th.relay_dim,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
+            seed=99,
         )
 
         circuit = Circuit(encoder)
@@ -173,17 +189,29 @@ class TestThalamicNucleusCircuitIntegration:
 
         encoder = CharbitEncoder(length=4, width=5, chars="abcd")
         v1 = SensoryRegion(
-            input_dim=4 * 5, encoding_width=5,
-            n_columns=8, n_l4=2, n_l23=2, n_l5=2, k_columns=2, seed=42,
+            input_dim=4 * 5,
+            encoding_width=5,
+            n_columns=8,
+            n_l4=2,
+            n_l23=2,
+            n_l5=2,
+            k_columns=2,
+            seed=42,
         )
         bg = BasalGangliaRegion(input_dim=v1.n_l5_total, n_actions=4, seed=100)
         motor_thal = ThalamicNucleus(
-            input_dim=v1.n_l23_total, relay_dim=8, seed=200,
+            input_dim=v1.n_l23_total,
+            relay_dim=8,
+            seed=200,
         )
         m1 = MotorRegion(
             input_dim=motor_thal.relay_dim,
-            n_columns=4, n_l4=0, n_l23=2, k_columns=1,
-            n_output_tokens=4, seed=300,
+            n_columns=4,
+            n_l4=0,
+            n_l23=2,
+            k_columns=1,
+            n_output_tokens=4,
+            seed=300,
         )
 
         circuit = Circuit(encoder)
@@ -197,9 +225,13 @@ class TestThalamicNucleusCircuitIntegration:
         # V1 L2/3 → motor_thal (driver)
         circuit.connect(v1.l23, motor_thal.input_port, ConnectionRole.FEEDFORWARD)
         # BG → motor_thal (gate)
-        circuit.connect(bg.output_port, motor_thal.input_port, ConnectionRole.MODULATORY)
+        circuit.connect(
+            bg.output_port, motor_thal.input_port, ConnectionRole.MODULATORY
+        )
         # motor_thal → M1
-        circuit.connect(motor_thal.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
+        circuit.connect(
+            motor_thal.output_port, m1.input_port, ConnectionRole.FEEDFORWARD
+        )
 
         circuit.finalize()
 

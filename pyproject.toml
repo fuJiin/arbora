@@ -51,6 +51,8 @@ invalid-assignment = "warn"
 unsupported-operator = "warn"
 invalid-return-type = "warn"
 no-matching-overload = "warn"
+# numpy bool_ indexing: ty doesn't recognize np.ndarray[bool_].__getitem__
+not-subscriptable = "warn"
 
 [[tool.ty.overrides]]
 include = ["src/arbora/data.py"]

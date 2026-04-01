@@ -1318,7 +1318,7 @@ class CorticalRegion:
 
         for col in top_cols:
             n_active_l23 = int(l23_active[col].sum())
-            if apical_cols[col]:
+            if bool(apical_cols[col]):
                 # BAC firing: feedforward + apical coincidence → all L5 fire
                 n_winners = n_l5
             else:

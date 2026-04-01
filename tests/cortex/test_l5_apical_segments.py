@@ -243,7 +243,7 @@ class TestL5ApicalBACFiring:
         r._activate_l5(np.array([0, 1]))
 
         # Column 0: BAC burst → all L5 fire
-        l5_col0 = r.l5.active[: n_l5]
+        l5_col0 = r.l5.active[:n_l5]
         assert l5_col0.all(), (
             f"Column 0 (apical) should BAC burst, got {l5_col0.sum()}/{n_l5}"
         )

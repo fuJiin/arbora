@@ -88,9 +88,7 @@ class ThalamicNucleus:
         self.learning_enabled = True
 
         # Relay weights: driver → output (learned)
-        self.relay_weights = self._rng.uniform(
-            0.1, 0.5, size=(input_dim, relay_dim)
-        )
+        self.relay_weights = self._rng.uniform(0.1, 0.5, size=(input_dim, relay_dim))
         # Clip to [0, 1] consistent with cortical ff_weights
         np.clip(self.relay_weights, 0.0, 1.0, out=self.relay_weights)
 

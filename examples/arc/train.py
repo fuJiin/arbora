@@ -18,12 +18,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 
-import numpy as np
-
 import arc_agi
+import numpy as np
 from arcengine import GameAction
 
 from examples.arc.agent import ArcAgent, build_circuit
@@ -59,7 +57,7 @@ def run_episode(
     if probes is not None:
         probes.reset()
 
-    for step_i in range(max_steps):
+    for _step_i in range(max_steps):
         # Agent processes frame and picks action
         # Reward is applied inside act() from previous step
         action_id, data = agent.act(grid, 0.0)
@@ -95,7 +93,10 @@ def run_episode(
         new_levels = frame.levels_completed
         if new_levels > levels_completed:
             if verbose:
-                print(f"    Level {new_levels} at step {total_steps} ({level_steps} actions)")
+                print(
+                    f"    Level {new_levels} at step"
+                    f" {total_steps} ({level_steps} actions)"
+                )
             levels_completed = new_levels
             level_steps = 0
 
@@ -154,8 +155,12 @@ def train_game(
 
     for ep in range(n_episodes):
         result = run_episode(
-            game_id, arcade, agent, encoder,
-            max_steps=max_steps, verbose=verbose,
+            game_id,
+            arcade,
+            agent,
+            encoder,
+            max_steps=max_steps,
+            verbose=verbose,
             probes=probes,
         )
         episode_results.append(result)
@@ -163,7 +168,7 @@ def train_game(
         if verbose:
             status = "died" if result["died"] else "alive"
             print(
-                f"  Ep {ep+1:3d}: {result['levels_completed']}/{win_levels} levels, "
+                f"  Ep {ep + 1:3d}: {result['levels_completed']}/{win_levels} levels, "
                 f"{result['total_steps']:4d} steps, {status}"
             )
 
@@ -184,7 +189,7 @@ def train_game(
     late_survival = np.mean([1 - r["died"] for r in episode_results[half:]])
 
     if verbose:
-        print(f"  ---")
+        print("  ---")
         print(f"  Best: {best_levels}/{win_levels} levels")
         print(f"  Avg steps: {avg_steps:.0f}, Survival: {survival_rate:.0%}")
         print(
@@ -222,13 +227,25 @@ def main():
     parser = argparse.ArgumentParser(description="ARC-AGI-3 baseline with Arbor")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--game", type=str, help="Run on a specific game ID")
-    group.add_argument("--keyboard-only", action="store_true", help="Keyboard-only games")
+    group.add_argument(
+        "--keyboard-only", action="store_true", help="Keyboard-only games"
+    )
     group.add_argument("--all", action="store_true", help="All public games")
     parser.add_argument("--episodes", type=int, default=10, help="Episodes per game")
-    parser.add_argument("--max-steps", type=int, default=500, help="Max steps per episode")
+    parser.add_argument(
+        "--max-steps", type=int, default=500, help="Max steps per episode"
+    )
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--share-weights", action="store_true", help="Share weights across games")
-    parser.add_argument("--probes", action="store_true", help="Enable visual decodability probes")
+    parser.add_argument(
+        "--share-weights",
+        action="store_true",
+        help="Share weights across games",
+    )
+    parser.add_argument(
+        "--probes",
+        action="store_true",
+        help="Enable visual decodability probes",
+    )
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -272,9 +289,10 @@ def main():
 
     for i, game_id in enumerate(game_ids):
         if verbose:
-            print(f"[{i+1}/{len(game_ids)}] {game_id}")
+            print(f"[{i + 1}/{len(game_ids)}] {game_id}")
         result = train_game(
-            game_id, arcade,
+            game_id,
+            arcade,
             agent=shared_agent if args.share_weights else None,
             encoder=shared_encoder if args.share_weights else None,
             n_episodes=args.episodes,
@@ -293,7 +311,11 @@ def main():
     print("=" * 60)
     print(f"Results: {len(results)} games x {args.episodes} episodes, {elapsed:.1f}s")
     print()
-    print(f"{'Game':8s} {'Best':>5s} {'Surv':>6s} {'Early→Late Levels':>20s} {'Early→Late Surv':>18s}")
+    header = (
+        f"{'Game':8s} {'Best':>5s} {'Surv':>6s}"
+        f" {'Early→Late Levels':>20s} {'Early→Late Surv':>18s}"
+    )
+    print(header)
     print("-" * 60)
     for r in results:
         marker = "*" if r["best_levels"] > 0 else " "

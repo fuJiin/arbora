@@ -134,9 +134,7 @@ class BasalGangliaRegion:
         av_range = action_value.max() - action_value.min()
         if av_range > 1e-6:
             # Center and scale to [-1, 1]
-            action_value = (
-                2.0 * (action_value - action_value.min()) / av_range - 1.0
-            )
+            action_value = 2.0 * (action_value - action_value.min()) / av_range - 1.0
 
         # Tonic DA exploration noise (large early -> exploration, small late -> exploit)
         noise = self._rng.normal(0, max(self._tonic_da, 0.01), size=self._n_actions)
