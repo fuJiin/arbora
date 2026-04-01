@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from arbor.thalamus import ThalamicNucleus
+from arbora.thalamus import ThalamicNucleus
 
 
 class TestThalamicNucleusUnit:
@@ -124,9 +124,9 @@ class TestThalamicNucleusUnit:
 class TestThalamicNucleusCircuitIntegration:
     def test_thalamus_in_circuit(self):
         """ThalamicNucleus wired between V1 and a downstream region."""
-        from arbor.cortex import SensoryRegion
-        from arbor.cortex.circuit import Circuit, ConnectionRole
-        from arbor.encoders.charbit import CharbitEncoder
+        from arbora.cortex import SensoryRegion
+        from arbora.cortex.circuit import Circuit, ConnectionRole
+        from arbora.encoders.charbit import CharbitEncoder
 
         encoder = CharbitEncoder(length=4, width=5, chars="abcd")
         v1 = SensoryRegion(
@@ -165,11 +165,11 @@ class TestThalamicNucleusCircuitIntegration:
 
     def test_thalamus_with_bg_gate(self):
         """Motor thalamus: BG gates the relay to M1."""
-        from arbor.basal_ganglia import BasalGangliaRegion
-        from arbor.cortex import SensoryRegion
-        from arbor.cortex.circuit import Circuit, ConnectionRole
-        from arbor.cortex.motor import MotorRegion
-        from arbor.encoders.charbit import CharbitEncoder
+        from arbora.basal_ganglia import BasalGangliaRegion
+        from arbora.cortex import SensoryRegion
+        from arbora.cortex.circuit import Circuit, ConnectionRole
+        from arbora.cortex.motor import MotorRegion
+        from arbora.encoders.charbit import CharbitEncoder
 
         encoder = CharbitEncoder(length=4, width=5, chars="abcd")
         v1 = SensoryRegion(

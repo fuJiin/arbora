@@ -17,12 +17,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from arbor.agent import BaseAgent
-from arbor.basal_ganglia import BasalGangliaRegion
-from arbor.cortex import SensoryRegion
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.motor import MotorRegion
-from arbor.thalamus import ThalamicNucleus
+from arbora.agent import BaseAgent
+from arbora.basal_ganglia import BasalGangliaRegion
+from arbora.cortex import SensoryRegion
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.motor import MotorRegion
+from arbora.thalamus import ThalamicNucleus
 from examples.arc.encoder import ArcGridEncoder
 
 if TYPE_CHECKING:

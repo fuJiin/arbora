@@ -7,9 +7,9 @@ behavior without requiring the ARC-AGI SDK.
 import numpy as np
 import pytest
 
-from arbor.cortex import SensoryRegion
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.thalamus import ThalamicNucleus
+from arbora.cortex import SensoryRegion
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.thalamus import ThalamicNucleus
 from examples.arc.encoder import ArcGridEncoder
 from examples.arc.probes import (
     ArcProbeBundle,
