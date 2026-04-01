@@ -18,7 +18,7 @@ import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from arbor.cortex.circuit import ConnectionRole
+from arbora.cortex.circuit import ConnectionRole
 
 
 @dataclass

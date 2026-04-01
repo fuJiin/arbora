@@ -3,7 +3,7 @@
 Core (input-agnostic): InputSnapshot, AssociationSnapshot, LaminaRegionSnapshot.
 """
 
-from arbor.snapshots.core import (
+from arbora.snapshots.core import (
     AssociationSnapshot,
     InputSnapshot,
     LaminaRegionSnapshot,

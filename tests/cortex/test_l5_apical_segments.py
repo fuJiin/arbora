@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from arbor.cortex.lamina import LaminaID
-from arbor.cortex.region import CorticalRegion
+from arbora.cortex.lamina import LaminaID
+from arbora.cortex.region import CorticalRegion
 
 
 def _make_region(**kwargs):

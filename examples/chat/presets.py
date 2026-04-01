@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from arbor.config import (
+from arbora.config import (
     CortexConfig,
     _default_motor_config,
     _default_pfc_config,
@@ -29,11 +29,11 @@ from arbor.config import (
     make_premotor_region,
     make_sensory_region,
 )
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.modulators import SurpriseTracker, ThalamicGate
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.modulators import SurpriseTracker, ThalamicGate
 
 if TYPE_CHECKING:
-    from arbor.cortex.circuit_types import Encoder
+    from arbora.cortex.circuit_types import Encoder
 
 
 def build_canonical_circuit(

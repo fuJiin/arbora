@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from arbor.cortex.motor import MotorRegion
+from arbora.cortex.motor import MotorRegion
 
 
 @pytest.fixture()

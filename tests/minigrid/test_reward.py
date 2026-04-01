@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 
-from arbor.basal_ganglia import BasalGangliaRegion
-from arbor.cortex import SensoryRegion
-from arbor.cortex.circuit import Circuit, ConnectionRole
-from arbor.cortex.motor import MotorRegion
+from arbora.basal_ganglia import BasalGangliaRegion
+from arbora.cortex import SensoryRegion
+from arbora.cortex.circuit import Circuit, ConnectionRole
+from arbora.cortex.motor import MotorRegion
 from examples.minigrid.agent import MiniGridAgent
 from examples.minigrid.encoder import MiniGridEncoder
 from examples.minigrid.env import MiniGridEnv

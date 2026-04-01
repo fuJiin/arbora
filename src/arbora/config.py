@@ -5,8 +5,8 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from arbor.cortex.motor import MotorRegion
-    from arbor.cortex.sensory import SensoryRegion
+    from arbora.cortex.motor import MotorRegion
+    from arbora.cortex.sensory import SensoryRegion
 
 
 class PlasticityRule(Enum):
@@ -183,7 +183,7 @@ def make_sensory_region(
     Eliminates the 25-line boilerplate of unpacking every CortexConfig
     field into SensoryRegion constructor kwargs.
     """
-    from arbor.cortex.sensory import SensoryRegion
+    from arbora.cortex.sensory import SensoryRegion
 
     d = asdict(cfg)
     s = d.pop("seed")
@@ -226,7 +226,7 @@ def make_pfc_region(
     source_dims: list[int] | None = None,
 ):
     """Create a PFCRegion from a CortexConfig."""
-    from arbor.cortex.pfc import PFCRegion
+    from arbora.cortex.pfc import PFCRegion
 
     d = asdict(cfg)
     s = d.pop("seed")
@@ -273,7 +273,7 @@ def make_premotor_region(
     source_dims: list[int] | None = None,
 ):
     """Create a PremotorRegion from a CortexConfig."""
-    from arbor.cortex.premotor import PremotorRegion
+    from arbora.cortex.premotor import PremotorRegion
 
     d = asdict(cfg)
     s = d.pop("seed")
@@ -305,7 +305,7 @@ def make_motor_region(
     Motor regions inherit directly from CorticalRegion (not SensoryRegion)
     with full connectivity (no encoding-width spatial structure).
     """
-    from arbor.cortex.motor import MotorRegion
+    from arbora.cortex.motor import MotorRegion
 
     d = asdict(cfg)
     s = d.pop("seed")

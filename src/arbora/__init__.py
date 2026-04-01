@@ -1,11 +1,11 @@
-"""Arbor: biologically-plausible cortical learning framework.
+"""Arbora: biologically-plausible cortical learning framework.
 
 Build circuits from cortical regions, connect them, and train with
 Hebbian + three-factor reward-modulated learning. No backprop.
 
 Quick start::
 
-    from arbor import Circuit, SensoryRegion, MotorRegion, ConnectionRole
+    from arbora import Circuit, SensoryRegion, MotorRegion, ConnectionRole
 
     s1 = SensoryRegion(input_dim=100, n_columns=32, n_l4=4, n_l23=4, k_columns=4)
     m1 = MotorRegion(input_dim=s1.n_l23_total, n_columns=16, n_l4=0, n_l23=4,
@@ -24,10 +24,10 @@ __version__ = "0.1.0"
 
 # Building blocks
 # Base classes
-from arbor.agent import BaseAgent, TrainResult
-from arbor.basal_ganglia import BasalGangliaRegion
-from arbor.config import PlasticityRule
-from arbor.cortex import (
+from arbora.agent import BaseAgent, TrainResult
+from arbora.basal_ganglia import BasalGangliaRegion
+from arbora.config import PlasticityRule
+from arbora.cortex import (
     Circuit,
     Connection,
     ConnectionRole,
@@ -44,11 +44,11 @@ from arbor.cortex import (
 )
 
 # Protocols
-from arbor.cortex.circuit_types import Encoder, Region
-from arbor.neuron_group import NeuronGroup
+from arbora.cortex.circuit_types import Encoder, Region
+from arbora.neuron_group import NeuronGroup
 
 # Probes
-from arbor.probes.core import LaminaProbe, Probe
+from arbora.probes.core import LaminaProbe, Probe
 
 __all__ = [
     "BasalGangliaRegion",

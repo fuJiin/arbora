@@ -36,17 +36,17 @@ feedforward synapses.
 
 import numpy as np
 
-from arbor.config import PlasticityRule
-from arbor.cortex.lamina import Lamina, LaminaID
+from arbora.config import PlasticityRule
+from arbora.cortex.lamina import Lamina, LaminaID
 
 try:
-    from arbor.cortex._numba_kernels import (
+    from arbora.cortex._numba_kernels import (
         adapt_segments_batch as _nb_adapt,
     )
-    from arbor.cortex._numba_kernels import (
+    from arbora.cortex._numba_kernels import (
         grow_segment as _nb_grow,
     )
-    from arbor.cortex._numba_kernels import (
+    from arbora.cortex._numba_kernels import (
         predict_segments as _nb_predict,
     )
 

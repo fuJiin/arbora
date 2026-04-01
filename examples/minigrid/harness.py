@@ -16,8 +16,8 @@ import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from arbor.agent import TrainResult
-from arbor.probes.core import LaminaProbe, Probe
+from arbora.agent import TrainResult
+from arbora.probes.core import LaminaProbe, Probe
 
 if TYPE_CHECKING:
     from examples.minigrid.agent import MiniGridAgent

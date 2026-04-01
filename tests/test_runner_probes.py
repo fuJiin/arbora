@@ -9,11 +9,11 @@ Verifies that train() and run_cortex() correctly wire probes:
 
 import pytest
 
-from arbor.cortex import CorticalRegion
-from arbor.cortex.circuit import Circuit
-from arbor.cortex.sensory import SensoryRegion
-from arbor.encoders.positional import PositionalCharEncoder
-from arbor.probes.core import LaminaProbe
+from arbora.cortex import CorticalRegion
+from arbora.cortex.circuit import Circuit
+from arbora.cortex.sensory import SensoryRegion
+from arbora.encoders.positional import PositionalCharEncoder
+from arbora.probes.core import LaminaProbe
 from examples.chat.agent import ChatAgent
 from examples.chat.data import STORY_BOUNDARY
 from examples.chat.env import ChatEnv

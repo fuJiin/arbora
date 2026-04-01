@@ -10,7 +10,7 @@ qualitative insight into the context S2 sends to S1 via apical.
 
 import numpy as np
 
-from arbor.decoders.dendritic import DendriticDecoder
+from arbora.decoders.dendritic import DendriticDecoder
 
 _BOUNDARY_CHARS = frozenset(" .!?'-,\n")
 

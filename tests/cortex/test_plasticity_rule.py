@@ -2,11 +2,11 @@
 
 import numpy as np
 
-from arbor.config import PlasticityRule
-from arbor.cortex.motor import MotorRegion
-from arbor.cortex.pfc import PFCRegion
-from arbor.cortex.premotor import PremotorRegion
-from arbor.cortex.region import CorticalRegion
+from arbora.config import PlasticityRule
+from arbora.cortex.motor import MotorRegion
+from arbora.cortex.pfc import PFCRegion
+from arbora.cortex.premotor import PremotorRegion
+from arbora.cortex.region import CorticalRegion
 
 # ---------------------------------------------------------------------------
 # PlasticityRule enum basics
@@ -345,52 +345,52 @@ class TestMotorThreeFactorEndToEnd:
 
 class TestConfigFactories:
     def test_default_pfc_config_is_three_factor(self):
-        from arbor.config import _default_pfc_config
+        from arbora.config import _default_pfc_config
 
         cfg = _default_pfc_config()
         assert cfg.plasticity_rule == PlasticityRule.THREE_FACTOR
 
     def test_default_motor_config_is_three_factor(self):
-        from arbor.config import _default_motor_config
+        from arbora.config import _default_motor_config
 
         cfg = _default_motor_config()
         assert cfg.plasticity_rule == PlasticityRule.THREE_FACTOR
 
     def test_default_premotor_config_is_three_factor(self):
-        from arbor.config import _default_premotor_config
+        from arbora.config import _default_premotor_config
 
         cfg = _default_premotor_config()
         assert cfg.plasticity_rule == PlasticityRule.THREE_FACTOR
 
     def test_default_s1_config_is_hebbian(self):
-        from arbor.config import _default_s1_config
+        from arbora.config import _default_s1_config
 
         cfg = _default_s1_config()
         assert cfg.plasticity_rule == PlasticityRule.HEBBIAN
 
     def test_make_pfc_region_passes_rule(self):
-        from arbor.config import _default_pfc_config, make_pfc_region
+        from arbora.config import _default_pfc_config, make_pfc_region
 
         cfg = _default_pfc_config()
         pfc = make_pfc_region(cfg, input_dim=16)
         assert pfc.plasticity_rule == PlasticityRule.THREE_FACTOR
 
     def test_make_motor_region_passes_rule(self):
-        from arbor.config import _default_motor_config, make_motor_region
+        from arbora.config import _default_motor_config, make_motor_region
 
         cfg = _default_motor_config()
         m1 = make_motor_region(cfg, input_dim=16)
         assert m1.plasticity_rule == PlasticityRule.THREE_FACTOR
 
     def test_make_premotor_region_passes_rule(self):
-        from arbor.config import _default_premotor_config, make_premotor_region
+        from arbora.config import _default_premotor_config, make_premotor_region
 
         cfg = _default_premotor_config()
         m2 = make_premotor_region(cfg, input_dim=16)
         assert m2.plasticity_rule == PlasticityRule.THREE_FACTOR
 
     def test_make_sensory_region_is_hebbian(self):
-        from arbor.config import CortexConfig, make_sensory_region
+        from arbora.config import CortexConfig, make_sensory_region
 
         cfg = CortexConfig()
         s1 = make_sensory_region(cfg, input_dim=16)

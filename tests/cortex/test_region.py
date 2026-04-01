@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from arbor.cortex import CorticalRegion, SensoryRegion
+from arbora.cortex import CorticalRegion, SensoryRegion
 
 
 def col_drive(col_values: list[float], n_l4: int) -> np.ndarray:
@@ -579,7 +579,7 @@ class TestSensoryRegion:
 
     def test_charbit_integration(self):
         """End-to-end: CharbitEncoder → SensoryRegion."""
-        from arbor.encoders import CharbitEncoder
+        from arbora.encoders import CharbitEncoder
 
         enc = CharbitEncoder(length=4, width=5, chars="abcd")
         encoding = enc.encode("abc")

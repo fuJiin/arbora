@@ -11,23 +11,23 @@ from collections import deque
 
 import numpy as np
 
-from arbor.cortex.circuit_types import (
+from arbora.cortex.circuit_types import (
     Connection,
     ConnectionRole,
     Encoder,
     Region,
     _RegionState,
 )
-from arbor.cortex.lamina import Lamina
-from arbor.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
-from arbor.cortex.motor import MotorRegion
-from arbor.cortex.region import CorticalRegion
-from arbor.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
-from arbor.probes.diagnostics import CortexDiagnostics
-from arbor.probes.representation import RepresentationTracker
-from arbor.probes.timeline import Timeline
+from arbora.cortex.lamina import Lamina
+from arbora.cortex.modulators import RewardModulator, SurpriseTracker, ThalamicGate
+from arbora.cortex.motor import MotorRegion
+from arbora.cortex.region import CorticalRegion
+from arbora.decoders import DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
+from arbora.probes.diagnostics import CortexDiagnostics
+from arbora.probes.representation import RepresentationTracker
+from arbora.probes.timeline import Timeline
 
-# Re-export types so external code can import from arbor.cortex.circuit.
+# Re-export types so external code can import from arbora.cortex.circuit.
 __all__ = [
     "Circuit",
     "Connection",
