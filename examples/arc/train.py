@@ -25,6 +25,7 @@ import numpy as np
 from arcengine import GameAction
 
 from examples.arc.agent import ArcAgent, build_circuit
+from examples.arc.data import keyboard_only_games
 from examples.arc.encoder import ArcGridEncoder
 from examples.arc.probes import ArcProbeBundle
 
@@ -210,18 +211,6 @@ def train_game(
     }
 
 
-def get_keyboard_only_games(arcade: arc_agi.Arcade) -> list[str]:
-    """Return game IDs that only use keyboard actions (1-5)."""
-    game_ids = []
-    for e in arcade.get_environments():
-        gid = e.game_id.split("-")[0]
-        env = arcade.make(gid)
-        f = env.reset()
-        if all(a <= 5 for a in f.available_actions):
-            game_ids.append(gid)
-    return game_ids
-
-
 def main():
     parser = argparse.ArgumentParser(description="ARC-AGI-3 baseline with Arbor")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -254,7 +243,7 @@ def main():
     if args.game:
         game_ids = [args.game]
     elif args.keyboard_only:
-        game_ids = get_keyboard_only_games(arcade)
+        game_ids = keyboard_only_games(arcade)
     else:
         game_ids = [e.game_id.split("-")[0] for e in arcade.get_environments()]
 
