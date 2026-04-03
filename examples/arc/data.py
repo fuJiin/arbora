@@ -11,14 +11,3 @@ def list_games() -> list[arc_agi.EnvironmentInfo]:
     return arcade.get_environments()
 
 
-def keyboard_only_games() -> list[arc_agi.EnvironmentInfo]:
-    """Return games that only use keyboard actions (1-5), no clicks."""
-    games = list_games()
-    result = []
-    arcade = arc_agi.Arcade()
-    for g in games:
-        env = arcade.make(g.game_id.split("-")[0])
-        f = env.reset()
-        if all(a <= 5 for a in f.available_actions):
-            result.append(g)
-    return result

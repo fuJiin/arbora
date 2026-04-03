@@ -241,7 +241,7 @@ class ArcAgent(BaseAgent):
         # M1 silent (step 0 or BG fully suppressed): use BG output
         # directly to pick action.
         bg = self._circuit.region("BG")
-        bg_scores = bg.output_port.firing_rate
+        bg_scores = bg.output_port.firing_rate[: len(self.available_actions)]
         best_idx = int(np.argmax(bg_scores))
         action = self.available_actions[best_idx]
         data = self._click_data(action) if action >= 6 else None
