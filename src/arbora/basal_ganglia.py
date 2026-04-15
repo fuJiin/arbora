@@ -125,15 +125,20 @@ class BasalGangliaRegion:
         go_act = flat @ self.go_weights  # (n_actions,)
         nogo_act = flat @ self.nogo_weights  # (n_actions,)
 
-        # Action value: Go - NoGo
+        # Action value: Go - NoGo, normalized to unit range.
+        # Without normalization, the dot product scales with input_dim
+        # (512 dims → activations up to ~100), drowning DA noise.
+        # Normalization keeps action values in a stable range where
+        # tonic DA noise can actually drive exploration.
         action_value = go_act - nogo_act
+        av_range = action_value.max() - action_value.min()
+        if av_range > 1e-6:
+            # Center and scale to [-1, 1]
+            action_value = 2.0 * (action_value - action_value.min()) / av_range - 1.0
 
         # Tonic DA exploration noise (large early -> exploration, small late -> exploit)
         noise = self._rng.normal(0, max(self._tonic_da, 0.01), size=self._n_actions)
         action_bias = action_value + noise
-
-        # Clamp to prevent extreme values
-        np.clip(action_bias, -3.0, 3.0, out=action_bias)
 
         # Update eligibility traces: decay old, accumulate current input.
         self._go_trace *= self.eligibility_decay

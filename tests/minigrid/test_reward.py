@@ -57,7 +57,7 @@ class TestCircuitApplyReward:
         circuit, m1, _bg = setup
         # Process one step to create eligibility traces
         enc = np.random.default_rng(0).random(circuit._encoder.input_dim)
-        circuit.process(enc, motor_active=True)
+        circuit.process(enc)
         m1.observe_token(3)
 
         w_before = m1.output_weights.copy()
@@ -70,7 +70,7 @@ class TestCircuitApplyReward:
         rng = np.random.default_rng(0)
         for _ in range(5):
             enc = rng.random(circuit._encoder.input_dim)
-            circuit.process(enc, motor_active=True)
+            circuit.process(enc)
 
         w_before = bg.go_weights.copy()
         circuit.apply_reward(1.0)
@@ -79,7 +79,7 @@ class TestCircuitApplyReward:
     def test_zero_reward_no_change(self, setup):
         circuit, m1, _bg = setup
         enc = np.random.default_rng(0).random(circuit._encoder.input_dim)
-        circuit.process(enc, motor_active=True)
+        circuit.process(enc)
 
         w_before = m1.ff_weights.copy()
         circuit.apply_reward(0.0)

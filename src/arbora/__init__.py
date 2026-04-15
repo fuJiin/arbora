@@ -12,8 +12,8 @@ Quick start::
                      k_columns=2, n_output_tokens=7)
 
     circuit = Circuit(encoder)
-    circuit.add_region("S1", s1, entry=True)
-    circuit.add_region("M1", m1)
+    circuit.add_region("S1", s1, entry=True, input_region=True)
+    circuit.add_region("M1", m1, output_region=True)
     circuit.connect(s1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
     circuit.finalize()
 
@@ -49,6 +49,7 @@ from arbora.neuron_group import NeuronGroup
 
 # Probes
 from arbora.probes.core import LaminaProbe, Probe
+from arbora.thalamus import ThalamicNucleus
 
 __all__ = [
     "BasalGangliaRegion",
@@ -72,6 +73,7 @@ __all__ = [
     "SensoryRegion",
     "SurpriseTracker",
     "ThalamicGate",
+    "ThalamicNucleus",
     "TrainResult",
     "__version__",
 ]

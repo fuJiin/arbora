@@ -70,7 +70,7 @@ class MiniGridHarness:
         last_ep = 0
 
         while not env.done:
-            # Agent: encode + process (motor_active=True always)
+            # Agent: encode + process
             agent.step(obs)
 
             # Probes observe circuit state

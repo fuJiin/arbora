@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync --dev
+      - run: uv sync --dev --extra arc --extra minigrid
       - run: uv run ruff check src/ tests/ examples/
       - run: uv run ruff format --check src/ tests/ examples/
 
@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync --dev
+      - run: uv sync --dev --extra arc --extra minigrid
       - run: uv run ty check src/arbora/
 
   test:
@@ -29,5 +29,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync --dev
+      - run: uv sync --dev --extra arc --extra minigrid
       - run: uv run python -m pytest tests/ -v

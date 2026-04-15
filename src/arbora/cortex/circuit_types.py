@@ -115,6 +115,8 @@ class _RegionState:
     timeline: Timeline | None
     entry: bool = False
     motor: bool = False
+    input_region: bool = False
+    output_region: bool = False
     # Entry region only:
     decode_index: InvertedIndexDecoder | None = None
     syn_decoder: SynapticDecoder | None = None
