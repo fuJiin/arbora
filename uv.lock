@@ -153,7 +153,6 @@ name = "arbora"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "arc-agi" },
     { name = "datasets" },
     { name = "llvmlite" },
     { name = "numba" },
@@ -162,6 +161,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+arc = [
+    { name = "arc-agi" },
+]
 minigrid = [
     { name = "gymnasium" },
     { name = "minigrid" },
@@ -182,7 +184,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arc-agi", specifier = ">=0.9.6" },
+    { name = "arc-agi", marker = "extra == 'arc'", specifier = ">=0.9.6" },
     { name = "datasets" },
     { name = "gymnasium", marker = "extra == 'minigrid'", specifier = ">=1.0" },
     { name = "llvmlite", specifier = "<0.46" },
@@ -193,7 +195,7 @@ requires-dist = [
     { name = "plotly", marker = "extra == 'viz'" },
     { name = "transformers" },
 ]
-provides-extras = ["viz", "minigrid"]
+provides-extras = ["viz", "minigrid", "arc"]
 
 [package.metadata.requires-dev]
 dev = [
