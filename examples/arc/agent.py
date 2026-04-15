@@ -13,8 +13,6 @@ Internal reward comes from V1's burst rate (surprise/novelty).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 
 from arbora.agent import BaseAgent
@@ -24,9 +22,6 @@ from arbora.cortex.circuit import Circuit, ConnectionRole
 from arbora.cortex.motor import MotorRegion
 from arbora.thalamus import ThalamicNucleus
 from examples.arc.encoder import ArcGridEncoder
-
-if TYPE_CHECKING:
-    pass
 
 
 def build_circuit(
@@ -188,15 +183,17 @@ class ArcAgent(BaseAgent):
         available_actions: list[int],
     ):
         super().__init__(encoder, circuit, entry_name="V1")
-        self.available_actions = available_actions
         self._rng = np.random.default_rng()
-        self._action_map = self._build_action_map(available_actions)
-        self._last_encoding: np.ndarray | None = None
+        self._efference_encoding: np.ndarray | None = None
         self._step_count = 0
+        self.available_actions: list[int] = []
+        self._action_map: dict[int, int] = {}
+        self.update_actions(available_actions)
 
-    def _build_action_map(self, available_actions: list[int]) -> dict[int, int]:
-        """Map M1 output indices (0..n-1) to actual GameAction values."""
-        return {i: a for i, a in enumerate(available_actions)}
+    def update_actions(self, available_actions: list[int]) -> None:
+        """Update the available actions for a new game/level."""
+        self.available_actions = available_actions
+        self._action_map = {i: a for i, a in enumerate(available_actions)}
 
     def step(self, grid: np.ndarray) -> None:
         """Encode grid with efference copy, process circuit, reward."""
@@ -206,8 +203,8 @@ class ArcAgent(BaseAgent):
         # Real efference copy would predict sensory consequences of the
         # motor command; for the baseline, last frame is the prediction.
         # Any mismatch (from agent action or environment) = surprise.
-        if self._last_encoding is not None:
-            v1.set_efference_copy(self._last_encoding)
+        if self._efference_encoding is not None:
+            v1.set_efference_copy(self._efference_encoding)
 
         # Encode and process — BG gating controls M1 output.
         encoding = self._encoder.encode(grid)
@@ -228,7 +225,7 @@ class ArcAgent(BaseAgent):
         self.apply_reward(burst_rate)
 
         # Save encoding for next step's efference copy
-        self._last_encoding = encoding.copy()
+        self._efference_encoding = encoding.copy()
         self._step_count += 1
 
     def decode_action(self) -> tuple[int, dict | None]:
@@ -244,7 +241,7 @@ class ArcAgent(BaseAgent):
         # M1 silent (step 0 or BG fully suppressed): use BG output
         # directly to pick action.
         bg = self._circuit.region("BG")
-        bg_scores = bg._output_group.firing_rate
+        bg_scores = bg.output_port.firing_rate
         best_idx = int(np.argmax(bg_scores))
         action = self.available_actions[best_idx]
         data = self._click_data(action) if action >= 6 else None
@@ -266,7 +263,6 @@ class ArcAgent(BaseAgent):
 
     def reset_episode(self) -> None:
         """Reset per-episode state. Learned weights persist."""
-        self._circuit.reset()
-        self._encoder.reset()
-        self._last_encoding = None
+        self._circuit.reset()  # also resets encoder
+        self._efference_encoding = None
         self._step_count = 0

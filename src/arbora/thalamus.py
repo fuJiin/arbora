@@ -74,6 +74,7 @@ class ThalamicNucleus:
         burst_gain: float = 3.0,
         gate_decay: float = 0.9,
         gate_threshold: float = 0.0,
+        gate_leak: float = 0.1,
         learning_rate: float = 0.01,
         seed: int = 0,
     ):
@@ -84,6 +85,7 @@ class ThalamicNucleus:
         self.burst_gain = burst_gain
         self.gate_decay = gate_decay
         self.gate_threshold = gate_threshold
+        self.gate_leak = gate_leak
         self.learning_rate = learning_rate
         self.learning_enabled = True
 
@@ -179,7 +181,7 @@ class ThalamicNucleus:
             relay *= gain
         else:
             # Gate closed: strongly attenuate (not fully zero — leak)
-            relay *= 0.1
+            relay *= self.gate_leak
 
         # --- Learning ---
         # Hebbian: when gate is open, strengthen driver→relay connections

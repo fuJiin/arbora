@@ -65,7 +65,7 @@ def run_episode(
         # Probe observation: after circuit.process() (inside act()),
         # record V1/V2 state relative to the grid that was just processed.
         if probes is not None:
-            probes.observe(agent._circuit, encoder, grid)
+            probes.observe(agent.circuit, encoder, grid)
 
         # Step environment
         game_action = _ACTION_BY_VALUE[action_id]
@@ -148,8 +148,7 @@ def train_game(
         agent = ArcAgent(encoder, circuit, available_actions=available_actions)
     else:
         # Update action map for this game's action space
-        agent.available_actions = available_actions
-        agent._action_map = agent._build_action_map(available_actions)
+        agent.update_actions(available_actions)
 
     episode_results = []
 

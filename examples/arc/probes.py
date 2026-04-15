@@ -19,6 +19,8 @@ from collections import defaultdict
 
 import numpy as np
 
+from examples.arc.encoder import _block_mode_pool
+
 # ARC encoder constants (must match encoder.py)
 _DOWNSAMPLED = 32
 _N_CELLS = _DOWNSAMPLED * _DOWNSAMPLED  # 1024
@@ -36,21 +38,6 @@ def _changed_cells(prev_down: np.ndarray | None, curr_down: np.ndarray) -> np.nd
         return np.ones((_DOWNSAMPLED, _DOWNSAMPLED), dtype=np.bool_)
     return prev_down != curr_down
 
-
-def _block_mode_pool(grid: np.ndarray, block_size: int = 2) -> np.ndarray:
-    """Downsample grid by mode of each block. Mirrors encoder._block_mode_pool."""
-    h, w = grid.shape
-    bh, bw = h // block_size, w // block_size
-    out = np.zeros((bh, bw), dtype=np.int8)
-    for r in range(bh):
-        for c in range(bw):
-            block = grid[
-                r * block_size : (r + 1) * block_size,
-                c * block_size : (c + 1) * block_size,
-            ]
-            counts = np.bincount(block.ravel(), minlength=_N_COLORS)
-            out[r, c] = np.argmax(counts)
-    return out
 
 
 # ---------------------------------------------------------------------------

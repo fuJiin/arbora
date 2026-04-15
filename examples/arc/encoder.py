@@ -3,14 +3,13 @@
 Encodes a 64x64 grid frame (16 colors) from the arc-agi SDK into a
 sparse binary vector suitable for SensoryRegion input.
 
-Two encoding channels, concatenated:
-1. **Spatial channel**: 2x2 block mode-pooled → 32x32, one-hot 16 colors.
-   Captures the static structure of the grid.
-2. **Temporal channel**: per-cell change detection vs previous frame.
-   Captures what CHANGED — like retinal ganglion ON/OFF cells.
+Two encoding channels per cell, interleaved at stride 18:
+1. **Spatial** (bits 0-15): one-hot color from 2x2 block mode-pool → 32x32.
+2. **Temporal** (bits 16-17): change/unchanged vs previous frame.
+   Like retinal ganglion ON/OFF cells.
 
-Layout: (32*32*16) + (32*32*2) = 16384 + 2048 = 18432 dimensions.
-encoding_width = 18 (16 color bits + 2 change bits per position).
+Layout: 1024 cells * 18 bits/cell = 18432 dimensions.
+encoding_width = 18 (the per-cell stride for receptive field tiling).
 """
 
 from __future__ import annotations
@@ -88,7 +87,7 @@ class ArcGridEncoder:
         self._prev_down = None
 
 
-def _block_mode_pool(grid: np.ndarray, block_size: int) -> np.ndarray:
+def _block_mode_pool(grid: np.ndarray, block_size: int = _BLOCK_SIZE) -> np.ndarray:
     """Downsample grid by taking the mode (most common value) of each block."""
     h, w = grid.shape
     bh = h // block_size
