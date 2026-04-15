@@ -2,7 +2,9 @@
 
 Biologically-plausible cortical learning framework. Build neural circuits from cortical regions, wire them together, and train with Hebbian + three-factor reward-modulated learning. No backprop.
 
-Named for dendritic arbors -- the branching structures through which neurons receive and integrate signals.
+Named for dendritic arbors - the branching structures through which neurons receive and integrate signals - and for aurora, evoking both a new dawn and the light of brain activity.
+
+> **Status:** alpha research code. APIs evolving, breaking changes likely, not all mechanisms fully learn yet. Use at your own risk; issues and discussion welcome. Apache-2.0 licensed (see [LICENSE](LICENSE)).
 
 ## Quick start
 
@@ -67,15 +69,15 @@ Connection roles:
   MODULATORY    additive voltage bias before k-WTA
 ```
 
-## Installation
+## Getting started
+
+Requires Python 3.12+. No PyPI package yet — clone and run from source:
 
 ```bash
-pip install -e .
-# or with uv:
-uv sync
+git clone https://github.com/fuJiin/arbora.git
+cd arbora
+./scripts/bootstrap.sh
 ```
-
-Requires Python 3.12+.
 
 ## Examples
 
@@ -91,29 +93,6 @@ uv run examples/minigrid/train.py --episodes 100
 uv run examples/minigrid/benchmark.py --episodes 1000
 ```
 
-## Core package
-
-```
-src/arbora/
-  neuron_group.py       NeuronGroup base
-  basal_ganglia.py      BasalGangliaRegion (Go/NoGo + tonic DA)
-  agent.py              BaseAgent, TrainResult
-  config.py             PlasticityRule
-  cortex/
-    region.py           CorticalRegion (agranular support)
-    sensory.py          SensoryRegion
-    motor.py            MotorRegion
-    pfc.py              PFCRegion
-    circuit.py          Circuit builder
-    circuit_types.py    Region protocol, Connection, ConnectionRole
-    lamina.py           Lamina(NeuronGroup), LaminaID
-    modulators.py       SurpriseTracker, ThalamicGate, RewardModulator
-  encoders/             CharbitEncoder, OneHotCharEncoder, PositionalCharEncoder
-  decoders/             DendriticDecoder, InvertedIndexDecoder, SynapticDecoder
-  probes/               Probe protocol, LaminaProbe (functional KPIs)
-  snapshots/            InputSnapshot, AssociationSnapshot
-```
-
 ## Development
 
 ```bash
@@ -122,6 +101,9 @@ uv run ruff check src/ tests/     # lint
 uv run ty check src/arbora/        # typecheck
 ```
 
-## Version
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup details.
 
-0.1.0 -- API is evolving. Expect breaking changes in 0.x releases.
+## Further reading
+
+- [docs/LAMINA_KPIS.md](docs/LAMINA_KPIS.md) -- what each probe measures and why
+- [docs/BIBLIOGRAPHY.md](docs/BIBLIOGRAPHY.md) -- papers the framework is grounded in
