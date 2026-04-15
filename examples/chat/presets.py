@@ -144,10 +144,10 @@ def build_canonical_circuit(
         diagnostics_interval=log_interval,
     )
 
-    circuit.add_region("S1", s1, entry=True)
+    circuit.add_region("S1", s1, entry=True, input_region=True)
     circuit.add_region("S2", s2)
     circuit.add_region("S3", s3)
-    circuit.add_region("M1", m1)
+    circuit.add_region("M1", m1, output_region=True)
     circuit.add_region("PFC", pfc)
     circuit.add_region("M2", m2)
 

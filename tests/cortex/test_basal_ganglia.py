@@ -138,7 +138,7 @@ class TestBasalGangliaCircuitIntegration:
 
         # Process should not crash
         enc = encoder.encode("ab")
-        circuit.process(enc, motor_active=True)
+        circuit.process(enc)
 
     def test_reward_routes_to_bg(self):
         from arbora.cortex import SensoryRegion
@@ -181,7 +181,7 @@ class TestBasalGangliaCircuitIntegration:
 
         # Process a few steps so traces accumulate
         for _ in range(5):
-            circuit.process(encoder.encode("ab"), motor_active=True)
+            circuit.process(encoder.encode("ab"))
 
         w_before = bg.go_weights.copy()
         circuit.apply_reward(1.0)

@@ -240,9 +240,22 @@ class Circuit:
         region: Region,
         *,
         entry: bool = False,
+        input_region: bool = False,
+        output_region: bool = False,
         diagnostics: bool = True,
     ) -> Circuit:
-        """Register a region (cortical or subcortical)."""
+        """Register a region (cortical or subcortical).
+
+        Args:
+            name: Unique name for this region.
+            region: The region instance.
+            entry: Whether this is the entry region (receives encoder output).
+            input_region: Marks this as a circuit input (accessible via
+                circuit.input_regions).
+            output_region: Marks this as a circuit output (accessible via
+                circuit.output_regions).
+            diagnostics: Whether to enable diagnostics for this region.
+        """
         if self._finalized:
             raise RuntimeError(
                 "Circuit is finalized. Cannot add regions after finalize()."
@@ -276,6 +289,8 @@ class Circuit:
             timeline=timeline,
             entry=entry,
             motor=isinstance(region, MotorRegion),
+            input_region=input_region or entry,
+            output_region=output_region or isinstance(region, MotorRegion),
         )
         if entry:
             state.decode_index = InvertedIndexDecoder()
@@ -398,6 +413,16 @@ class Circuit:
     def encoder(self) -> Encoder:
         return self._encoder
 
+    @property
+    def input_regions(self) -> list[Region]:
+        """Regions marked as circuit inputs."""
+        return [s.region for s in self._regions.values() if s.input_region]
+
+    @property
+    def output_regions(self) -> list[Region]:
+        """Regions marked as circuit outputs."""
+        return [s.region for s in self._regions.values() if s.output_region]
+
     def region(self, name: str) -> CorticalRegion:
         return self._regions[name].region
 
@@ -417,20 +442,19 @@ class Circuit:
     # Core processing
     # ------------------------------------------------------------------
 
-    def process(
-        self, encoding: np.ndarray, *, motor_active: bool = False
-    ) -> np.ndarray:
+    def process(self, encoding: np.ndarray) -> np.ndarray:
         """Process one encoded input through the hierarchy.
 
         Pure neural computation: takes an encoding vector, propagates
         through regions in topo order, runs inter-region signals, and
         returns the output vector.
 
+        Motor regions always process — BG gating naturally controls
+        whether M1 produces meaningful output. The agent decides
+        whether to act on motor output.
+
         Args:
             encoding: Input vector (from encoder or previous circuit output).
-            motor_active: Whether motor regions produce output this step.
-                Caller (train loop / harness) decides based on environment
-                state. Default False (sensory-only circuits).
 
         Returns:
             Output vector. If motor region exists, M1 L5 firing rate.
@@ -444,15 +468,13 @@ class Circuit:
 
         # -- Process in topo order (multi-ff supported) --
         topo_order = self._topo_order()
-        self._propagate_feedforward(
-            topo_order, entry_name, encoding, motor_active=motor_active
-        )
+        self._propagate_feedforward(topo_order, entry_name, encoding)
 
         # -- Inter-region signals (after all regions processed) --
         self._propagate_signals()
 
         # -- Motor: BG gating + output (no token-level learning) --
-        self._step_motor_inline(entry_region, motor_active=motor_active)
+        self._step_motor_inline(entry_region)
 
         self._total_steps += 1
 
@@ -484,14 +506,16 @@ class Circuit:
         if _reset is not None:
             _reset()
 
-    def _step_motor_inline(
-        self, entry_region: CorticalRegion, *, motor_active: bool = False
-    ) -> None:
+    def _step_motor_inline(self, entry_region: CorticalRegion) -> None:
         """Motor processing: BG gating and output readout.
 
         Pure neural computation — no token-level learning, no reward
         computation, no efference copy. Those are Agent/Environment
         responsibilities.
+
+        Motor regions always process. BG gating naturally controls
+        whether M1 produces meaningful output (active columns vote
+        for tokens; if BG suppresses all columns, output is (-1, 0.0)).
         """
         for _name, s in self._regions.items():
             if s.motor:
@@ -499,13 +523,8 @@ class Circuit:
                 motor_region = s.region
 
                 if self._total_steps > 0:
-                    if motor_active:
-                        pop_id, pop_conf = motor_region.get_population_output()
-                        m_id, m_conf = pop_id, pop_conf
-                    else:
-                        m_id, m_conf = -1, 0.0
-
-                    motor_region.last_output = (m_id, m_conf)
+                    pop_id, pop_conf = motor_region.get_population_output()
+                    motor_region.last_output = (pop_id, pop_conf)
                     motor_region.last_reward = 0.0
 
     # ------------------------------------------------------------------
@@ -713,9 +732,7 @@ class Circuit:
     # Internals
     # ------------------------------------------------------------------
 
-    def _propagate_feedforward(
-        self, topo_order, entry_name, encoding=None, *, motor_active=False
-    ):
+    def _propagate_feedforward(self, topo_order, entry_name, encoding=None):
         """Process regions in topo order with feedforward signals.
 
         Supports multiple feedforward connections to the same target —
@@ -727,8 +744,6 @@ class Circuit:
             if name == entry_name:
                 if encoding is not None:
                     s.region.process(encoding)
-            elif s.motor and not (motor_active or s.region.learning_enabled):
-                pass  # Skip idle motor region
             else:
                 # Apply incoming MODULATORY signals before processing
                 self._apply_modulatory_for(name)

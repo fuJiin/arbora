@@ -131,11 +131,11 @@ def build_circuit(
     )
 
     circuit = Circuit(encoder)
-    circuit.add_region("V1", v1, entry=True)
+    circuit.add_region("V1", v1, entry=True, input_region=True)
     circuit.add_region("pulvinar", pulvinar)
     circuit.add_region("V2", v2)
     circuit.add_region("BG", bg)
-    circuit.add_region("M1", m1)
+    circuit.add_region("M1", m1, output_region=True)
 
     # --- Transthalamic pathway: V1 → pulvinar → V2 ---
     # V1 L5 → pulvinar: driver input (corticothalamic from L5).
@@ -202,15 +202,17 @@ class ArcAgent(BaseAgent):
         """Encode grid with efference copy, process circuit, reward."""
         v1 = self._circuit.region(self._entry_name)
 
-        # Efference copy: V1 expects the grid to look like last frame.
-        # Mismatch between expected and actual = what changed = surprise.
+        # Efference copy: predict "no change" (simplest prediction).
+        # Real efference copy would predict sensory consequences of the
+        # motor command; for the baseline, last frame is the prediction.
+        # Any mismatch (from agent action or environment) = surprise.
         if self._last_encoding is not None:
             v1.set_efference_copy(self._last_encoding)
 
-        # Encode and process
+        # Encode and process — BG gating controls M1 output.
         encoding = self._encoder.encode(grid)
         self.last_encoding = encoding
-        output = self._circuit.process(encoding, motor_active=True)
+        output = self._circuit.process(encoding)
         self.last_output = output
 
         # Intrinsic reward from V1 burst rate.
@@ -231,16 +233,16 @@ class ArcAgent(BaseAgent):
 
     def decode_action(self) -> tuple[int, dict | None]:
         """Read M1 output. Falls back to BG-biased random if M1 silent."""
-        for s in self._circuit._regions.values():
-            if s.motor and isinstance(s.region, MotorRegion):
-                m_id, _conf = s.region.last_output
-                if m_id >= 0 and m_id in self._action_map:
-                    action = self._action_map[m_id]
-                    data = self._click_data(action) if action >= 6 else None
-                    self.last_action = m_id
-                    return action, data
+        motor = self._circuit.output_regions[0]
+        m_id, _conf = motor.last_output
+        if m_id >= 0 and m_id in self._action_map:
+            action = self._action_map[m_id]
+            data = self._click_data(action) if action >= 6 else None
+            self.last_action = m_id
+            return action, data
 
-        # M1 silent (step 0): use BG output directly to pick action
+        # M1 silent (step 0 or BG fully suppressed): use BG output
+        # directly to pick action.
         bg = self._circuit.region("BG")
         bg_scores = bg._output_group.firing_rate
         best_idx = int(np.argmax(bg_scores))

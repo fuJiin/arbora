@@ -237,6 +237,6 @@ class TestThalamicNucleusCircuitIntegration:
 
         for ch in "abcd":
             enc = encoder.encode(ch)
-            circuit.process(enc, motor_active=True)
+            circuit.process(enc)
 
         assert m1.active_columns.sum() > 0
