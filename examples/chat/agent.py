@@ -123,30 +123,34 @@ class ChatAgent(BaseAgent):
             ef = self._encoder.encode(action_char)
             entry.set_efference_copy(ef)
 
-        # Neural processing
-        motor_active = self._motor_active or self.force_gate_open
-        output = self._circuit.process(encoding, motor_active=motor_active)
+        # Neural processing — motor always processes, BG gates output.
+        output = self._circuit.process(encoding)
         self.last_output = output
 
-        # Token-level motor learning
-        if motor_active:
-            for s in self._circuit._regions.values():
-                if s.motor and isinstance(s.region, MotorRegion):
-                    s.region.observe_token(obs.token_id)
+        # Token-level motor learning (only when agent is speaking)
+        if self._motor_active or self.force_gate_open:
+            for motor in self._circuit.output_regions:
+                if isinstance(motor, MotorRegion):
+                    motor.observe_token(obs.token_id)
 
     def decode_action(self) -> int | None:
         """Decode motor region output to an action.
 
         Returns token_id if motor produced output, None for silence.
+        Agent-level gating: only act when it's the agent's turn.
         """
-        for s in self._circuit._regions.values():
-            if s.motor and isinstance(s.region, MotorRegion):
-                m_id, _conf = s.region.last_output
-                if m_id >= 0:
-                    self.last_action = m_id
-                    return m_id
-                self.last_action = None
-                return None
+        if not (self._motor_active or self.force_gate_open):
+            self.last_action = None
+            return None
+        output_regions = self._circuit.output_regions
+        if not output_regions:
+            self.last_action = None
+            return None
+        motor = output_regions[0]
+        m_id, _conf = motor.last_output
+        if m_id >= 0:
+            self.last_action = m_id
+            return m_id
         self.last_action = None
         return None
 

@@ -1,7 +1,7 @@
 """MiniGrid agent wrapping a Circuit for gymnasium environments.
 
 Unlike ChatAgent:
-- motor_active=True always (no turn-taking / listen-speak phases)
+- No turn-taking / listen-speak phases
 - No efference copy
 - Random action fallback when M1 is silent (always acts)
 - No EOM/boundary concept (episode boundary = reset)
@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from arbora.agent import BaseAgent
-from arbora.cortex.motor import MotorRegion
 from examples.minigrid.env import MiniGridObs
 
 if TYPE_CHECKING:
@@ -53,26 +52,25 @@ class MiniGridAgent(BaseAgent):
     def step(self, obs: MiniGridObs) -> None:
         """Encode observation and run circuit processing.
 
-        Motor is always active (no turn-taking). Does NOT produce an
-        action -- call decode_action() after probe observation.
+        Does NOT produce an action -- call decode_action() after probe
+        observation.
         """
         encoding = self._encoder.encode(obs)
         self.last_encoding = encoding
-        output = self._circuit.process(encoding, motor_active=True)
+        output = self._circuit.process(encoding)
         self.last_output = output
 
     def decode_action(self) -> int:
         """Read motor region output. Always returns a valid action.
 
-        If M1 produces no output (below confidence threshold), falls
+        If M1 produces no output (BG suppressed or step 0), falls
         back to a random action. MiniGrid requires an action every step.
         """
-        for s in self._circuit._regions.values():
-            if s.motor and isinstance(s.region, MotorRegion):
-                m_id, _conf = s.region.last_output
-                if m_id >= 0:
-                    self.last_action = m_id
-                    return m_id
+        motor = self._circuit.output_regions[0]
+        m_id, _conf = motor.last_output
+        if m_id >= 0:
+            self.last_action = m_id
+            return m_id
         # Random fallback
         action = int(self._rng.integers(self._n_actions))
         self.last_action = action
