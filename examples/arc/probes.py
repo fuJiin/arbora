@@ -39,7 +39,6 @@ def _changed_cells(prev_down: np.ndarray | None, curr_down: np.ndarray) -> np.nd
     return prev_down != curr_down
 
 
-
 # ---------------------------------------------------------------------------
 # 1. Change Localization Probe
 # ---------------------------------------------------------------------------
