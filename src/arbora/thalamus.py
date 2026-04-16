@@ -129,7 +129,7 @@ class ThalamicNucleus:
         return self._output_group
 
     def get_lamina(self, lid: str | object) -> NeuronGroup:
-        key = lid.value if hasattr(lid, "value") else str(lid)
+        key = getattr(lid, "value", None) or str(lid)
         if key == self.RELAY_IN:
             return self._input_group
         if key == self.RELAY_OUT:
@@ -195,7 +195,8 @@ class ThalamicNucleus:
                 driver_idx = np.flatnonzero(active_driver)
                 relay_idx = np.flatnonzero(active_relay)
                 self.relay_weights[np.ix_(driver_idx, relay_idx)] += (
-                    self.learning_rate * flat[driver_idx, np.newaxis]
+                    self.learning_rate
+                    * np.outer(flat[driver_idx], np.ones(len(relay_idx)))
                 )
                 np.clip(self.relay_weights, 0.0, 1.0, out=self.relay_weights)
 
