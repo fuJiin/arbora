@@ -2,17 +2,14 @@
 """Interactive REPL for exploring cortex model behavior.
 
 Trains a model, then enters interactive mode where you type text and
-see the model's predictions, surprise, and internal state in real time.
-Uses the full S1→S2→S3→PFC→M2→M1+BG architecture:
-
-- Input phase: each char processed through hierarchy, M1 interruptions shown
-- EOM injection: after your input, M1 gets a chance to speak
-- Speaking phase: M1 output fed back as input until EOM or ramble limit
+see the model's L4 burst rate, L2/3 readout, and internal state in real time.
+Uses the full S1→S2→S3→PFC→M2→M1+BG architecture.
 
 Usage:
-    uv run experiments/scripts/cortex_repl.py
-    uv run experiments/scripts/cortex_repl.py --warmup 10000
-    uv run experiments/scripts/cortex_repl.py --no-warmup
+    uv run python -m examples.chat.repl
+    uv run python -m examples.chat.repl --warmup 10000
+    uv run python -m examples.chat.repl --no-warmup
+    uv run python -m examples.chat.repl --checkpoint demo
 """
 
 import argparse
@@ -27,11 +24,10 @@ from arbora.decoders.dendritic import DendriticDecoder  # for type hints
 from arbora.encoders.positional import PositionalCharEncoder
 from examples.chat.agent import ChatAgent
 from examples.chat.data import (
-    EOM_TOKEN,
     prepare_tokens_personachat,
     prepare_tokens_tinydialogues,
 )
-from examples.chat.env import EOM_OBS, ChatEnv, ChatObs
+from examples.chat.env import ChatEnv, ChatObs
 from examples.chat.harness import ChatTrainHarness
 
 from . import dotenv  # noqa: F401
@@ -46,13 +42,9 @@ CYAN = "\033[36m"
 BOLD = "\033[1m"
 MAGENTA = "\033[35m"
 
-# Thresholds for speaking phase
-MAX_SPEAK_STEPS = 200  # max chars M1 can generate per turn
-MAX_SILENT_STEPS = 10  # give up waiting for M1 after this many silent steps
 
-
-def surprise_color(burst_frac: float) -> str:
-    """Color-code by burst fraction (surprise)."""
+def burst_color(burst_frac: float) -> str:
+    """Color-code by L4 burst fraction."""
     if burst_frac < 0.3:
         return GREEN  # Well predicted
     if burst_frac < 0.6:
@@ -107,7 +99,7 @@ def warmup(cortex, encoder, tokens, log_interval=2000):
     lamina_snap = result.probe_snapshots.get("lamina", {})
     s1 = lamina_snap.get("S1")
     if s1 is not None:
-        recall = s1.l4.recall
+        recall = s1.input.recall
         burst_rate = 1.0 - recall
     else:
         recall, burst_rate = 0.0, 1.0
@@ -117,11 +109,8 @@ def warmup(cortex, encoder, tokens, log_interval=2000):
 
 def step_token(agent, token_id, token_str):
     """Process one token through the full hierarchy via ChatAgent."""
-    if token_id == EOM_TOKEN:
-        agent.act(EOM_OBS, 0.0)
-    else:
-        obs = ChatObs(token_id=token_id, token_str=token_str)
-        agent.act(obs, 0.0)
+    obs = ChatObs(token_id=token_id, token_str=token_str)
+    agent.act(obs, 0.0)
 
 
 def decode_prediction(
@@ -156,7 +145,7 @@ def compute_bits(
     l23_state: np.ndarray,
     decoder: DendriticDecoder,
 ) -> float:
-    """Compute bits (surprise) for one character."""
+    """Compute bits-per-char from the L2/3 readout decoder."""
     scores = decoder.decode_scores(l23_state)
     n_tokens = decoder.n_tokens
 
@@ -211,14 +200,13 @@ def print_help():
     print(f"{DIM}  /warmup [N]      Train on N more chars (default 5000){RESET}")
     print(f"{DIM}  /save [name]     Save checkpoint (default: repl_default){RESET}")
     print(f"{DIM}  /load [name]     Load checkpoint (default: repl_default){RESET}")
-    print(f"{DIM}  /babble [N]     Watch M1 babble N chars (default 200){RESET}")
     print(f"{DIM}  /probe          Show all region representation quality{RESET}")
+    print(f"{DIM}  /predict        Show top-k L2/3 readout for next char{RESET}")
     print(f"{DIM}  /echo [word]    Hear a word, watch M1 try to reproduce it{RESET}")
     print(f"{DIM}  /quit, /q        Exit{RESET}")
     print()
     print(f"{DIM}Type text to feed through S1→S2→S3→PFC→M2→M1.{RESET}")
-    print(f"{DIM}After your input, EOM is injected and M1 gets a turn to speak.{RESET}")
-    print(f"{DIM}M1 interruptions during input are shown inline.{RESET}")
+    print(f"{DIM}Each char shows L4 burst rate; phrase summary shows avg + BPC.{RESET}")
 
 
 def print_info(cortex, encoder, region1, motor, decoder):
@@ -264,7 +252,7 @@ def print_info(cortex, encoder, region1, motor, decoder):
     if motor:
         l5_max = float(motor.output_weights.max(axis=0).max())
         n_active = int((motor.output_weights.max(axis=0) > 0.01).sum())
-        babbling = getattr(motor, "babbling_noise", 0.0)
+        babbling = getattr(motor, "exploration_noise", 0.0)
         print(
             f"  {DIM}M1 output_weights:{RESET} "
             f"{n_active}/{motor.n_output_tokens} active tokens, max={l5_max:.3f}"
@@ -298,81 +286,6 @@ def print_info(cortex, encoder, region1, motor, decoder):
 def reset_state(cortex):
     """Reset working memory across all regions (story boundary)."""
     cortex.reset()
-
-
-def run_babble(agent, region1, motor, n_chars=200):
-    """Watch M1 babble in real time using full circuit."""
-    print(f"\n{DIM}  M1 babbling {n_chars} chars (PFC→M2→M1)...{RESET}")
-    print(f"  {BOLD}", end="", flush=True)
-
-    # Force gate open, set babbling noise for exploration
-    old_gate = agent.force_gate_open
-    old_noise = motor.babbling_noise
-    agent.force_gate_open = True
-    motor.babbling_noise = 0.3  # Mostly learned policy, some exploration
-
-    current_char = " "
-    produced = []
-    word_buf = []
-
-    for _i in range(n_chars):
-        token_id = ord(current_char) if current_char else ord(" ")
-        obs = ChatObs(token_id=token_id, token_str=current_char)
-        agent.act(obs, 0.0)
-
-        # M1 output
-        pop_id, pop_conf = motor.get_population_output()
-        if pop_id >= 0 and 32 <= pop_id < 127:
-            ch = chr(pop_id)
-            produced.append(ch)
-
-            color = GREEN if pop_conf > 0.1 else YELLOW
-            sys.stdout.write(f"{color}{ch}{RESET}{BOLD}")
-            sys.stdout.flush()
-
-            if ch in " .!?'-,":
-                word_buf.clear()
-            else:
-                word_buf.append(ch)
-
-            motor.observe_token(pop_id)
-            current_char = ch
-        else:
-            sys.stdout.write(f"{DIM}_{RESET}{BOLD}")
-            sys.stdout.flush()
-
-    print(f"{RESET}")
-
-    # Summary stats
-    from collections import Counter
-
-    chars = Counter(produced)
-    n_unique = len(chars)
-    bigrams = Counter(produced[i] + produced[i + 1] for i in range(len(produced) - 1))
-    # Find real words
-    text = "".join(produced)
-    import re
-
-    words = re.split(r"[ .!?',\-]+", text)
-    words = [w for w in words if len(w) >= 2]
-
-    burst_pct = float(region1.bursting_columns.sum()) / max(region1.n_columns, 1)
-    print(
-        f"\n{DIM}  {len(produced)} chars, {n_unique} unique, "
-        f"burst={burst_pct:.0%}, "
-        f"words: {len(words)} attempts{RESET}"
-    )
-    if bigrams:
-        english_bg = ["th", "he", "in", "er", "an", "at", "is", "it", "to", "st", "ha"]
-        found = [(bg, bigrams[bg]) for bg in english_bg if bg in bigrams]
-        if found:
-            bg_str = ", ".join(f"{bg}:{c}" for bg, c in found[:6])
-            print(f"{DIM}  English bigrams: {bg_str}{RESET}")
-
-    # Restore
-    agent.force_gate_open = old_gate
-    motor.babbling_noise = old_noise
-    print()
 
 
 def run_probe(cortex, word_decoder=None):
@@ -429,15 +342,16 @@ def run_probe(cortex, word_decoder=None):
                 f"trace_norm={float(np.abs(r._ff_eligibility).mean()):.5f}"
             )
 
-        # Apical gain stats (per-source)
+        # Apical segment stats (per-source)
         if r._apical_sources:
             for src_name, src in r._apical_sources.items():
-                w = src["weights"]
-                print(
-                    f"    Apical ({src_name}): "
-                    f"mean={float(w.mean()):.4f} "
-                    f"max={float(w.max()):.3f}"
-                )
+                seg_perm = src.get("seg_perm")
+                if seg_perm is not None:
+                    print(
+                        f"    Apical ({src_name}): "
+                        f"perm_mean={float(seg_perm.mean()):.4f} "
+                        f"perm_max={float(seg_perm.max()):.3f}"
+                    )
 
     # Word decoder stats
     if word_decoder and word_decoder.n_words > 0:
@@ -483,8 +397,8 @@ def run_echo(agent, motor, word: str):
     # Speak phase
     print(f"  {DIM}M1 reproducing:{RESET} ", end="", flush=True)
     agent.force_gate_open = True
-    old_noise = motor.babbling_noise
-    motor.babbling_noise = 0.2  # Mostly policy, some exploration
+    old_noise = motor.exploration_noise
+    motor.exploration_noise = 0.2  # Mostly policy, some exploration
     produced = []
 
     current = " "
@@ -515,7 +429,7 @@ def run_echo(agent, motor, word: str):
             sys.stdout.flush()
 
     agent.force_gate_open = False
-    motor.babbling_noise = old_noise
+    motor.exploration_noise = old_noise
 
     # Score
     n_match = sum(
@@ -610,16 +524,32 @@ def interactive_loop(
                     cortex.load_checkpoint(path)
                     print(f"{DIM}Loaded checkpoint: {path}{RESET}")
                 continue
-            elif cmd == "/babble":
-                n = int(parts[1]) if len(parts) > 1 else 200
-                run_babble(agent, region1, motor, n)
-                continue
             elif cmd == "/probe":
                 run_probe(cortex, word_decoder)
                 continue
             elif cmd == "/echo":
                 word = parts[1] if len(parts) > 1 else "the"
                 run_echo(agent, motor, word)
+                continue
+            elif cmd == "/predict":
+                if not region1.l23.active.any():
+                    print(
+                        f"{DIM}  L2/3 state is empty (after /reset). "
+                        f"Type a phrase first, then /predict.{RESET}"
+                    )
+                    continue
+                preds = decode_prediction(region1.l23.active, decoder, encoder, k=10)
+                if not preds:
+                    print(f"{DIM}  No predictions yet (decoder untrained){RESET}")
+                else:
+                    print(f"{DIM}  L2/3 readout — top-10 next-char predictions:{RESET}")
+                    for ch, prob in preds:
+                        display = repr(ch) if ch in ("\n", "\t", " ") else ch
+                        bar = "█" * max(1, int(prob * 30))
+                        print(
+                            f"  {DIM}{display:<6s} {prob:5.1%}{RESET}"
+                            f" {CYAN}{bar}{RESET}"
+                        )
                 continue
             else:
                 print(f"{DIM}Unknown command: {cmd} (try /help){RESET}")
@@ -634,11 +564,9 @@ def interactive_loop(
         line_total = 0
         line_bits = []
         line_bursts = []
-        last_token = (ord(" "), " ")
 
         for ch in line:
             token_id = ord(ch)
-            last_token = (token_id, ch)
 
             # S1 prediction BEFORE processing
             preds = decode_prediction(
@@ -654,14 +582,18 @@ def interactive_loop(
             # Step through full hierarchy
             step_token(agent, token_id, ch)
 
-            # Burst fraction = surprise (per-char, after processing)
+            # Burst fraction (per-char, after processing)
             n_active = max(int(region1.active_columns.sum()), 1)
             n_burst = int(region1.bursting_columns.sum())
             burst_frac = n_burst / n_active
 
-            # S2 word decoder: step and check for word boundary
+            # S2 word decoder: step and check for word boundary (optional)
             s2_region = cortex._regions["S2"].region
-            completed_word = word_decoder.step(ch, s2_region.l23.firing_rate)
+            completed_word = (
+                word_decoder.step(ch, s2_region.l23.firing_rate)
+                if word_decoder is not None
+                else None
+            )
 
             # Track per-char stats
             line_bursts.append(burst_frac)
@@ -677,107 +609,34 @@ def interactive_loop(
             if len(recent_bits) > 100:
                 recent_bits.pop(0)
 
-            # Display: char | surprise | predictions
-            color = surprise_color(burst_frac)
-            pred_str = format_predictions(preds)
+            # Display: char | L4 burst
+            # (L2/3 char predictions intentionally omitted — they read out
+            # at a different layer/timepoint than L4 burst and would
+            # confuse interpretation. Use /stats for BPC, /predict for top-k.)
+            color = burst_color(burst_frac)
             display_ch = repr(ch) if ch == " " else ch
-            surprise_pct = f"{burst_frac:.0%} surprise"
+            burst_pct = f"{burst_frac:.0%} L4 burst"
 
             sys.stdout.write(
-                f"  {color}{display_ch:<4s}{RESET}"
-                f" {color}{surprise_pct:>12s}{RESET}"
-                f"  {DIM}{pred_str}{RESET}\n"
+                f"  {color}{display_ch:<4s}{RESET} {color}{burst_pct:>12s}{RESET}\n"
             )
 
             # At word boundaries, show S2's word-level context
-            if completed_word:
+            if completed_word and word_decoder is not None:
                 s2_preds = word_decoder.predict(s2_region.l23.firing_rate, k=3)
                 if s2_preds:
                     total = max(sum(s for _, s in s2_preds), 1)
                     wp = " ".join(f"{w}:{s / total:.0%}" for w, s in s2_preds)
                     sys.stdout.write(f"  {MAGENTA}     S2 context: {wp}{RESET}\n")
 
-        # ── EOM INJECTION ──
-        # Signal turn boundary: M1's turn to speak.
-        # Feed EOM token, then neutral input (repeat last char) as speak window.
-        step_token(agent, EOM_TOKEN, "")
-
-        # Show transition with summary stats
-        if n_chars > 0:
-            recent_bpc = sum(recent_bits) / len(recent_bits) if recent_bits else 0
+        # Phrase-level summary: avg L4 burst + BPC
+        if line_total > 0:
             line_bpc = sum(line_bits) / len(line_bits) if line_bits else 0
-            line_acc = line_correct / line_total if line_total > 0 else 0
             avg_burst = sum(line_bursts) / len(line_bursts) if line_bursts else 0
-            print(
-                f"\n{DIM}  {line_acc:.0%} predicted, "
-                f"{avg_burst:.0%} avg surprise"
-                f"  [{line_bpc:.1f} bpc]{RESET}"
-            )
-        print(f"\n{DIM}  [EOM → M1's turn]{RESET}")
-
-        # ── SPEAKING PHASE ──
-        # Force BG gate open — we know it's M1's turn.
-        # PFC holds context from input phase → goal drive to M1.
-        agent.force_gate_open = True
-        spoken_chars = []
-        silent_steps = 0
-
-        # Snapshot PFC goal and close gate for speaking
-        pfc_state = cortex._regions.get("PFC")
-        if pfc_state is not None:
-            pfc_state.region.snapshot_goal()
-            pfc_state.region.gate_open = False
-
-        for _ in range(MAX_SPEAK_STEPS + MAX_SILENT_STEPS):
-            # Set PFC goal drive to M1 (if PFC exists)
-            if (
-                pfc_state is not None
-                and hasattr(motor, "_goal_weights")
-                and motor._goal_weights is not None
-            ):
-                motor.set_goal_drive(pfc_state.region.l23.firing_rate)
-
-            # Feed M1's last output as next input (autoregressive)
-            step_token(agent, last_token[0], last_token[1])
-
-            m_id, m_conf = motor.last_output
-            gate = motor.last_gate
-
-            if m_id >= 0:
-                # M1 is speaking
-                ch = token_to_char(m_id)
-                if ch:
-                    spoken_chars.append(ch)
-                    color = GREEN if m_conf > 0.5 else YELLOW
-                    sys.stdout.write(f"{color}{ch}{RESET}")
-                    sys.stdout.flush()
-                    # Feed M1's output as the next input (autoregressive)
-                    last_token = (m_id, ch)
-                silent_steps = 0
-
-                # Ramble check
-                if len(spoken_chars) >= MAX_SPEAK_STEPS:
-                    sys.stdout.write(
-                        f"\n{DIM}  [ramble limit: {MAX_SPEAK_STEPS} chars]{RESET}"
-                    )
-                    break
-            else:
-                silent_steps += 1
-                if spoken_chars:
-                    # Was speaking, now stopped → natural end
-                    break
-                if silent_steps >= MAX_SILENT_STEPS:
-                    sys.stdout.write(f"{DIM}  (M1 silent — gate={gate:.2f}){RESET}")
-                    break
-
-        agent.force_gate_open = False
-
-        if spoken_chars:
-            sys.stdout.write(f"\n{DIM}  M1 spoke {len(spoken_chars)} chars{RESET}")
-        print("\n")
-
-        # Reset working memory for next exchange
-        reset_state(cortex)
+            print(f"\n{DIM}  avg {avg_burst:.0%} L4 burst  [{line_bpc:.1f} bpc]{RESET}")
+        # No auto-reset — keep state so /probe and /predict show real data.
+        # Use /reset manually at story boundaries.
+        print()
 
 
 def main():

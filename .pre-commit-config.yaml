@@ -9,7 +9,7 @@ repos:
     hooks:
       - id: ty
         name: ty typecheck
-        entry: uv run ty check
+        entry: uv run ty check src/arbora/
         language: system
         types: [python]
         pass_filenames: false
