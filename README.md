@@ -89,21 +89,23 @@ See `examples/` for complete applications built on Arbora:
 - **`examples/chat/`** -- Character-level text learning with sensory-motor hierarchy (S1->S2->S3->PFC->M2->M1)
 - **`examples/minigrid/`** -- Grid navigation with MiniGrid (S1->BG->M1)
 
-Run an example:
+Run an example (examples import each other as a package, so invoke them with `python -m`):
 
 ```bash
-uv run examples/minigrid/train.py --episodes 100
-uv run examples/minigrid/benchmark.py --episodes 1000
+# MiniGrid requires the optional gymnasium/minigrid deps:
+uv sync --extra minigrid
+uv run python -m examples.minigrid.train --episodes 100
+uv run python -m examples.minigrid.benchmark --episodes 1000
 
 # ARC requires the optional arc-agi dependency:
 uv sync --extra arc
-uv run examples/arc/train.py
+uv run python -m examples.arc.train
 ```
 
 ## Development
 
 ```bash
-uv run pytest tests/              # ~480 tests
+uv run pytest tests/              # ~440 tests
 uv run ruff check src/ tests/     # lint
 uv run ty check src/arbora/        # typecheck
 ```
