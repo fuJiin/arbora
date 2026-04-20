@@ -311,17 +311,32 @@ def main():
     print("=" * 60)
     print(f"Results: {len(results)} games x {args.episodes} episodes, {elapsed:.1f}s")
     print()
-    # W/D/T = Won / Died / Timed-out episodes (sum == episodes run).
-    header = f"{'Game':8s} {'Best':>5s} {'W/D/T':>8s} {'Early→Late Levels':>20s}"
+    print(
+        "  Best Lvls = max levels reached in any single episode / total"
+        " levels to win the game"
+    )
+    print(
+        "  Eps W/D/T = episode outcomes, Won / Died / Timed-out (sums to"
+        " episodes per game)"
+    )
+    print(
+        "  Early→Late Lvls = mean levels in first half of episodes →"
+        " mean levels in second half"
+    )
+    print()
+    header = (
+        f"{'Game':8s} {'Best Lvls':>10s} {'Eps W/D/T':>11s} {'Early→Late Lvls':>18s}"
+    )
     print(header)
     print("-" * 60)
     for r in results:
         marker = "*" if r["best_levels"] > 0 else " "
+        best = f"{r['best_levels']}/{r['win_levels']}"
         wdt = f"{r['n_won']}/{r['n_died']}/{r['n_timed_out']}"
         print(
             f"{marker}{r['game_id']:7s} "
-            f"{r['best_levels']:2d}/{r['win_levels']:<2d} "
-            f"{wdt:>8s}  "
+            f"{best:>10s} "
+            f"{wdt:>11s}  "
             f"{r['early_levels']:4.1f} -> {r['late_levels']:4.1f}"
         )
 
