@@ -52,6 +52,7 @@ def run_episode(
     levels_completed = 0
     level_steps = 0
     died = False
+    won = False
 
     # Reset per-episode state (but preserve learned weights)
     agent.reset_episode()
@@ -104,14 +105,20 @@ def run_episode(
         # Win — done
         state_str = str(frame.state)
         if "WIN" in state_str:
+            won = True
             if verbose:
                 print(f"    WIN at step {total_steps}")
             break
 
+    # If the loop exited without a terminal outcome (hit max_steps,
+    # or the env returned None earlier), the episode timed out.
+    timed_out = not won and not died
     return {
         "levels_completed": levels_completed,
         "total_steps": total_steps,
         "died": died,
+        "won": won,
+        "timed_out": timed_out,
     }
 
 
@@ -177,36 +184,41 @@ def train_game(
 
     # Summary
     best_levels = max(r["levels_completed"] for r in episode_results)
-    avg_steps = np.mean([r["total_steps"] for r in episode_results])
-    survival_rate = 1.0 - np.mean([r["died"] for r in episode_results])
+    avg_steps = float(np.mean([r["total_steps"] for r in episode_results]))
+    n_won = sum(1 for r in episode_results if r["won"])
+    n_died = sum(1 for r in episode_results if r["died"])
+    n_timed_out = sum(1 for r in episode_results if r["timed_out"])
     levels_by_episode = [r["levels_completed"] for r in episode_results]
 
-    # Did the agent improve? Compare first half vs second half
-    half = max(1, n_episodes // 2)
-    early_levels = np.mean(levels_by_episode[:half])
-    late_levels = np.mean(levels_by_episode[half:])
-    early_survival = np.mean([1 - r["died"] for r in episode_results[:half]])
-    late_survival = np.mean([1 - r["died"] for r in episode_results[half:]])
+    # Did the agent improve? Compare first half vs second half.
+    # With < 2 episodes there is no late half.
+    if n_episodes < 2:
+        early_levels = late_levels = float(levels_by_episode[0])
+    else:
+        half = n_episodes // 2
+        early_levels = float(np.mean(levels_by_episode[:half]))
+        late_levels = float(np.mean(levels_by_episode[half:]))
 
     if verbose:
         print("  ---")
         print(f"  Best: {best_levels}/{win_levels} levels")
-        print(f"  Avg steps: {avg_steps:.0f}, Survival: {survival_rate:.0%}")
         print(
-            f"  Learning: levels {early_levels:.1f} -> {late_levels:.1f}, "
-            f"survival {early_survival:.0%} -> {late_survival:.0%}"
+            f"  Outcomes (W/D/T): {n_won}/{n_died}/{n_timed_out}, "
+            f"avg steps: {avg_steps:.0f}"
         )
+        print(f"  Learning: levels {early_levels:.1f} -> {late_levels:.1f}")
 
     return {
         "game_id": game_id,
         "win_levels": win_levels,
         "best_levels": best_levels,
-        "avg_steps": float(avg_steps),
-        "survival_rate": float(survival_rate),
+        "avg_steps": avg_steps,
+        "n_won": n_won,
+        "n_died": n_died,
+        "n_timed_out": n_timed_out,
+        "n_episodes": n_episodes,
         "early_levels": float(early_levels),
         "late_levels": float(late_levels),
-        "early_survival": float(early_survival),
-        "late_survival": float(late_survival),
         "episode_levels": levels_by_episode,
     }
 
@@ -299,20 +311,33 @@ def main():
     print("=" * 60)
     print(f"Results: {len(results)} games x {args.episodes} episodes, {elapsed:.1f}s")
     print()
+    print(
+        "  Best Lvls = max levels reached in any single episode / total"
+        " levels to win the game"
+    )
+    print(
+        "  Eps W/D/T = episode outcomes, Won / Died / Timed-out (sums to"
+        " episodes per game)"
+    )
+    print(
+        "  Early→Late Lvls = mean levels in first half of episodes →"
+        " mean levels in second half"
+    )
+    print()
     header = (
-        f"{'Game':8s} {'Best':>5s} {'Surv':>6s}"
-        f" {'Early→Late Levels':>20s} {'Early→Late Surv':>18s}"
+        f"{'Game':8s} {'Best Lvls':>10s} {'Eps W/D/T':>11s} {'Early→Late Lvls':>18s}"
     )
     print(header)
     print("-" * 60)
     for r in results:
         marker = "*" if r["best_levels"] > 0 else " "
+        best = f"{r['best_levels']}/{r['win_levels']}"
+        wdt = f"{r['n_won']}/{r['n_died']}/{r['n_timed_out']}"
         print(
             f"{marker}{r['game_id']:7s} "
-            f"{r['best_levels']:2d}/{r['win_levels']:<2d} "
-            f"{r['survival_rate']:5.0%}  "
-            f"{r['early_levels']:4.1f} -> {r['late_levels']:4.1f}          "
-            f"{r['early_survival']:4.0%} -> {r['late_survival']:4.0%}"
+            f"{best:>10s} "
+            f"{wdt:>11s}  "
+            f"{r['early_levels']:4.1f} -> {r['late_levels']:4.1f}"
         )
 
     total_best = sum(r["best_levels"] for r in results)

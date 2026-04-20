@@ -105,6 +105,10 @@ class LaminaProbe:
     def _observe_input(self, region, region_name: str) -> None:
         """Accumulate input reception KPIs on the input lamina."""
         lamina = region.input_port
+        # Non-Lamina input ports (e.g. BG, Thalamus) lack prediction state;
+        # skip them — they have nothing for this probe to measure.
+        if not hasattr(lamina, "predicted"):
+            return
         predicted = lamina.predicted
         active = lamina.active
 
@@ -131,8 +135,13 @@ class LaminaProbe:
 
     def _observe_association(self, region, region_name: str) -> None:
         """Sample L2/3 activations at configured interval."""
-        if self._step_count % self._l23_sample_interval == 0:
-            self._l23_samples[region_name].append(region.l23.active.astype(np.float64))
+        if self._step_count % self._l23_sample_interval != 0:
+            return
+        # Subcortical regions (BG, etc.) don't have a L2/3 associative lamina.
+        l23 = getattr(region, "l23", None)
+        if l23 is None:
+            return
+        self._l23_samples[region_name].append(l23.active.astype(np.float64))
 
     # -----------------------------------------------------------------------
     # Functional snapshot
