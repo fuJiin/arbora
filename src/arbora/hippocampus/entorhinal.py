@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from arbora.hippocampus._kwta import kwta
+
 
 class EntorhinalLayer:
     """Fixed random projection between cortex and hippocampus.
@@ -114,14 +116,7 @@ class EntorhinalLayer:
                 f"input has {flat.shape[0]} elements, expected {self.input_dim}"
             )
         projected = flat @ self.forward_weights
-        out = np.zeros(self.output_dim, dtype=np.bool_)
-        if self.k >= self.output_dim:
-            out[:] = True
-            return out
-        # argpartition is O(n); we don't need top-k sorted, just the indices.
-        top_k = np.argpartition(projected, -self.k)[-self.k :]
-        out[top_k] = True
-        return out
+        return kwta(projected, self.k)
 
     def reverse(self, y: np.ndarray) -> np.ndarray:
         """Project EC-space vector back to cortical dimension.
