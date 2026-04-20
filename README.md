@@ -99,13 +99,13 @@ uv run python -m examples.minigrid.benchmark --episodes 1000
 
 # ARC requires the optional arc-agi dependency:
 uv sync --extra arc
-uv run python -m examples.arc.train
+uv run python -m examples.arc.train --keyboard-only --episodes 5
 ```
 
 ## Development
 
 ```bash
-uv run pytest tests/              # ~440 tests
+uv run pytest tests/              # ~480 tests (install --extra minigrid to exercise minigrid suite)
 uv run ruff check src/ tests/     # lint
 uv run ty check src/arbora/        # typecheck
 ```
