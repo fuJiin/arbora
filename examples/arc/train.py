@@ -181,12 +181,18 @@ def train_game(
     survival_rate = 1.0 - np.mean([r["died"] for r in episode_results])
     levels_by_episode = [r["levels_completed"] for r in episode_results]
 
-    # Did the agent improve? Compare first half vs second half
-    half = max(1, n_episodes // 2)
-    early_levels = np.mean(levels_by_episode[:half])
-    late_levels = np.mean(levels_by_episode[half:])
-    early_survival = np.mean([1 - r["died"] for r in episode_results[:half]])
-    late_survival = np.mean([1 - r["died"] for r in episode_results[half:]])
+    # Did the agent improve? Compare first half vs second half.
+    # With < 2 episodes there is no late half, so report early == late
+    # rather than NaN-warning on mean-of-empty.
+    if n_episodes < 2:
+        early_levels = late_levels = float(levels_by_episode[0])
+        early_survival = late_survival = float(1 - episode_results[0]["died"])
+    else:
+        half = n_episodes // 2
+        early_levels = float(np.mean(levels_by_episode[:half]))
+        late_levels = float(np.mean(levels_by_episode[half:]))
+        early_survival = float(np.mean([1 - r["died"] for r in episode_results[:half]]))
+        late_survival = float(np.mean([1 - r["died"] for r in episode_results[half:]]))
 
     if verbose:
         print("  ---")
