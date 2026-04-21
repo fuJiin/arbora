@@ -1,12 +1,15 @@
 """CA1: dual-input comparator between memory (CA3) and sensory (direct EC).
 
 CA1 pyramidal neurons receive two inputs on different dendritic
-compartments: CA3 via Schaffer collaterals (proximal apical) and
-EC-III directly via the temporoammonic path (distal apical). The
-mismatch between these streams is the classic substrate for novelty
-detection.
+compartments:
 
-See HIPPOCAMPUS.md §1 for the full biology + rationale.
+  - CA3 via Schaffer collaterals land on proximal apical dendrites
+    (stratum radiatum) — the pattern-completed "prediction from memory".
+  - EC-III via the temporoammonic path lands on distal apical dendrites
+    (stratum lacunosum-moleculare) — fresh sensory input.
+
+The mismatch between these streams is the classic substrate for novelty
+detection, and it is CA1 itself that performs the comparison — not EC.
 
 v1 scope:
   - Two fixed random projections (CA3 → output, EC_direct → output),
@@ -33,7 +36,7 @@ class CA1:
         EC direct input dimension (temporoammonic path).
     output_dim : int
         CA1 output dimension. Typically matches EC dim so the output
-        routes back through `EntorhinalLayer.reverse` to cortex.
+        routes back through `EntorhinalCortex.reverse` to cortex.
     seed : int
         Random seed.
 

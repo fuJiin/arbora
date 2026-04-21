@@ -1,9 +1,9 @@
-"""Shared k-WTA helper for hippocampal layers.
+"""Sparse-activation primitives shared across the codebase.
 
-Binary k-Winners-Take-All: returns a bool vector with the top-k entries
-of the drive active. Used by EC forward, DG, and CA3's attractor
-dynamics. Centralized here so sparsification behavior stays consistent
-across the module.
+Currently hosts the binary k-Winners-Take-All helper used by hippocampal
+layers (EC forward, DG, CA3 attractor dynamics). Cortical code uses the
+same `argpartition` idiom inline for column selection; that can be
+migrated here once the refactor is worthwhile.
 """
 
 from __future__ import annotations

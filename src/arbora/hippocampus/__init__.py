@@ -1,16 +1,13 @@
-"""Hippocampal module — episodic memory and pattern completion.
-
-See `arbora-notes/.agents/HIPPOCAMPUS.md` for v1 design decisions.
-"""
+"""Hippocampal module — episodic memory and pattern completion."""
 
 from arbora.hippocampus.ca1 import CA1
-from arbora.hippocampus.ca3 import CA3AttractorNetwork
+from arbora.hippocampus.ca3 import CA3
 from arbora.hippocampus.dentate_gyrus import DentateGyrus
-from arbora.hippocampus.entorhinal import EntorhinalLayer
+from arbora.hippocampus.entorhinal_cortex import EntorhinalCortex
 
 __all__ = [
     "CA1",
-    "CA3AttractorNetwork",
+    "CA3",
     "DentateGyrus",
-    "EntorhinalLayer",
+    "EntorhinalCortex",
 ]

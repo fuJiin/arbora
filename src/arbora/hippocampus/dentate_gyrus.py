@@ -32,7 +32,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from arbora.hippocampus._kwta import kwta
+from arbora.sparse import kwta
 
 
 class DentateGyrus:

@@ -1,16 +1,18 @@
-"""CA3 attractor network: Hebbian recurrent, one-shot binding.
+"""CA3: Hebbian recurrent attractor network with one-shot binding.
 
 CA3 is the episodic memory substrate of the hippocampus. It receives a
 strong sparse "detonator" input from DG via the mossy fibers, binds
-coincident activity through Hebbian LTP on its recurrent connections,
-and performs pattern completion from partial cues.
+coincident activity through Hebbian LTP on its recurrent (lateral)
+collaterals, and performs pattern completion from partial cues.
 
 Biology:
   - DG → CA3 mossy fibers: ~14 contacts per DG neuron onto CA3 pyramidal
     cells, via very large synapses ("detonator synapses"). A single DG
     spike can drive a CA3 cell to threshold.
   - CA3 recurrent collaterals: each pyramidal cell synapses on ~10^4
-    others, making CA3 a dense auto-associative network.
+    others, making CA3 a dense auto-associative network. We call this
+    the `lateral_weights` matrix, consistent with cortical within-region
+    naming.
   - BTSP (behavioral timescale synaptic plasticity): a single supra-
     threshold plateau potential triggers persistent weight change
     across a ~2-second window (Bittner et al. 2017). Biological basis
@@ -19,28 +21,28 @@ Biology:
 v1 simplifications:
   - Mossy fibers: fixed sparse random projection. Each CA3 unit
     receives from `mossy_k` DG units with strong weight `mossy_weight`.
-  - Recurrent: dense Hebbian LTP only (no LTD). Co-active pairs gain
+  - Lateral: dense Hebbian LTP only (no LTD). Co-active pairs gain
     weight on encode; BTSP reduces to "a single encode call is enough
     for retrieval."
-  - No three-factor / DA modulation; no theta phases; no replay.
-    See HIPPOCAMPUS.md §3 for deferred work.
+  - No three-factor / DA modulation; no theta phases; no replay. CA3
+    lateral weights are the entire HC memory in v1.
 
 Reset semantics:
-  - `reset()` clears the current activation state only. Recurrent
+  - `reset()` clears the current activation state only. Lateral
     weights (the memory) are preserved.
-  - `reset_memory()` clears state AND recurrent weights. Use at task
-    boundaries for episodic memory reset — crude consolidation-via-
-    forgetting per HIPPOCAMPUS.md §3.
+  - `reset_memory()` clears state AND lateral weights. Use at task
+    boundaries as a crude consolidation-via-forgetting when cortical
+    drift has invalidated stored keys (see ARB-105 spec §3).
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from arbora.hippocampus._kwta import kwta
+from arbora.sparse import kwta
 
 
-class CA3AttractorNetwork:
+class CA3:
     """Hebbian recurrent attractor with BTSP-like one-shot binding.
 
     Parameters
@@ -68,8 +70,8 @@ class CA3AttractorNetwork:
     ----------
     mossy_weights : np.ndarray, shape (dg_dim, dim)
         Sparse mossy projection (non-zero entries = mossy_weight).
-    recurrent : np.ndarray, shape (dim, dim)
-        Learned recurrent weights. Clipped to [0, 1].
+    lateral_weights : np.ndarray, shape (dim, dim)
+        Learned within-region recurrent collaterals. Clipped to [0, 1].
     state : np.ndarray, dtype=bool, shape (dim,)
         Current activation. Updated by encode/retrieve.
     """
@@ -113,16 +115,15 @@ class CA3AttractorNetwork:
             idx = rng.choice(dg_dim, size=mossy_k, replace=False)
             self.mossy_weights[idx, i] = mossy_weight
 
-        self.recurrent = np.zeros((dim, dim))
+        self.lateral_weights = np.zeros((dim, dim))
         self.state = np.zeros(dim, dtype=np.bool_)
 
     def encode(self, dg_pattern: np.ndarray) -> np.ndarray:
         """Bind a DG input pattern as a CA3 attractor.
 
         One-shot Hebbian LTP: compute CA3 activation from DG detonator
-        via mossy weights, apply k-WTA, then strengthen recurrent
-        weights among co-active CA3 units. Stores result as current
-        state.
+        via mossy weights, apply k-WTA, then strengthen lateral weights
+        among co-active CA3 units. Stores result as current state.
 
         Returns a copy of the CA3 activation pattern.
         """
@@ -137,9 +138,9 @@ class CA3AttractorNetwork:
 
         if active.any():
             idx = np.flatnonzero(active)
-            self.recurrent[np.ix_(idx, idx)] += self.learning_rate
-            np.fill_diagonal(self.recurrent, 0.0)
-            np.clip(self.recurrent, 0.0, 1.0, out=self.recurrent)
+            self.lateral_weights[np.ix_(idx, idx)] += self.learning_rate
+            np.fill_diagonal(self.lateral_weights, 0.0)
+            np.clip(self.lateral_weights, 0.0, 1.0, out=self.lateral_weights)
 
         self.state[:] = active
         return active.copy()
@@ -167,7 +168,7 @@ class CA3AttractorNetwork:
 
         current = flat.astype(np.float64, copy=True)
         for _ in range(n_iter):
-            drive = current @ self.recurrent
+            drive = current @ self.lateral_weights
             current = kwta(drive, self.k).astype(np.float64)
 
         result = current.astype(np.bool_)
@@ -175,14 +176,15 @@ class CA3AttractorNetwork:
         return result.copy()
 
     def reset(self) -> None:
-        """Clear current activation state. Preserves recurrent weights."""
+        """Clear current activation state. Preserves lateral weights."""
         self.state[:] = False
 
     def reset_memory(self) -> None:
-        """Clear both activation state and recurrent weights.
+        """Clear both activation state and lateral weights.
 
-        Episodic memory reset. See HIPPOCAMPUS.md §3 — use at task
-        boundaries when cortical drift has invalidated stored keys.
+        Episodic memory reset. Call at task boundaries when cortical
+        drift has invalidated stored CA3 keys — crude consolidation-
+        via-forgetting until full replay (ARB-120) lands.
         """
         self.state[:] = False
-        self.recurrent[:] = 0.0
+        self.lateral_weights[:] = 0.0

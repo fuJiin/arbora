@@ -1,4 +1,4 @@
-"""Entorhinal layer: fixed random projection between cortex and hippocampus.
+"""Entorhinal cortex: fixed random projection between cortex and hippocampus.
 
 The entorhinal cortex is the primary interface between neocortex and the
 hippocampal formation. In biology:
@@ -29,10 +29,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from arbora.hippocampus._kwta import kwta
+from arbora.sparse import kwta
 
 
-class EntorhinalLayer:
+class EntorhinalCortex:
     """Fixed random projection between cortex and hippocampus.
 
     Forward projects cortical input into a sparse binary EC code (k-WTA).
