@@ -1,33 +1,40 @@
 """Circuit factories for MiniGrid benchmarks.
 
-Two minimal topologies, sharing the same S1/BG/M1 configuration so the
-only difference between them is whether the hippocampal module mediates
-S1 → M1. This symmetry is what lets the ARB-118 ablation attribute
-performance differences to HC itself rather than to the surrounding
-architecture.
+Two minimal topologies sharing as much configuration as possible so the
+ARB-118 ablation tests a clean "HC vs no-HC" question.
 
-Baseline
---------
+Baseline (no HC)
+----------------
 ::
 
-    S1 → M1
-    S1 → BG → M1 (modulatory)
+    S1 → M1                  (sensorimotor feedforward)
+    S1 → BG → M1 (mod)       (action-selection gate)
 
-Hippocampal
------------
+Hippocampal (with HC)
+---------------------
 ::
 
-    S1 → HC → M1
-    S1 → BG → M1 (modulatory)
+    S1 → M1                  (sensorimotor feedforward — same as baseline)
+    S1 → BG                  (current-state value path — same as baseline)
+    S1 → HC                  (sensory input to HC)
+    HC → BG                  (memory-informed value — what HC adds)
+    BG → M1 (mod)            (same action-selection gate)
 
-HC is inserted on the sensory → motor feedforward path only. BG still
-reads S1 directly, so the reward-driven action-selection signal is
-identical between arms — the only thing that changes is whether M1's
-feedforward drive is HC-augmented (memory-informed) or raw sensory.
+Rationale (per ARB-123): HC's biologically-grounded downstream target
+is ventral striatum (a subregion of BG), not M1. HC biases *which
+action is selected* by enriching BG's value signal; it does not drive
+M1 directly. This topology makes the ARB-118 falsification story clean:
+baseline BG sees only the current sensory state and cannot distinguish
+two MemoryS13 distractors; the HC arm's BG additionally receives HC's
+pattern-completed memory of the stored target, allowing it to bias
+action-selection toward the matching distractor.
 
-HC is symmetric (input_dim == output_dim == S1.n_l23_total), so M1's
-input dimension is the same in both arms and can be configured
-identically.
+Shared-region invariants
+------------------------
+S1 and M1 are identical across arms (same constructor args, same seed).
+BG is *intentionally* wider in the HC arm (it receives FF from both S1
+and HC, so `input_dim` is the sum). Every other BG configuration field
+matches.
 """
 
 from __future__ import annotations
@@ -41,8 +48,11 @@ from arbora.cortex.motor import MotorRegion
 from arbora.hippocampus import HippocampalRegion
 from examples.minigrid.encoder import MiniGridEncoder
 
-# Shared default dimensions. Both arms use the same S1/BG/M1 so the
-# ablation holds everything but HC presence constant.
+# Shared default dimensions. Both arms use the same S1/M1 so the
+# ablation holds everything but HC presence constant on the cortical
+# side. BG is also shared-in-config (learning rate, n_actions, seed)
+# except for `input_dim`, which differs because HC adds an FF stream
+# in the HC arm.
 _S1_DEFAULTS = dict(
     n_columns=64,
     n_l4=4,
@@ -82,31 +92,27 @@ _HC_DEFAULTS = dict(
 
 
 @dataclass
-class _Regions:
+class _SharedRegions:
+    """S1 and M1 — truly shared across arms (identical construction).
+
+    BG is *not* shared: its `input_dim` depends on whether HC is
+    present, so each factory builds its own BG.
+    """
+
     s1: SensoryRegion
-    bg: BasalGangliaRegion
     m1: MotorRegion
-    hc: HippocampalRegion | None = None
 
 
 def _build_shared_regions(
     encoder: MiniGridEncoder,
     s1_overrides: dict | None,
-    bg_overrides: dict | None,
     m1_overrides: dict | None,
-) -> _Regions:
-    """Construct S1, BG, M1 used by both arms of the ablation."""
+) -> _SharedRegions:
     s1_cfg = {**_S1_DEFAULTS, **(s1_overrides or {})}
     s1 = SensoryRegion(
         input_dim=encoder.input_dim,
         encoding_width=encoder.encoding_width,
         **s1_cfg,
-    )
-
-    bg_cfg = {**_BG_DEFAULTS, **(bg_overrides or {})}
-    bg = BasalGangliaRegion(
-        input_dim=s1.n_l23_total,
-        **bg_cfg,
     )
 
     m1_cfg = {**_M1_DEFAULTS, **(m1_overrides or {})}
@@ -115,7 +121,12 @@ def _build_shared_regions(
         **m1_cfg,
     )
 
-    return _Regions(s1=s1, bg=bg, m1=m1)
+    return _SharedRegions(s1=s1, m1=m1)
+
+
+def _build_bg(input_dim: int, bg_overrides: dict | None) -> BasalGangliaRegion:
+    bg_cfg = {**_BG_DEFAULTS, **(bg_overrides or {})}
+    return BasalGangliaRegion(input_dim=input_dim, **bg_cfg)
 
 
 def build_baseline_circuit(
@@ -128,25 +139,23 @@ def build_baseline_circuit(
 ) -> Circuit:
     """Build `S1 → M1 + BG` — the no-HC baseline for the ARB-118 ablation.
 
-    Matches the topology already used by `examples/minigrid/train.py`;
-    extracted here so the baseline and hippocampal arms share identical
-    shared-region configuration.
+    Matches the topology already used by `examples/minigrid/train.py`.
+    BG reads S1 only; without HC, it cannot distinguish memory-gated
+    choices on MemoryS13 — that's the whole point of the ablation.
     """
-    regions = _build_shared_regions(encoder, s1_overrides, bg_overrides, m1_overrides)
-    circuit = Circuit(encoder)
-    circuit.add_region("S1", regions.s1, entry=True, input_region=True)
-    circuit.add_region("BG", regions.bg)
-    circuit.add_region("M1", regions.m1, output_region=True)
+    shared = _build_shared_regions(encoder, s1_overrides, m1_overrides)
+    bg = _build_bg(input_dim=shared.s1.n_l23_total, bg_overrides=bg_overrides)
 
+    circuit = Circuit(encoder)
+    circuit.add_region("S1", shared.s1, entry=True, input_region=True)
+    circuit.add_region("BG", bg)
+    circuit.add_region("M1", shared.m1, output_region=True)
+
+    circuit.connect(shared.s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
     circuit.connect(
-        regions.s1.output_port, regions.bg.input_port, ConnectionRole.FEEDFORWARD
+        shared.s1.output_port, shared.m1.input_port, ConnectionRole.FEEDFORWARD
     )
-    circuit.connect(
-        regions.s1.output_port, regions.m1.input_port, ConnectionRole.FEEDFORWARD
-    )
-    circuit.connect(
-        regions.bg.output_port, regions.m1.input_port, ConnectionRole.MODULATORY
-    )
+    circuit.connect(bg.output_port, shared.m1.input_port, ConnectionRole.MODULATORY)
 
     if finalize:
         circuit.finalize()
@@ -162,40 +171,50 @@ def build_hippocampal_circuit(
     m1_overrides: dict | None = None,
     finalize: bool = True,
 ) -> Circuit:
-    """Build `S1 → HC → M1 + BG` — the with-HC arm of the ARB-118 ablation.
+    """Build `S1 → {M1, BG, HC}`, `HC → BG`, `BG → M1 (mod)`.
 
-    HC is inserted on the sensory→motor feedforward path. BG wiring is
-    unchanged from the baseline so the reward-driven action-selection
-    signal is identical between arms.
+    HC is the biologically-motivated ventral-striatum-analog path (see
+    ARB-123): HC projects to BG to augment the action-selection value
+    signal with pattern-completed memory. M1 receives only direct S1 FF
+    — the same sensorimotor path the baseline uses — so the two arms
+    differ only in whether BG's value signal is memory-informed.
+
+    BG is widened in this arm (`input_dim = S1.n_l23_total +
+    HC.output_port.n_total`) so it can accept both FF streams. All
+    other BG configuration matches the baseline.
     """
-    regions = _build_shared_regions(encoder, s1_overrides, bg_overrides, m1_overrides)
+    shared = _build_shared_regions(encoder, s1_overrides, m1_overrides)
+
     hc_cfg = {**_HC_DEFAULTS, **(hc_overrides or {})}
-    regions.hc = HippocampalRegion(
-        input_dim=regions.s1.n_l23_total,
+    hc = HippocampalRegion(
+        input_dim=shared.s1.n_l23_total,
         **hc_cfg,
     )
 
-    circuit = Circuit(encoder)
-    circuit.add_region("S1", regions.s1, entry=True, input_region=True)
-    circuit.add_region("HC", regions.hc)
-    circuit.add_region("BG", regions.bg)
-    circuit.add_region("M1", regions.m1, output_region=True)
+    # BG in the HC arm receives FF from both S1 and HC. This is the
+    # intentional shared-region asymmetry (see module docstring).
+    bg = _build_bg(
+        input_dim=shared.s1.n_l23_total + hc.output_port.n_total,
+        bg_overrides=bg_overrides,
+    )
 
-    # S1 feeds both HC (memory path) and BG (action-selection path).
+    circuit = Circuit(encoder)
+    circuit.add_region("S1", shared.s1, entry=True, input_region=True)
+    circuit.add_region("HC", hc)
+    circuit.add_region("BG", bg)
+    circuit.add_region("M1", shared.m1, output_region=True)
+
+    # S1 feeds all three downstream regions.
+    circuit.connect(shared.s1.output_port, hc.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(shared.s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
     circuit.connect(
-        regions.s1.output_port, regions.hc.input_port, ConnectionRole.FEEDFORWARD
+        shared.s1.output_port, shared.m1.input_port, ConnectionRole.FEEDFORWARD
     )
-    circuit.connect(
-        regions.s1.output_port, regions.bg.input_port, ConnectionRole.FEEDFORWARD
-    )
-    # HC emits into M1; no direct S1 → M1 in this arm so M1's drive is
-    # HC-mediated. The ablation tests whether that mediation helps.
-    circuit.connect(
-        regions.hc.output_port, regions.m1.input_port, ConnectionRole.FEEDFORWARD
-    )
-    circuit.connect(
-        regions.bg.output_port, regions.m1.input_port, ConnectionRole.MODULATORY
-    )
+    # HC augments BG's input with memory-informed value context. This
+    # is the core architectural claim of the HC arm.
+    circuit.connect(hc.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+    # BG gates M1 action selection (identical to baseline).
+    circuit.connect(bg.output_port, shared.m1.input_port, ConnectionRole.MODULATORY)
 
     if finalize:
         circuit.finalize()
