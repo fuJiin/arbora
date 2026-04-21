@@ -92,6 +92,13 @@ class HippocampalRegion:
     last_match : float
         Cosine similarity reported by CA1 on the most recent process()
         call. Updated every step. Reserved for the v1.1 salience gate.
+    last_ec_pattern : np.ndarray, shape (ec_dim,), dtype=bool
+        EC forward output from the most recent `process()` call.
+        Exposed for probes that want to observe HC's intermediate
+        state without re-running the pipeline. Zeroed before any call.
+    last_dg_pattern : np.ndarray, shape (dg_dim,), dtype=bool
+        DG output from the most recent `process()` call. Same role as
+        `last_ec_pattern` — mechanistic observability for probes.
     """
 
     INPUT_ID = "hc_in"
@@ -161,6 +168,10 @@ class HippocampalRegion:
         )
 
         self.last_match: float = 0.0
+        # Observable intermediate state for probes. CA3 already exposes
+        # `.state` and `.lateral_weights`, so no duplicate buffers for it.
+        self.last_ec_pattern: np.ndarray = np.zeros(ec_dim, dtype=np.bool_)
+        self.last_dg_pattern: np.ndarray = np.zeros(dg_dim, dtype=np.bool_)
 
     # ------------------------------------------------------------------
     # Region protocol
@@ -192,6 +203,8 @@ class HippocampalRegion:
 
         self._output_group.firing_rate[:] = cortex_out
         self.last_match = float(match)
+        self.last_ec_pattern = ec_pat
+        self.last_dg_pattern = dg_pat
         return cortex_out
 
     def apply_reward(self, reward: float) -> None:
@@ -203,6 +216,8 @@ class HippocampalRegion:
         self._input_group.clear_modulation()
         self._output_group.firing_rate[:] = 0.0
         self.last_match = 0.0
+        self.last_ec_pattern[:] = False
+        self.last_dg_pattern[:] = False
 
     def reset_memory(self) -> None:
         """Clear both transient state and CA3 lateral weights.
