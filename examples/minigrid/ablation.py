@@ -3,11 +3,21 @@
 Runs two arms — `build_baseline_circuit` (no HC) and
 `build_hippocampal_circuit` (with HC) — on the same environment and
 same env seeds, then reports success rate, time-to-first-success, and
-mean steps per arm.
+mean steps per arm. The HC arm additionally reports mechanistic
+diagnostics from `HippocampalProbe` (per-step observables) and
+`RetentionTracker` (non-destructive retention of a fixed reference
+pattern set).
 
-The ablation holds S1, BG, and M1 configurations identical between
-arms (see presets.py); the only difference is whether HC mediates the
-S1 → M1 feedforward path.
+Topology (post-ARB-123)
+-----------------------
+Both arms share `S1 → M1` and `S1 → BG → M1 (mod)`. The HC arm adds:
+
+    S1 → HC → BG
+
+HC projects into BG (ventral-striatum-analog) rather than M1; the
+ablation tests whether memory-informed value signals to BG help on
+memory-gated tasks. See `examples/minigrid/presets.py` for the full
+wiring rationale.
 
 Usage
 -----
@@ -22,9 +32,11 @@ Falsifiable claim (per ARB-118):
     binding on MemoryS13 under Arbora's minimal sensorimotor architecture.
 
 If `hippocampal.success_rate > baseline.success_rate` with non-
-overlapping error bars, claim supported. Equal or worse → three
-possible causes spelled out in the ARB-118 ticket; diagnose S1 drift
-before suspecting HC bugs.
+overlapping error bars AND the HC-probe mechanistic stats corroborate
+(ca3_revisit_stability high, ca1_match positive on revisits, retention
+not collapsing), claim supported. Equal or worse → three possible
+causes spelled out in the ARB-118 ticket; the probe stats help
+disambiguate HC-bug from task-not-gated from baseline-already-solves.
 
 Task-variant notes
 ------------------
@@ -50,8 +62,13 @@ import argparse
 import statistics
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from arbora.cortex.circuit import Circuit
+from arbora.hippocampus import HippocampalRegion
+from arbora.probes import HippocampalProbe, RetentionTracker
 from examples.minigrid.agent import MiniGridAgent
 from examples.minigrid.encoder import MiniGridEncoder
 from examples.minigrid.env import MiniGridEnv
@@ -60,6 +77,19 @@ from examples.minigrid.presets import (
     build_baseline_circuit,
     build_hippocampal_circuit,
 )
+
+if TYPE_CHECKING:
+    pass
+
+# Seed offset for canary collection. Kept far from the training-seed
+# range so canary initial states never coincide with training-seed
+# initial states.
+_CANARY_SEED_OFFSET = 100_000
+
+# Cap on HippocampalProbe's per-step log size. Long runs can generate
+# 100k+ steps; rolling counters in the probe cover summary stats
+# beyond this cap.
+_HC_PROBE_MAX_STEPS = 10_000
 
 
 @dataclass
@@ -118,6 +148,9 @@ class ArmResult:
     name: str
     seed: int
     events: list[EpisodeEvent] = field(default_factory=list)
+    # Mechanistic diagnostics (HC arm only; empty/None for baseline).
+    hc_summary: dict = field(default_factory=dict)
+    final_retention: list[float] | None = None
 
     @property
     def success_rate(self) -> float:
@@ -133,11 +166,7 @@ class ArmResult:
 
     @property
     def termination_rate(self) -> float:
-        """Fraction of episodes that ended via `terminated=True`.
-
-        Included alongside success_rate so users can distinguish
-        "agent made a (possibly wrong) choice" from "agent succeeded."
-        """
+        """Fraction of episodes that ended via `terminated=True`."""
         if not self.events:
             return 0.0
         return sum(e.terminated for e in self.events) / len(self.events)
@@ -156,6 +185,52 @@ class ArmResult:
             return 0.0
         return statistics.mean(e.steps for e in self.events)
 
+    @property
+    def mean_retention(self) -> float | None:
+        """Mean retention across all canaries at run end, or None."""
+        if not self.final_retention:
+            return None
+        return statistics.mean(self.final_retention)
+
+
+def _find_hippocampal_region(circuit: Circuit) -> HippocampalRegion | None:
+    """Locate a HippocampalRegion in the circuit, if any."""
+    for state in circuit._regions.values():
+        region = state.region
+        if isinstance(region, HippocampalRegion):
+            return region
+    return None
+
+
+def _synthetic_canaries(
+    dim: int,
+    n: int,
+    *,
+    sparsity: float = 0.06,
+    seed: int = _CANARY_SEED_OFFSET,
+) -> list[np.ndarray]:
+    """Generate N sparse binary canary patterns at HC's input dim.
+
+    HC's `input_port` expects cortical-dim vectors (S1 L2/3 output),
+    not raw 984-dim encoder output. Rather than cloning S1 to generate
+    realistic L2/3 patterns for canaries, we use synthetic sparse
+    binary vectors matching cortical sparsity (~6%). This keeps the
+    retention test decoupled from S1 — it measures HC's ability to
+    retain what it binds, not the combined S1+HC system.
+
+    Each canary has a distinct active-unit set (same seed, different
+    draws), so they're mutually near-orthogonal and bind to distinct
+    CA3 attractors.
+    """
+    rng = np.random.default_rng(seed)
+    k = max(1, round(dim * sparsity))
+    canaries: list[np.ndarray] = []
+    for _ in range(n):
+        pat = np.zeros(dim, dtype=np.bool_)
+        pat[rng.choice(dim, size=k, replace=False)] = True
+        canaries.append(pat)
+    return canaries
+
 
 def run_arm(
     name: str,
@@ -164,16 +239,41 @@ def run_arm(
     env_id: str,
     episodes: int,
     seed: int,
+    n_canaries: int = 8,
 ) -> ArmResult:
-    """Run one arm on one seed and return the episode history."""
+    """Run one arm on one seed and return the episode history + HC diagnostics."""
     encoder = MiniGridEncoder()
     circuit = builder(encoder)
     env = MiniGridEnv(env_id, max_episodes=episodes, seed=seed)
     agent = MiniGridAgent(encoder=encoder, circuit=circuit)
-    probe = EpisodeProbe()
-    harness = MiniGridHarness(env, agent, probes=[probe], log_interval=10**9)
+
+    # Prime a retention tracker on the HC arm before training starts.
+    # HC's lateral weights will acquire these patterns at setup; later
+    # `.measure()` tells us whether they're still retrievable after
+    # the training run has laid down many more memories on top.
+    hc = _find_hippocampal_region(circuit)
+    retention = None
+    if hc is not None:
+        canaries = _synthetic_canaries(dim=hc.input_dim, n=n_canaries)
+        retention = RetentionTracker(hc, patterns=canaries)
+
+    episode_probe = EpisodeProbe()
+    hc_probe = HippocampalProbe(max_steps=_HC_PROBE_MAX_STEPS)
+    harness = MiniGridHarness(
+        env, agent, probes=[episode_probe, hc_probe], log_interval=10**9
+    )
     harness.run()
-    return ArmResult(name=name, seed=seed, events=probe.events)
+
+    hc_summary = hc_probe.snapshot().get("summary", {})
+    final_retention = retention.measure() if retention is not None else None
+
+    return ArmResult(
+        name=name,
+        seed=seed,
+        events=episode_probe.events,
+        hc_summary=dict(hc_summary),
+        final_retention=final_retention,
+    )
 
 
 @dataclass
@@ -199,6 +299,35 @@ class AblationResult:
             ),
         }
 
+    def _hc_mechanistic_summary(self) -> dict[str, float] | None:
+        """Aggregate HC-only mechanistic stats across seeds."""
+        if not self.hippocampal:
+            return None
+
+        def _collect(key: str) -> list[float]:
+            return [r.hc_summary[key] for r in self.hippocampal if key in r.hc_summary]
+
+        revisit_stability = _collect("ca3_revisit_stability")
+        match_delta = _collect("ca1_match_revisit_minus_first")
+        sat_frac = _collect("final_ca3_lateral_sat_frac")
+        retentions = [
+            r.mean_retention for r in self.hippocampal if r.mean_retention is not None
+        ]
+
+        summary: dict[str, float] = {}
+        if revisit_stability:
+            summary["ca3_revisit_stability_mean"] = statistics.mean(revisit_stability)
+        if match_delta:
+            summary["ca1_match_delta_mean"] = statistics.mean(match_delta)
+        if sat_frac:
+            summary["ca3_lateral_saturation_mean"] = statistics.mean(sat_frac)
+        if retentions:
+            summary["retention_mean"] = statistics.mean(retentions)
+            summary["retention_stdev"] = (
+                statistics.stdev(retentions) if len(retentions) > 1 else 0.0
+            )
+        return summary or None
+
     def format_table(self) -> str:
         n = len(self.baseline)
         lines = [
@@ -210,7 +339,7 @@ class AblationResult:
             f"{'arm':<14} {'success_rate':>18} {'term_rate':>12} "
             f"{'ttfs':>8} {'mean_steps':>12}",
         ]
-        for name, results in (
+        for arm_name, results in (
             ("baseline", self.baseline),
             ("hippocampal", self.hippocampal),
         ):
@@ -219,8 +348,34 @@ class AblationResult:
             tr = f"{s['termination_rate_mean']:.3f}"
             ttfs = f"{s['ttfs_mean']:.1f}" if s["n_seeds_with_success"] > 0 else "n/a"
             lines.append(
-                f"{name:<14} {sr:>18} {tr:>12} {ttfs:>8} {s['mean_steps']:>12.1f}"
+                f"{arm_name:<14} {sr:>18} {tr:>12} {ttfs:>8} {s['mean_steps']:>12.1f}"
             )
+
+        # HC-only mechanistic summary
+        hc = self._hc_mechanistic_summary()
+        if hc:
+            lines += ["", "HC mechanistic stats (hippocampal arm only):"]
+            if "ca3_revisit_stability_mean" in hc:
+                lines.append(
+                    f"  ca3_revisit_stability (higher = more stable): "
+                    f"{hc['ca3_revisit_stability_mean']:.3f}"
+                )
+            if "ca1_match_delta_mean" in hc:
+                lines.append(
+                    f"  ca1_match delta (revisit - first, higher = familiar): "
+                    f"{hc['ca1_match_delta_mean']:+.3f}"
+                )
+            if "ca3_lateral_saturation_mean" in hc:
+                lines.append(
+                    f"  ca3 lateral saturation (frac at clip ceiling): "
+                    f"{hc['ca3_lateral_saturation_mean']:.3f}"
+                )
+            if "retention_mean" in hc:
+                rstd = hc.get("retention_stdev", 0.0)
+                lines.append(
+                    f"  canary retention at run end (mean±stdev): "
+                    f"{hc['retention_mean']:.3f}±{rstd:.3f}"
+                )
         return "\n".join(lines)
 
 
@@ -230,6 +385,7 @@ def run_ablation(
     n_seeds: int = 5,
     episodes_per_seed: int = 100,
     verbose: bool = True,
+    n_canaries: int = 8,
 ) -> AblationResult:
     """Run both arms across `n_seeds` seeds and return aggregated results."""
     baseline_results: list[ArmResult] = []
@@ -244,6 +400,7 @@ def run_ablation(
                 env_id=env_id,
                 episodes=episodes_per_seed,
                 seed=seed,
+                n_canaries=n_canaries,
             )
         )
         if verbose:
@@ -255,6 +412,7 @@ def run_ablation(
                 env_id=env_id,
                 episodes=episodes_per_seed,
                 seed=seed,
+                n_canaries=n_canaries,
             )
         )
         if verbose:
@@ -271,16 +429,18 @@ def main() -> None:
     parser.add_argument("--env", default="MiniGrid-MemoryS13-v0")
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--episodes", type=int, default=100)
+    parser.add_argument("--canaries", type=int, default=8)
     args = parser.parse_args()
 
     print(
         f"Running HC ablation: env={args.env}, "
-        f"seeds={args.seeds}, episodes={args.episodes}"
+        f"seeds={args.seeds}, episodes={args.episodes}, canaries={args.canaries}"
     )
     result = run_ablation(
         args.env,
         n_seeds=args.seeds,
         episodes_per_seed=args.episodes,
+        n_canaries=args.canaries,
     )
     print()
     print(result.format_table())
