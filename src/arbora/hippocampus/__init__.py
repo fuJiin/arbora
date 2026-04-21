@@ -4,10 +4,12 @@ from arbora.hippocampus.ca1 import CA1
 from arbora.hippocampus.ca3 import CA3
 from arbora.hippocampus.dentate_gyrus import DentateGyrus
 from arbora.hippocampus.entorhinal_cortex import EntorhinalCortex
+from arbora.hippocampus.region import HippocampalRegion
 
 __all__ = [
     "CA1",
     "CA3",
     "DentateGyrus",
     "EntorhinalCortex",
+    "HippocampalRegion",
 ]
