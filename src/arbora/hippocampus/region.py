@@ -178,6 +178,20 @@ class HippocampalRegion:
     def output_port(self) -> NeuronGroup:
         return self._output_group
 
+    def get_lamina(self, lid: str | object) -> NeuronGroup:
+        """Resolve a NeuronGroup id back to its instance.
+
+        Called by `Circuit.finalize` during connection resolution. The
+        Region protocol assumes every group exposed via `input_port` /
+        `output_port` is addressable by its `id` string.
+        """
+        key = getattr(lid, "value", None) or str(lid)
+        if key == self.INPUT_ID:
+            return self._input_group
+        if key == self.OUTPUT_ID:
+            return self._output_group
+        raise KeyError(f"HippocampalRegion has no group {lid!r}")
+
     def process(self, encoding: np.ndarray, **kwargs) -> np.ndarray:
         """Run EC → DG → CA3 → CA1 → EC.reverse and emit a cortex-dim vector.
 

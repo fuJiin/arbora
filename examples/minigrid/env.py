@@ -89,6 +89,11 @@ class MiniGridEnv:
         self._terminated = False
         self._truncated = False
         self._done = False
+        # Snapshots preserved across the auto-reset so consumers that read
+        # after env.step() returns still see the just-finished episode's
+        # totals. Live counters above are cleared on reset; these are not.
+        self._last_episode_steps = 0
+        self._last_episode_reward = 0.0
 
     @property
     def done(self) -> bool:
@@ -133,6 +138,9 @@ class MiniGridEnv:
                 self._done = True
             self._terminated = terminated
             self._truncated = truncated
+            # Snapshot the just-finished episode before auto-resetting.
+            self._last_episode_steps = self._episode_steps
+            self._last_episode_reward = self._episode_reward
             # Auto-reset for next episode
             if not self._done:
                 gym_obs, _info = self._gym_env.reset(
@@ -145,10 +153,34 @@ class MiniGridEnv:
 
     @property
     def last_episode_terminated(self) -> bool:
-        """True if the most recent episode ended by reaching the goal."""
+        """True if the most recent episode ended via `terminated=True`.
+
+        Note: in gymnasium semantics, `terminated` means the MDP ended
+        naturally, which can include wrong-answer endings (e.g. picking
+        the distractor in MemoryEnv). For "did the agent actually
+        succeed", prefer `last_episode_reward > 0`.
+        """
         return self._terminated
 
     @property
     def last_episode_truncated(self) -> bool:
         """True if the most recent episode was truncated (max steps)."""
         return self._truncated
+
+    @property
+    def last_episode_steps(self) -> int:
+        """Step count of the most recently finished episode.
+
+        Preserved across the auto-reset in `step()`, unlike
+        `episode_steps` which tracks the in-progress episode.
+        """
+        return self._last_episode_steps
+
+    @property
+    def last_episode_reward(self) -> float:
+        """Total reward of the most recently finished episode.
+
+        Preserved across the auto-reset in `step()`, unlike
+        `episode_reward` which tracks the in-progress episode.
+        """
+        return self._last_episode_reward
