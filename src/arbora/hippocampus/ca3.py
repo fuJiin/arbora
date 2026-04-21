@@ -107,6 +107,12 @@ class CA3:
             )
         self.mossy_k = mossy_k
         self.mossy_weight = mossy_weight
+        # Plasticity gate. When False, `encode()` still computes the
+        # mossy-driven activation and updates `state`, but skips the
+        # Hebbian LTP on `lateral_weights`. Used by probes that need a
+        # non-destructive read of "what would this input retrieve?"
+        # without perturbing the learned memory.
+        self.learning_enabled: bool = True
 
         rng = np.random.default_rng(seed)
         # Sparse mossy mask: each CA3 cell receives from mossy_k DG cells.
@@ -136,7 +142,7 @@ class CA3:
         drive = flat @ self.mossy_weights
         active = kwta(drive, self.k)
 
-        if active.any():
+        if self.learning_enabled and active.any():
             idx = np.flatnonzero(active)
             self.lateral_weights[np.ix_(idx, idx)] += self.learning_rate
             np.fill_diagonal(self.lateral_weights, 0.0)
