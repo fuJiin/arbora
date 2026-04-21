@@ -37,18 +37,43 @@ class TestEpisodeProbe:
         assert snap["events"] == probe.events
 
 
+class TestEpisodeEvent:
+    def test_solved_is_reward_based(self):
+        """`solved` tracks reward > 0, not terminated — the MemoryEnv
+        distinction between 'made a choice' and 'made the right choice'."""
+        assert EpisodeEvent(terminated=True, steps=10, reward=0.7).solved is True
+        # Wrong-choice termination in MemoryEnv: terminated but no reward.
+        assert EpisodeEvent(terminated=True, steps=10, reward=0.0).solved is False
+        # Truncated: didn't terminate, no reward, not solved.
+        assert EpisodeEvent(terminated=False, steps=100, reward=0.0).solved is False
+
+
 class TestArmResult:
-    def test_success_rate(self):
+    def test_success_rate_uses_reward(self):
+        """Reward-based success: terminated-but-unrewarded doesn't count."""
+        r = ArmResult(
+            name="x",
+            seed=0,
+            events=[
+                EpisodeEvent(True, 10, 0.5),  # solved
+                EpisodeEvent(True, 100, 0.0),  # terminated wrong choice
+                EpisodeEvent(True, 20, 0.9),  # solved
+            ],
+        )
+        assert abs(r.success_rate - 2 / 3) < 1e-9
+
+    def test_termination_rate_includes_wrong_choices(self):
         r = ArmResult(
             name="x",
             seed=0,
             events=[
                 EpisodeEvent(True, 10, 0.5),
-                EpisodeEvent(False, 100, 0.0),
-                EpisodeEvent(True, 20, 0.9),
+                EpisodeEvent(True, 100, 0.0),
+                EpisodeEvent(False, 200, 0.0),  # truncated
             ],
         )
-        assert abs(r.success_rate - 2 / 3) < 1e-9
+        assert abs(r.termination_rate - 2 / 3) < 1e-9
+        assert abs(r.success_rate - 1 / 3) < 1e-9
 
     def test_success_rate_empty(self):
         assert ArmResult(name="x", seed=0).success_rate == 0.0
@@ -58,9 +83,9 @@ class TestArmResult:
             name="x",
             seed=0,
             events=[
-                EpisodeEvent(False, 100, 0.0),
-                EpisodeEvent(False, 100, 0.0),
-                EpisodeEvent(True, 30, 0.7),
+                EpisodeEvent(True, 100, 0.0),  # terminated but not solved
+                EpisodeEvent(False, 200, 0.0),  # truncated
+                EpisodeEvent(True, 30, 0.7),  # first solved
             ],
         )
         assert r.time_to_first_success == 3
@@ -69,7 +94,7 @@ class TestArmResult:
         r = ArmResult(
             name="x",
             seed=0,
-            events=[EpisodeEvent(False, 100, 0.0)],
+            events=[EpisodeEvent(True, 100, 0.0)],  # wrong-choice termination
         )
         assert r.time_to_first_success is None
 

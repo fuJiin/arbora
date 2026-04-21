@@ -96,8 +96,8 @@ class MiniGridHarness:
                     if hasattr(probe, "episode_end"):
                         probe.episode_end(
                             success=env.last_episode_terminated,
-                            steps=env.episode_steps,
-                            reward=env.episode_reward,
+                            steps=env.last_episode_steps,
+                            reward=env.last_episode_reward,
                         )
 
             # Periodic logging

@@ -69,3 +69,37 @@ class TestMiniGridEnv:
             env.step(2)
         # episode_reward should be a float (may be 0 if goal not reached)
         assert isinstance(env.episode_reward, float)
+
+    def test_last_episode_steps_preserved_across_auto_reset(self):
+        """`last_episode_steps` survives the internal auto-reset in step().
+
+        Regression test: `episode_steps` is reset to 0 when the env
+        auto-resets for the next episode, so consumers that read
+        counters after env.step() returns need the `last_*` variants.
+        """
+        env = MiniGridEnv("MiniGrid-Empty-5x5-v0", max_episodes=2)
+        env.reset()
+        # Spin forward until at least one episode ends.
+        for _ in range(500):
+            env.step(2)
+            if env.episode_count >= 1:
+                break
+        assert env.episode_count >= 1
+        # In-progress counter has been reset to 0 for the new episode.
+        assert env.episode_steps == 0
+        # Snapshot of the just-finished episode persists.
+        assert env.last_episode_steps > 0
+
+    def test_last_episode_reward_preserved_across_auto_reset(self):
+        env = MiniGridEnv("MiniGrid-Empty-5x5-v0", max_episodes=2)
+        env.reset()
+        for _ in range(500):
+            env.step(2)
+            if env.episode_count >= 1:
+                break
+        assert env.episode_count >= 1
+        # episode_reward resets with the auto-reset; last_episode_reward doesn't.
+        assert env.episode_reward == 0.0
+        # For Empty-5x5 the agent occasionally reaches the goal (reward > 0);
+        # at minimum the type should be float.
+        assert isinstance(env.last_episode_reward, float)

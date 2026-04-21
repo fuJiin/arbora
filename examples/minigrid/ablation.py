@@ -25,6 +25,23 @@ If `hippocampal.success_rate > baseline.success_rate` with non-
 overlapping error bars, claim supported. Equal or worse → three
 possible causes spelled out in the ARB-118 ticket; diagnose S1 drift
 before suspecting HC bugs.
+
+Task-variant notes
+------------------
+MiniGrid exposes `MemoryS7`, `MemoryS11`, `MemoryS13` as standard envs
+(S-number sets the grid size; larger grids mean longer corridors and
+stronger memory demand). `MemoryS17` exists only as the
+`MemoryS17Random-v0` variant (randomized target placement). Use
+`MemoryS17Random-v0` as a harder follow-up if MemoryS13 isn't
+memory-gated enough at your step budget.
+
+Success metric
+--------------
+The `success_rate` column counts episodes with `reward > 0`, not
+episodes that terminated. MemoryEnv terminates on *any* choice (target
+or distractor), so "terminated" would conflate solving with
+wrong-answer endings. `term_rate` is reported alongside for
+transparency.
 """
 
 from __future__ import annotations
@@ -47,11 +64,23 @@ from examples.minigrid.presets import (
 
 @dataclass
 class EpisodeEvent:
-    """Per-episode outcome recorded by the probe."""
+    """Per-episode outcome recorded by the probe.
 
-    success: bool
+    - `terminated` mirrors the gymnasium `terminated` flag (MDP ended
+      naturally — can include wrong-answer endings in MemoryEnv).
+    - `reward` is the total reward for the episode.
+    - `solved` is the load-bearing success metric: `reward > 0`. In
+      MiniGrid memory tasks, a terminated-but-unrewarded episode means
+      the agent picked the distractor, not the target.
+    """
+
+    terminated: bool
     steps: int
     reward: float
+
+    @property
+    def solved(self) -> bool:
+        return self.reward > 0.0
 
 
 class EpisodeProbe:
@@ -74,6 +103,8 @@ class EpisodeProbe:
         pass
 
     def episode_end(self, success: bool, steps: int, reward: float) -> None:
+        # `success` here is `terminated` from the harness; the actual
+        # "did the agent solve the task" metric is derived from reward.
         self.events.append(EpisodeEvent(bool(success), int(steps), float(reward)))
 
     def snapshot(self) -> dict:
@@ -90,15 +121,32 @@ class ArmResult:
 
     @property
     def success_rate(self) -> float:
+        """Fraction of episodes the agent actually solved (reward > 0).
+
+        Uses the reward-based `solved` flag rather than the
+        `terminated` flag, because MemoryEnv terminates on wrong-answer
+        picks too.
+        """
         if not self.events:
             return 0.0
-        return sum(e.success for e in self.events) / len(self.events)
+        return sum(e.solved for e in self.events) / len(self.events)
+
+    @property
+    def termination_rate(self) -> float:
+        """Fraction of episodes that ended via `terminated=True`.
+
+        Included alongside success_rate so users can distinguish
+        "agent made a (possibly wrong) choice" from "agent succeeded."
+        """
+        if not self.events:
+            return 0.0
+        return sum(e.terminated for e in self.events) / len(self.events)
 
     @property
     def time_to_first_success(self) -> int | None:
-        """Episode number (1-indexed) of the first successful episode."""
+        """Episode number (1-indexed) of the first solved episode."""
         for i, e in enumerate(self.events):
-            if e.success:
+            if e.solved:
                 return i + 1
         return None
 
@@ -138,10 +186,12 @@ class AblationResult:
 
     def _summary(self, results: list[ArmResult]) -> dict[str, float]:
         srs = [r.success_rate for r in results]
+        trs = [r.termination_rate for r in results]
         ttfs = [r.time_to_first_success for r in results if r.time_to_first_success]
         return {
             "success_rate_mean": statistics.mean(srs) if srs else 0.0,
             "success_rate_stdev": statistics.stdev(srs) if len(srs) > 1 else 0.0,
+            "termination_rate_mean": statistics.mean(trs) if trs else 0.0,
             "ttfs_mean": statistics.mean(ttfs) if ttfs else float("nan"),
             "n_seeds_with_success": len(ttfs),
             "mean_steps": (
@@ -151,18 +201,26 @@ class AblationResult:
 
     def format_table(self) -> str:
         n = len(self.baseline)
-        lines = [f"Ablation on {self.env_id} ({n} seeds)"]
-        lines.append(
-            f"{'arm':<14} {'success_rate':>18} {'ttfs':>10} {'mean_steps':>12}"
-        )
+        lines = [
+            f"Ablation on {self.env_id} ({n} seeds)",
+            "  success_rate = fraction of episodes with reward > 0",
+            "  term_rate    = fraction of episodes terminated (incl. wrong choice)",
+            "  ttfs         = time-to-first-success (episode index, 1-based)",
+            "",
+            f"{'arm':<14} {'success_rate':>18} {'term_rate':>12} "
+            f"{'ttfs':>8} {'mean_steps':>12}",
+        ]
         for name, results in (
             ("baseline", self.baseline),
             ("hippocampal", self.hippocampal),
         ):
             s = self._summary(results)
             sr = f"{s['success_rate_mean']:.3f}±{s['success_rate_stdev']:.3f}"
+            tr = f"{s['termination_rate_mean']:.3f}"
             ttfs = f"{s['ttfs_mean']:.1f}" if s["n_seeds_with_success"] > 0 else "n/a"
-            lines.append(f"{name:<14} {sr:>18} {ttfs:>10} {s['mean_steps']:>12.1f}")
+            lines.append(
+                f"{name:<14} {sr:>18} {tr:>12} {ttfs:>8} {s['mean_steps']:>12.1f}"
+            )
         return "\n".join(lines)
 
 
