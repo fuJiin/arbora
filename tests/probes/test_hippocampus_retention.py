@@ -1,10 +1,10 @@
-"""Tests for CanaryTracker — non-destructive CA3 retention measurement."""
+"""Tests for RetentionTracker — non-destructive CA3 retention measurement."""
 
 import numpy as np
 import pytest
 
 from arbora.hippocampus import HippocampalRegion
-from arbora.probes import CanaryTracker
+from arbora.probes import RetentionTracker
 
 
 def _hc(input_dim: int = 64, seed: int = 0) -> HippocampalRegion:
@@ -22,36 +22,36 @@ def _obs(seed: int, dim: int = 64) -> np.ndarray:
 
 
 class TestInit:
-    def test_rejects_empty_canaries(self):
+    def test_rejects_empty_patterns(self):
         with pytest.raises(ValueError):
-            CanaryTracker(_hc(), [])
+            RetentionTracker(_hc(), [])
 
-    def test_primes_each_canary_and_snapshots_ca3_state(self):
+    def test_primes_each_pattern_and_snapshots_ca3_state(self):
         hc = _hc()
-        canaries = [_obs(0), _obs(1), _obs(2)]
-        tracker = CanaryTracker(hc, canaries)
+        patterns = [_obs(0), _obs(1), _obs(2)]
+        tracker = RetentionTracker(hc, patterns)
         assert len(tracker.initial_states) == 3
         # Each snapshot is a bool array matching CA3 dim.
         for s in tracker.initial_states:
             assert s.dtype == np.bool_
             assert s.shape == (hc.ca3.dim,)
 
-    def test_canaries_are_copied(self):
+    def test_patterns_are_copied(self):
         hc = _hc()
         obs = _obs(0)
-        tracker = CanaryTracker(hc, [obs])
+        tracker = RetentionTracker(hc, [obs])
         obs[0] = 999.0  # mutate external
-        assert tracker.canaries[0][0] != 999.0
+        assert tracker.patterns[0][0] != 999.0
 
 
 class TestMeasure:
     def test_immediate_measure_returns_near_one(self):
         """Measuring right after setup should show near-perfect retention."""
         hc = _hc()
-        tracker = CanaryTracker(hc, [_obs(0), _obs(1), _obs(2)])
+        tracker = RetentionTracker(hc, [_obs(0), _obs(1), _obs(2)])
         overlaps = tracker.measure()
         assert len(overlaps) == 3
-        # Deterministic pipeline: re-encoding a canary immediately after
+        # Deterministic pipeline: re-encoding a pattern immediately after
         # priming should yield identical CA3 state when measurement is
         # truly non-destructive.
         for o in overlaps:
@@ -61,7 +61,7 @@ class TestMeasure:
         """Non-destructive: lateral_weights/state must be byte-identical
         before and after a measure() call."""
         hc = _hc()
-        tracker = CanaryTracker(hc, [_obs(0), _obs(1)])
+        tracker = RetentionTracker(hc, [_obs(0), _obs(1)])
 
         # Do some training-like activity so there's non-trivial state.
         for i in range(5):
@@ -84,9 +84,9 @@ class TestMeasure:
         np.testing.assert_array_equal(hc.output_port.firing_rate, out_before)
 
     def test_retention_degrades_after_reset_memory(self):
-        """Wiping CA3 memory should collapse canary retention."""
+        """Wiping CA3 memory should collapse retention."""
         hc = _hc()
-        tracker = CanaryTracker(hc, [_obs(0), _obs(1)])
+        tracker = RetentionTracker(hc, [_obs(0), _obs(1)])
         overlaps_pre = tracker.measure()
 
         hc.reset_memory()
@@ -101,7 +101,7 @@ class TestMeasure:
     def test_measure_is_idempotent(self):
         """Two consecutive measures should return identical overlaps."""
         hc = _hc()
-        tracker = CanaryTracker(hc, [_obs(0), _obs(1), _obs(2)])
+        tracker = RetentionTracker(hc, [_obs(0), _obs(1), _obs(2)])
         a = tracker.measure()
         b = tracker.measure()
         assert a == b

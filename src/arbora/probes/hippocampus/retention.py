@@ -1,23 +1,27 @@
-"""Canary-retrieval tracker for a HippocampalRegion.
+"""Memory-retention tracker for a HippocampalRegion.
 
-Maintains a fixed set of canary observations, snapshots the CA3 state
-they bind to at setup time, and later re-encodes them
-non-destructively to measure how well HC retains those memories as
-training continues.
+Maintains a fixed set of reference patterns, snapshots the CA3 state
+they bind to at setup time, and later re-encodes them non-destructively
+to measure how well HC retains those memories as training continues.
+The output is a forgetting curve: Jaccard overlap vs. the initial
+snapshot for each pattern, over time.
 
-Non-destructive measurement is achieved by saving and restoring the
-HC's learned state (`ca3.lateral_weights`, `ca3.state`, `last_match`,
-`last_ec_pattern`, `last_dg_pattern`, `output_port.firing_rate`)
-around each canary re-encoding. This keeps ongoing training unaffected
-by the measurement.
+Non-destructive measurement is achieved in two layers:
+1. `CA3.learning_enabled` is toggled off during re-encoding so the
+   measurement itself does not apply fresh LTP to the lateral weights
+   (which would make the retention test trivially pass — the pattern
+   would "retrieve" simply because we just re-bound it).
+2. All transient HC state (`ca3.state`, `last_match`, intermediate
+   patterns, `output_port.firing_rate`) is snapshotted and restored
+   around each re-encoding so ongoing training is unperturbed.
 
 Usage::
 
-    tracker = CanaryTracker(hc_region, canaries=[obs1, obs2, obs3])
+    tracker = RetentionTracker(hc_region, patterns=[obs1, obs2, obs3])
     # ... run some training ...
     overlaps = tracker.measure()
     # overlaps[i] in [0, 1] = Jaccard of CA3 state vs. the snapshot
-    # taken at canary-set creation.
+    # taken at tracker construction.
 """
 
 from __future__ import annotations
@@ -30,15 +34,16 @@ if TYPE_CHECKING:
     from arbora.hippocampus import HippocampalRegion
 
 
-class CanaryTracker:
-    """Measure CA3 retention for a held-out observation set.
+class RetentionTracker:
+    """Measure CA3 memory retention for a fixed reference pattern set.
 
     Parameters
     ----------
     region : HippocampalRegion
-        The HC region to probe. Must already be wired; the canary set
-        is encoded immediately on construction.
-    canaries : sequence of np.ndarray
+        The HC region to probe. Must already be wired; the reference
+        patterns are encoded immediately on construction so they're
+        treated as legitimate memories the system should retain.
+    patterns : sequence of np.ndarray
         Cortical-dim observations (typically S1 L2/3 firing patterns).
         Each is stored at setup time; subsequent `measure()` calls
         compare retrieval against the stored state.
@@ -47,47 +52,41 @@ class CanaryTracker:
     def __init__(
         self,
         region: HippocampalRegion,
-        canaries: list[np.ndarray],
+        patterns: list[np.ndarray],
     ):
-        if not canaries:
-            raise ValueError("canaries must be a non-empty list")
+        if not patterns:
+            raise ValueError("patterns must be a non-empty list")
         self.region = region
         # Store copies so external mutation doesn't affect tracking.
-        self.canaries: list[np.ndarray] = [np.asarray(c).copy() for c in canaries]
+        self.patterns: list[np.ndarray] = [np.asarray(p).copy() for p in patterns]
         self.initial_states: list[np.ndarray] = []
 
-        # Prime each canary — writes lateral weights and state. This is
-        # intentional: we want canaries to be treated as legitimate
-        # memories the system should retain.
-        for c in self.canaries:
-            region.process(c)
+        # Prime each pattern — writes lateral weights and state. This is
+        # intentional: we want these patterns to be treated as
+        # legitimate memories the system should retain.
+        for p in self.patterns:
+            region.process(p)
             self.initial_states.append(region.ca3.state.copy())
 
     def measure(self) -> list[float]:
-        """Re-encode each canary non-destructively and return Jaccard.
+        """Re-encode each pattern non-destructively and return Jaccard.
 
-        Returns a list of per-canary overlap values in [0, 1], same
-        order as `self.canaries`. 1.0 = CA3 state identical to the
-        snapshot; 0.0 = disjoint.
+        Returns a list of per-pattern overlap values in [0, 1], same
+        order as `self.patterns`. 1.0 = CA3 state identical to the
+        snapshot taken at construction; 0.0 = disjoint.
 
-        Non-destructive in two senses:
-        - `CA3.learning_enabled` is toggled off during measurement so
-          re-encoding does not apply fresh LTP to the lateral weights
-          (which would contaminate the retention measurement itself —
-          the canary's retrieval would succeed purely because we just
-          re-bound it).
-        - Transient state (`ca3.state`, `last_match`, intermediate
-          patterns, output_port firing rate) is snapshotted and
-          restored so ongoing training is unperturbed.
+        Non-destructive in two senses — see the module docstring.
         """
         overlaps: list[float] = []
         ca3 = self.region.ca3
         was_enabled = ca3.learning_enabled
         ca3.learning_enabled = False
         try:
-            for canary, initial in zip(self.canaries, self.initial_states, strict=True):
+            for pattern, initial in zip(
+                self.patterns, self.initial_states, strict=True
+            ):
                 with _FrozenHC(self.region):
-                    self.region.process(canary)
+                    self.region.process(pattern)
                     current = self.region.ca3.state
                     union = int((current | initial).sum())
                     if union == 0:
@@ -103,10 +102,10 @@ class CanaryTracker:
 class _FrozenHC:
     """Context manager that snapshots and restores learned HC state.
 
-    Used by `CanaryTracker.measure` to make re-encoding a canary
-    non-destructive. We restore every attribute that `HippocampalRegion
-    .process()` mutates so the post-block state is byte-identical to
-    the pre-block state.
+    Used by `RetentionTracker.measure` to make re-encoding a reference
+    pattern non-destructive. Restores every attribute that
+    `HippocampalRegion.process()` mutates so the post-block state is
+    byte-identical to the pre-block state.
     """
 
     def __init__(self, region: HippocampalRegion):
