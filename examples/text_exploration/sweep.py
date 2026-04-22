@@ -49,14 +49,25 @@ def build_region(
     ltd_rate: float,
     synapse_decay: float,
     learning_rate: float,
+    n_columns: int | None = None,
+    k_columns: int | None = None,
     seed: int = 0,
 ):
-    """T1 with overridden saturation-relevant knobs. L5 disabled (not used)."""
+    """T1 with overridden saturation-relevant knobs. L5 disabled (not used).
+
+    `n_columns` / `k_columns` override the T1 defaults when set — used
+    by the capacity sweep. k scales with cols so the activation fraction
+    stays ~6.25%.
+    """
     cfg = _default_t1_config()
     cfg.n_l5 = 0
     cfg.ltd_rate = ltd_rate
     cfg.synapse_decay = synapse_decay
     cfg.learning_rate = learning_rate
+    if n_columns is not None:
+        cfg.n_columns = n_columns
+    if k_columns is not None:
+        cfg.k_columns = k_columns
     return make_sensory_region(cfg, input_dim=input_dim, encoding_width=0, seed=seed)
 
 
@@ -68,6 +79,8 @@ def run_config(
     train_words: list[str],
     test_words: list[str],
     epochs: int = 2,
+    n_columns: int | None = None,
+    k_columns: int | None = None,
     seed: int = 0,
 ) -> dict:
     encoder = OneHotCharEncoder(chars=DEFAULT_ALPHABET)
@@ -76,6 +89,8 @@ def run_config(
         ltd_rate=ltd_rate,
         synapse_decay=synapse_decay,
         learning_rate=learning_rate,
+        n_columns=n_columns,
+        k_columns=k_columns,
         seed=seed,
     )
     decoder = DendriticDecoder(source_dim=region.n_l23_total, seed=seed)
@@ -106,6 +121,9 @@ def run_config(
         "ltd_rate": ltd_rate,
         "synapse_decay": synapse_decay,
         "learning_rate": learning_rate,
+        "n_columns": region.n_columns,
+        "k_columns": region.k_columns,
+        "epochs": epochs,
         "test_acc": test_acc,
         "test_bpc": test_bpc,
         "ff_mean": weights.ff.mean,
@@ -121,6 +139,7 @@ def run_config(
 
 def format_row(r: dict) -> str:
     return (
+        f"cols={r['n_columns']:>4d} k={r['k_columns']:>2d} ep={r['epochs']} "
         f"ltd={r['ltd_rate']:.2f} dec={r['synapse_decay']:.3f} "
         f"lr={r['learning_rate']:.2f} | "
         f"acc={r['test_acc']:.3f} bpc={r['test_bpc']:.2f} | "
@@ -131,8 +150,8 @@ def format_row(r: dict) -> str:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="T1 saturation sweep")
-    p.add_argument("--epochs", type=int, default=2)
+    p = argparse.ArgumentParser(description="T1 saturation / capacity sweep")
+    p.add_argument("--epochs", type=int, nargs="+", default=[2])
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
         "--csv", type=str, default=None, help="Write results CSV to this path"
@@ -140,27 +159,38 @@ def main() -> None:
     p.add_argument("--ltd", type=float, nargs="+", default=[0.05, 0.10, 0.15, 0.20])
     p.add_argument("--decay", type=float, nargs="+", default=[1.0, 0.999, 0.995])
     p.add_argument("--lr", type=float, nargs="+", default=[0.05, 0.02])
+    p.add_argument(
+        "--cols",
+        type=int,
+        nargs="+",
+        default=[None],
+        help="Column counts to sweep (None = T1 default 128). k scales with cols.",
+    )
     args = p.parse_args()
 
     words = alphabet_filter(load_words(), DEFAULT_ALPHABET)
     train_words, test_words = train_test_split(words, test_frac=0.2, seed=args.seed)
-    configs = list(product(args.ltd, args.decay, args.lr))
+    configs = list(product(args.ltd, args.decay, args.lr, args.cols, args.epochs))
     print(
-        f"{len(configs)} configs x {args.epochs} epochs "
+        f"{len(configs)} configs "
         f"({len(train_words)} train / {len(test_words)} test words)"
     )
 
     rows: list[dict] = []
     t_start = time.monotonic()
-    for i, (ltd, decay, lr) in enumerate(configs):
+    for i, (ltd, decay, lr, cols, epochs) in enumerate(configs):
         t0 = time.monotonic()
+        # k scales with cols to keep activation fraction ~6.25% (T1 default).
+        k = None if cols is None else max(1, cols // 16)
         r = run_config(
             ltd_rate=ltd,
             synapse_decay=decay,
             learning_rate=lr,
             train_words=train_words,
             test_words=test_words,
-            epochs=args.epochs,
+            epochs=epochs,
+            n_columns=cols,
+            k_columns=k,
             seed=args.seed,
         )
         rows.append(r)
