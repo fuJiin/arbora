@@ -152,48 +152,76 @@ def sdr_overlap_matrix(
     state: ExplorerState,
     chars: str | None = None,
 ):
-    """Pairwise Jaccard heatmap of L2/3 SDRs for each char.
+    """Side-by-side L4 and L2/3 pairwise-Jaccard heatmaps.
 
-    Uses `diagnostics.character_sdr_overlap` to collect SDRs (reset + 1
-    step per char, non-destructive). Renders as a symmetric heatmap
-    with vowels grouped together at the start of the axis so phonetic
-    clustering is visually obvious.
+    Showing both laminae disambiguates where a representation collapse
+    is happening: if L4 already looks uniform, ff_weights are the
+    problem; if L4 is sharp but L2/3 collapses, the L4→L2/3 projection
+    is smushing things together.
+
+    Chars are reordered so vowels come first; a red cross marks the
+    vowel/consonant divider on both axes so phonetic clustering (or
+    lack of it) is visually obvious.
     """
-    go, _ = _plotly()
+    go, make_subplots = _plotly()
     from examples.text_exploration.data import DEFAULT_ALPHABET
 
     if chars is None:
-        # Put vowels first so within-vowel block is visually isolated.
         chars = VOWELS + "".join(c for c in DEFAULT_ALPHABET if c not in VOWELS)
 
     result = character_sdr_overlap(state.trainer, chars)
     n = len(chars)
-    matrix = np.zeros((n, n))
-    for i, c1 in enumerate(chars):
-        for j, c2 in enumerate(chars):
-            matrix[i, j] = _jaccard(result.per_char_sdr[c1], result.per_char_sdr[c2])
 
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=matrix,
-            x=list(chars),
-            y=list(chars),
-            colorscale="Viridis",
-            zmin=0.0,
-            zmax=1.0,
-            hovertemplate="%{y} vs %{x}<br>Jaccard=%{z:.3f}<extra></extra>",
+    def _heatmap(lamina_stats) -> np.ndarray:
+        m = np.zeros((n, n))
+        per_char = lamina_stats.per_char_sdr
+        for i, c1 in enumerate(chars):
+            for j, c2 in enumerate(chars):
+                m[i, j] = _jaccard(per_char[c1], per_char[c2])
+        return m
+
+    l4_matrix = _heatmap(result.l4)
+    l23_matrix = _heatmap(result.l23)
+
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=(
+            f"L4 (within-vowel={result.l4.within_vowel_mean:.2f}, "
+            f"across={result.l4.across_mean:.2f})",
+            f"L2/3 (within-vowel={result.l23.within_vowel_mean:.2f}, "
+            f"across={result.l23.across_mean:.2f})",
+        ),
+        horizontal_spacing=0.12,
+    )
+    for col_idx, matrix in enumerate([l4_matrix, l23_matrix], start=1):
+        fig.add_trace(
+            go.Heatmap(
+                z=matrix,
+                x=list(chars),
+                y=list(chars),
+                colorscale="Viridis",
+                zmin=0.0,
+                zmax=1.0,
+                showscale=(col_idx == 2),
+                hovertemplate="%{y} vs %{x}<br>Jaccard=%{z:.3f}<extra></extra>",
+            ),
+            row=1,
+            col=col_idx,
         )
-    )
+        fig.update_xaxes(title_text="char", row=1, col=col_idx)
+        fig.update_yaxes(title_text="char", row=1, col=col_idx, autorange="reversed")
+        # Vowel/consonant dividers.
+        fig.add_vline(
+            x=len(VOWELS) - 0.5, line_color="red", line_width=1, row=1, col=col_idx
+        )
+        fig.add_hline(
+            y=len(VOWELS) - 0.5, line_color="red", line_width=1, row=1, col=col_idx
+        )
     fig.update_layout(
-        title="L2/3 SDR pairwise Jaccard (reset + 1 char)",
-        xaxis_title="char",
-        yaxis_title="char",
-        height=650,
-        yaxis=dict(autorange="reversed"),
+        title="SDR pairwise Jaccard — L4 vs L2/3 (reset + 1 char)",
+        height=550,
     )
-    # Mark the vowel/consonant divider.
-    fig.add_vline(x=len(VOWELS) - 0.5, line_color="red", line_width=1)
-    fig.add_hline(y=len(VOWELS) - 0.5, line_color="red", line_width=1)
     return fig
 
 

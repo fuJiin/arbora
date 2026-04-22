@@ -108,10 +108,11 @@ class TestViewsSmoke:
         # Renders a placeholder rather than raising.
         assert "empty" in (fig.layout.title.text or "").lower()
 
-    def test_sdr_overlap_matrix(self, state: ExplorerState):
+    def test_sdr_overlap_matrix_renders_both_laminae(self, state: ExplorerState):
         fig = sdr_overlap_matrix(state, chars="aeioubcdf")
         assert hasattr(fig, "data")
-        assert len(fig.data) == 1  # heatmap
+        # Two heatmaps side-by-side: L4 and L2/3.
+        assert len(fig.data) == 2
 
     def test_weight_histograms(self, state: ExplorerState):
         fig = weight_histograms(state)
