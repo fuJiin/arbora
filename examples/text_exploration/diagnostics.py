@@ -37,17 +37,12 @@ CONSONANTS = "".join(c for c in DEFAULT_ALPHABET if c not in VOWELS)
 
 
 @dataclass
-class SDROverlapResult:
-    """Pairwise Jaccard overlaps between L2/3 SDRs for each character.
+class LaminaOverlapStats:
+    """Pairwise Jaccard stats for one lamina's per-char SDRs.
 
-    Measurement: for each char, reset + step once + read L2/3 active.
-    This captures the "intrinsic" L2/3 pattern the learned L4→L2/3
-    weights produce in isolation (no temporal context).
-
-    If after training the vowel-vowel mean > vowel-consonant mean, the
-    region has learned a phonetic clustering (chars that appear in
-    similar contexts share some L2/3 structure). If not, the encoder
-    or training regime may need revisiting.
+    Collected as: for each char, `reset + step(char) + read lamina.active`.
+    Pairwise Jaccard is partitioned into vowel-vowel, consonant-
+    consonant, and across-group pairs.
     """
 
     per_char_sdr: dict[str, np.ndarray]
@@ -74,6 +69,28 @@ class SDROverlapResult:
         return self.within_vowel_mean > a and self.within_consonant_mean > a
 
 
+@dataclass
+class SDROverlapResult:
+    """L4 + L2/3 per-char SDR overlap stats.
+
+    Both are captured with one pass (reset + 1 step per char). L4 is
+    the input representation driven by `ff_weights`; L2/3 is L4
+    projected through `l4_to_l23_weights` (no lateral context after
+    reset). Comparing the two disambiguates:
+
+    - L4 collapsed, L2/3 collapsed → ff_weights don't differentiate
+      chars at the input layer. Fix the encoder or ff learning rule.
+    - L4 distinct, L2/3 collapsed → L4→L2/3 projection smushes
+      distinct L4 patterns together. The in-region weights are the
+      problem, not the input.
+    - L4 distinct, L2/3 distinct → the single-region representation
+      is healthy; any downstream failure points elsewhere.
+    """
+
+    l4: LaminaOverlapStats
+    l23: LaminaOverlapStats
+
+
 def _jaccard(a: np.ndarray, b: np.ndarray) -> float:
     union = int((a | b).sum())
     if union == 0:
@@ -81,30 +98,12 @@ def _jaccard(a: np.ndarray, b: np.ndarray) -> float:
     return float((a & b).sum()) / union
 
 
-def character_sdr_overlap(
-    trainer: T1Trainer,
-    chars: str = DEFAULT_ALPHABET,
-) -> SDROverlapResult:
-    """Jaccard between L2/3 SDRs for each char, grouped by vowel/consonant.
-
-    Non-destructive: uses `train=False` on each step and restores the
-    trainer's stored `_prev_l23` afterwards.
-    """
-    saved_prev = trainer._prev_l23.copy()
-    per_char: dict[str, np.ndarray] = {}
-    try:
-        for c in chars:
-            trainer.reset()
-            trainer.step(c, train=False)
-            per_char[c] = trainer.region.l23.active.copy()
-    finally:
-        trainer.reset()
-        trainer._prev_l23 = saved_prev
-
+def _partition_pairs(
+    per_char: dict[str, np.ndarray],
+) -> LaminaOverlapStats:
     within_v: list[float] = []
     within_c: list[float] = []
     across: list[float] = []
-
     char_list = list(per_char.keys())
     for i, c1 in enumerate(char_list):
         for c2 in char_list[i + 1 :]:
@@ -116,12 +115,40 @@ def character_sdr_overlap(
                 within_c.append(j)
             else:
                 across.append(j)
-
-    return SDROverlapResult(
+    return LaminaOverlapStats(
         per_char_sdr=per_char,
         within_vowel=within_v,
         within_consonant=within_c,
         across=across,
+    )
+
+
+def character_sdr_overlap(
+    trainer: T1Trainer,
+    chars: str = DEFAULT_ALPHABET,
+) -> SDROverlapResult:
+    """Jaccard between L4 and L2/3 SDRs for each char.
+
+    Collects both laminae in a single pass — the cost is one extra
+    array copy per char. Non-destructive: uses `train=False` on each
+    step and restores the trainer's stored `_prev_l23` afterwards.
+    """
+    saved_prev = trainer._prev_l23.copy()
+    per_char_l4: dict[str, np.ndarray] = {}
+    per_char_l23: dict[str, np.ndarray] = {}
+    try:
+        for c in chars:
+            trainer.reset()
+            trainer.step(c, train=False)
+            per_char_l4[c] = trainer.region.l4.active.copy()
+            per_char_l23[c] = trainer.region.l23.active.copy()
+    finally:
+        trainer.reset()
+        trainer._prev_l23 = saved_prev
+
+    return SDROverlapResult(
+        l4=_partition_pairs(per_char_l4),
+        l23=_partition_pairs(per_char_l23),
     )
 
 
@@ -295,21 +322,22 @@ def format_diagnostics(
     weights: WeightDistributionResult,
 ) -> str:
     lines = []
-    lines.append("=== Checkpoint 1: L2/3 SDR overlap (reset + 1 char) ===")
-    lines.append(
-        f"  within-vowel    mean Jaccard = {sdr.within_vowel_mean:.3f} "
-        f"(n={len(sdr.within_vowel)})"
-    )
-    lines.append(
-        f"  within-conson.  mean Jaccard = {sdr.within_consonant_mean:.3f} "
-        f"(n={len(sdr.within_consonant)})"
-    )
-    lines.append(
-        f"  across-group    mean Jaccard = {sdr.across_mean:.3f} (n={len(sdr.across)})"
-    )
-    lines.append(
-        f"  phonetically clustered: {sdr.clustered} (within > across on both groups)"
-    )
+    lines.append("=== Checkpoint 1: SDR overlap per lamina (reset + 1 char) ===")
+    for label, stats in (("L4", sdr.l4), ("L2/3", sdr.l23)):
+        lines.append(f"  {label}:")
+        lines.append(
+            f"    within-vowel    mean Jaccard = {stats.within_vowel_mean:.3f} "
+            f"(n={len(stats.within_vowel)})"
+        )
+        lines.append(
+            f"    within-conson.  mean Jaccard = {stats.within_consonant_mean:.3f} "
+            f"(n={len(stats.within_consonant)})"
+        )
+        lines.append(
+            f"    across-group    mean Jaccard = {stats.across_mean:.3f} "
+            f"(n={len(stats.across)})"
+        )
+        lines.append(f"    phonetically clustered: {stats.clustered}")
     lines.append("")
     lines.append("=== Checkpoint 2: context sensitivity (top-K next-char) ===")
     for prefix, chars in ctx.top_k_per_prefix.items():

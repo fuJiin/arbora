@@ -64,19 +64,29 @@ class TestJaccard:
 
 
 class TestCharacterSDROverlap:
-    def test_returns_sdr_per_char(self, primed_trainer: T1Trainer):
+    def test_returns_both_laminae(self, primed_trainer: T1Trainer):
         r = character_sdr_overlap(primed_trainer)
-        for c in DEFAULT_ALPHABET:
-            assert c in r.per_char_sdr
-            assert r.per_char_sdr[c].dtype == np.bool_
+        for lamina in (r.l4, r.l23):
+            for c in DEFAULT_ALPHABET:
+                assert c in lamina.per_char_sdr
+                assert lamina.per_char_sdr[c].dtype == np.bool_
 
-    def test_within_and_across_pair_counts(self, primed_trainer: T1Trainer):
-        """Partition math: 5 vowels -> C(5,2)=10 within-vowel pairs,
-        21 consonants -> C(21,2)=210 within-consonant, 5*21=105 across."""
+    def test_l4_and_l23_have_expected_shapes(self, primed_trainer: T1Trainer):
         r = character_sdr_overlap(primed_trainer)
-        assert len(r.within_vowel) == 10
-        assert len(r.within_consonant) == 210
-        assert len(r.across) == 105
+        n_l4 = primed_trainer.region.n_l4_total
+        n_l23 = primed_trainer.region.n_l23_total
+        assert r.l4.per_char_sdr["a"].shape == (n_l4,)
+        assert r.l23.per_char_sdr["a"].shape == (n_l23,)
+
+    def test_within_and_across_pair_counts_per_lamina(self, primed_trainer: T1Trainer):
+        """Partition math: 5 vowels -> C(5,2)=10 within-vowel pairs,
+        21 consonants -> C(21,2)=210 within-consonant, 5*21=105 across.
+        Should hold identically for both laminae."""
+        r = character_sdr_overlap(primed_trainer)
+        for lamina in (r.l4, r.l23):
+            assert len(lamina.within_vowel) == 10
+            assert len(lamina.within_consonant) == 210
+            assert len(lamina.across) == 105
 
     def test_non_destructive_of_region_and_prev_l23(self, primed_trainer: T1Trainer):
         saved_prev = primed_trainer._prev_l23.copy()
