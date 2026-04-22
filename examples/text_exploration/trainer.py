@@ -1,45 +1,59 @@
 """T1Trainer — drives a region through a char stream with word resets.
 
-Responsibilities:
-- Own the region, encoder, decoder, and BPC probe for a single run.
-- Per step: use the L2/3 state *before* the current char to predict it,
-  update BPC/accuracy, observe decoder, process char through region.
-- `reset()` clears region state and the stored pre-step L2/3 so the
-  caller can mark word boundaries without in-band sentinel chars.
+Responsibilities (minimal by design):
+- Own the region + encoder for a single run.
+- Per step: encode the char, toggle region learning on/off, call
+  `region.process`, return a `StepResult` with the post-step L2/3
+  active pattern for observation.
+- `reset()` clears the region's working memory so the caller can mark
+  word boundaries without in-band sentinel chars.
 
-Caller controls word boundaries (loop over words, `reset()` per word).
+**Observation-first.** The decoder + BPC probe that the CLI uses for
+prediction metrics are *optional* — pass them in to get per-step bits
+and top-1 accuracy on `StepResult`, or omit them to just watch L2/3
+evolve. The trainer's core purpose is to drive the region; decoding is
+a layer on top.
 
-Eval mode (`train=False`) disables decoder learning and freezes the
-region's own learning via `region.learning_enabled`. BPC still
-accumulates so the caller can read held-out predictive quality off
-the same probe.
+The encoder argument is duck-typed: anything with an `.encode(str) ->
+np.ndarray` method and an `.input_dim` property works. Both
+`arbora.encoders.charbit.CharbitEncoder` (multi-char) and
+`arbora.encoders.onehot.OneHotCharEncoder` (single-char) are valid —
+this module flattens multi-dim encodings to 1D before feeding the
+region.
+
+Eval mode (`train=False`) freezes `region.learning_enabled` for the
+duration of the step and, if a decoder is wired in, skips its
+`observe()` call.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from arbora.cortex.sensory import SensoryRegion
-from arbora.decoders.dendritic import DendriticDecoder
-from arbora.encoders.charbit import CharbitEncoder
-from arbora.probes.bpc import BPCProbe
+if TYPE_CHECKING:
+    from arbora.cortex.sensory import SensoryRegion
+    from arbora.decoders.dendritic import DendriticDecoder
+    from arbora.probes.bpc import BPCProbe
 
 
 @dataclass
 class StepResult:
-    """Info for one step of the trainer, returned by `step()`.
+    """Info for one step of the trainer.
 
-    Useful for the explorer notebook (PR C) and for diagnostic probes
-    (PR B) to attach to without re-running the trainer loop.
+    `bits`, `top1_char`, `top1_correct` are only populated if a decoder
+    (and BPC probe) were passed to the trainer. Otherwise they're
+    None/False — the trainer is running in pure-observation mode.
     """
 
     char: str
     token_id: int
-    bits: float
-    top1_char: str | None
-    top1_correct: bool
+    l23_active: np.ndarray
+    bits: float | None = None
+    top1_char: str | None = None
+    top1_correct: bool = False
 
 
 class T1Trainer:
@@ -50,33 +64,35 @@ class T1Trainer:
     region : SensoryRegion
         The T1 region. Typically built from `_default_t1_config`
         with `input_dim=encoder.input_dim`.
-    encoder : CharbitEncoder
-        Shared with the decoder's alphabet (the decoder indexes by
-        `ord(char)`, so any char in `encoder` is a valid token).
-    decoder : DendriticDecoder
-        Dendritic segment decoder over L2/3 → next-char distribution.
+    encoder : object with `encode(char) -> np.ndarray` and `input_dim`
+        Any char-level encoder. Multi-char-array outputs are flattened.
+    decoder : DendriticDecoder, optional
+        If provided, `step()` will use the pre-step L2/3 to predict the
+        current char via the decoder, and (when training) observe it.
+        If None, no prediction pipeline runs.
     bpc_probe : BPCProbe, optional
-        If provided, accumulates per-step BPC. If None, creates one.
+        Required for populating `StepResult.bits`. Only used if
+        `decoder` is also provided. If None, bits stays None.
     """
 
     def __init__(
         self,
         region: SensoryRegion,
-        encoder: CharbitEncoder,
-        decoder: DendriticDecoder,
+        encoder: Any,
+        decoder: DendriticDecoder | None = None,
         bpc_probe: BPCProbe | None = None,
     ):
         self.region = region
         self.encoder = encoder
         self.decoder = decoder
-        self.bpc_probe = bpc_probe if bpc_probe is not None else BPCProbe()
+        self.bpc_probe = bpc_probe
         self._prev_l23: np.ndarray = np.zeros(region.n_l23_total, dtype=np.bool_)
 
     def reset(self) -> None:
-        """Clear region state and pre-step L2/3 (call at word boundaries).
+        """Clear the region's working memory and the pre-step L2/3 buffer.
 
         Uses `reset_working_memory()` — wipes activations/firing rates,
-        preserves learned weights and segments.
+        preserves learned weights and segments. Call at word boundaries.
         """
         self.region.reset_working_memory()
         self._prev_l23 = np.zeros(self.region.n_l23_total, dtype=np.bool_)
@@ -85,24 +101,31 @@ class T1Trainer:
         """Process one character.
 
         Pipeline:
-          1. Predict `char` from pre-step L2/3 (the state from *before*
-             this char arrived).
-          2. Record bits + top-1 match.
-          3. If `train`, decoder.observe(char, pre-step L2/3) — learns
-             that this L2/3 pattern predicts `char`.
-          4. Process the encoded char through the region. `train`
-             toggles `region.learning_enabled` for the duration.
-          5. Update stored pre-step L2/3 to the post-step state.
+          1. If decoder + bpc_probe are wired, use pre-step L2/3 to
+             predict `char`: record bits + top-1 match.
+          2. If `train` and decoder is wired: `decoder.observe(char,
+             pre-step L2/3)` — learns that this L2/3 pattern precedes
+             `char`.
+          3. Toggle `region.learning_enabled = train`, process encoded
+             char, restore prior flag.
+          4. Update stored pre-step L2/3 to the post-step active set.
         """
         token_id = ord(char)
 
-        bits = self.bpc_probe.step(token_id, self._prev_l23, self.decoder)
-        top1_char, top1_correct = self._top1(token_id)
+        bits: float | None = None
+        top1_char: str | None = None
+        top1_correct = False
+        if self.decoder is not None:
+            if self.bpc_probe is not None:
+                bits = self.bpc_probe.step(token_id, self._prev_l23, self.decoder)
+            top1_char, top1_correct = self._top1(token_id)
+            if train:
+                self.decoder.observe(token_id, self._prev_l23)
 
-        if train:
-            self.decoder.observe(token_id, self._prev_l23)
+        encoding = self.encoder.encode(char)
+        if encoding.ndim > 1:
+            encoding = encoding.flatten()
 
-        encoding = self.encoder.encode(char).flatten()
         prior = self.region.learning_enabled
         self.region.learning_enabled = train
         try:
@@ -110,11 +133,13 @@ class T1Trainer:
         finally:
             self.region.learning_enabled = prior
 
-        self._prev_l23 = self.region.l23.active.copy()
+        active = self.region.l23.active.copy()
+        self._prev_l23 = active
 
         return StepResult(
             char=char,
             token_id=token_id,
+            l23_active=active,
             bits=bits,
             top1_char=top1_char,
             top1_correct=top1_correct,
@@ -126,6 +151,8 @@ class T1Trainer:
         return [self.step(c, train=train) for c in word]
 
     def _top1(self, actual_token_id: int) -> tuple[str | None, bool]:
+        if self.decoder is None:
+            return None, False
         scores = self.decoder.decode_scores(self._prev_l23)
         if not scores:
             return None, False

@@ -19,9 +19,9 @@ import argparse
 import math
 import time
 
-from arbora.config import _default_t1_config
+from arbora.config import _default_t1_config, make_sensory_region
 from arbora.decoders.dendritic import DendriticDecoder
-from arbora.encoders.charbit import CharbitEncoder
+from arbora.encoders.onehot import OneHotCharEncoder
 from arbora.probes.bpc import BPCProbe
 from examples.text_exploration.data import (
     DEFAULT_ALPHABET,
@@ -32,7 +32,7 @@ from examples.text_exploration.data import (
 from examples.text_exploration.trainer import T1Trainer
 
 
-def build_t1(encoder: CharbitEncoder, seed: int = 0):
+def build_t1(encoder: OneHotCharEncoder, seed: int = 0):
     """Build a T1 region from the canonical char-level defaults.
 
     `_default_t1_config` is tuned for 128 columns at k=8 per column at
@@ -40,8 +40,6 @@ def build_t1(encoder: CharbitEncoder, seed: int = 0):
     full L4-to-column connectivity, which is what we want for single-
     char-per-step input that has no positional substructure.
     """
-    from arbora.config import make_sensory_region
-
     cfg = _default_t1_config()
     return make_sensory_region(
         cfg,
@@ -117,11 +115,15 @@ def main() -> None:
         f"(train={len(train_words)}, test={len(test_words)})"
     )
 
-    encoder = CharbitEncoder(length=1, width=27, chars=DEFAULT_ALPHABET)
+    encoder = OneHotCharEncoder(chars=DEFAULT_ALPHABET)
     region = build_t1(encoder, seed=args.seed)
+    # Decoder + BPC are optional — wired in here so the CLI reports
+    # accuracy/BPC, but the trainer itself doesn't require them. The
+    # decoder reads L2/3 active (per the ticket spec: L2/3 is the
+    # site of next-char prediction).
     decoder = DendriticDecoder(source_dim=region.n_l23_total, seed=args.seed)
     bpc = BPCProbe()
-    trainer = T1Trainer(region, encoder, decoder, bpc_probe=bpc)
+    trainer = T1Trainer(region, encoder, decoder=decoder, bpc_probe=bpc)
 
     # --- Train ---
     print(f"\nTraining for {args.epochs} epoch(s)...")
