@@ -81,10 +81,10 @@ from examples.minigrid.presets import (
 if TYPE_CHECKING:
     pass
 
-# Seed offset for canary collection. Kept far from the training-seed
-# range so canary initial states never coincide with training-seed
+# Seed offset for probe-pattern collection. Kept far from the training-seed
+# range so probe-pattern initial states never coincide with training-seed
 # initial states.
-_CANARY_SEED_OFFSET = 100_000
+_PROBE_PATTERN_SEED_OFFSET = 100_000
 
 # Cap on HippocampalProbe's per-step log size. Long runs can generate
 # 100k+ steps; rolling counters in the probe cover summary stats
@@ -187,7 +187,7 @@ class ArmResult:
 
     @property
     def mean_retention(self) -> float | None:
-        """Mean retention across all canaries at run end, or None."""
+        """Mean retention across all probe patterns at run end, or None."""
         if not self.final_retention:
             return None
         return statistics.mean(self.final_retention)
@@ -202,34 +202,34 @@ def _find_hippocampal_region(circuit: Circuit) -> HippocampalRegion | None:
     return None
 
 
-def _synthetic_canaries(
+def _synthetic_probe_patterns(
     dim: int,
     n: int,
     *,
     sparsity: float = 0.06,
-    seed: int = _CANARY_SEED_OFFSET,
+    seed: int = _PROBE_PATTERN_SEED_OFFSET,
 ) -> list[np.ndarray]:
-    """Generate N sparse binary canary patterns at HC's input dim.
+    """Generate N sparse binary probe patterns at HC's input dim.
 
     HC's `input_port` expects cortical-dim vectors (S1 L2/3 output),
     not raw 984-dim encoder output. Rather than cloning S1 to generate
-    realistic L2/3 patterns for canaries, we use synthetic sparse
+    realistic L2/3 patterns for probes, we use synthetic sparse
     binary vectors matching cortical sparsity (~6%). This keeps the
     retention test decoupled from S1 — it measures HC's ability to
     retain what it binds, not the combined S1+HC system.
 
-    Each canary has a distinct active-unit set (same seed, different
+    Each probe pattern has a distinct active-unit set (same seed, different
     draws), so they're mutually near-orthogonal and bind to distinct
     CA3 attractors.
     """
     rng = np.random.default_rng(seed)
     k = max(1, round(dim * sparsity))
-    canaries: list[np.ndarray] = []
+    probe_patterns: list[np.ndarray] = []
     for _ in range(n):
         pat = np.zeros(dim, dtype=np.bool_)
         pat[rng.choice(dim, size=k, replace=False)] = True
-        canaries.append(pat)
-    return canaries
+        probe_patterns.append(pat)
+    return probe_patterns
 
 
 def run_arm(
@@ -239,7 +239,7 @@ def run_arm(
     env_id: str,
     episodes: int,
     seed: int,
-    n_canaries: int = 8,
+    n_probe_patterns: int = 8,
 ) -> ArmResult:
     """Run one arm on one seed and return the episode history + HC diagnostics."""
     encoder = MiniGridEncoder()
@@ -254,8 +254,8 @@ def run_arm(
     hc = _find_hippocampal_region(circuit)
     retention = None
     if hc is not None:
-        canaries = _synthetic_canaries(dim=hc.input_dim, n=n_canaries)
-        retention = RetentionTracker(hc, patterns=canaries)
+        probe_patterns = _synthetic_probe_patterns(dim=hc.input_dim, n=n_probe_patterns)
+        retention = RetentionTracker(hc, patterns=probe_patterns)
 
     episode_probe = EpisodeProbe()
     hc_probe = HippocampalProbe(max_steps=_HC_PROBE_MAX_STEPS)
@@ -373,7 +373,7 @@ class AblationResult:
             if "retention_mean" in hc:
                 rstd = hc.get("retention_stdev", 0.0)
                 lines.append(
-                    f"  canary retention at run end (mean±stdev): "
+                    f"  probe-pattern retention at run end (mean±stdev): "
                     f"{hc['retention_mean']:.3f}±{rstd:.3f}"
                 )
         return "\n".join(lines)
@@ -385,7 +385,7 @@ def run_ablation(
     n_seeds: int = 5,
     episodes_per_seed: int = 100,
     verbose: bool = True,
-    n_canaries: int = 8,
+    n_probe_patterns: int = 8,
 ) -> AblationResult:
     """Run both arms across `n_seeds` seeds and return aggregated results."""
     baseline_results: list[ArmResult] = []
@@ -400,7 +400,7 @@ def run_ablation(
                 env_id=env_id,
                 episodes=episodes_per_seed,
                 seed=seed,
-                n_canaries=n_canaries,
+                n_probe_patterns=n_probe_patterns,
             )
         )
         if verbose:
@@ -412,7 +412,7 @@ def run_ablation(
                 env_id=env_id,
                 episodes=episodes_per_seed,
                 seed=seed,
-                n_canaries=n_canaries,
+                n_probe_patterns=n_probe_patterns,
             )
         )
         if verbose:
@@ -429,18 +429,18 @@ def main() -> None:
     parser.add_argument("--env", default="MiniGrid-MemoryS13-v0")
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--episodes", type=int, default=100)
-    parser.add_argument("--canaries", type=int, default=8)
+    parser.add_argument("--probe-patterns", type=int, default=8)
     args = parser.parse_args()
 
     print(
-        f"Running HC ablation: env={args.env}, "
-        f"seeds={args.seeds}, episodes={args.episodes}, canaries={args.canaries}"
+        f"Running HC ablation: env={args.env}, seeds={args.seeds}, "
+        f"episodes={args.episodes}, probe_patterns={args.probe_patterns}"
     )
     result = run_ablation(
         args.env,
         n_seeds=args.seeds,
         episodes_per_seed=args.episodes,
-        n_canaries=args.canaries,
+        n_probe_patterns=args.probe_patterns,
     )
     print()
     print(result.format_table())

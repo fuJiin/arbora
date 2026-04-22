@@ -5,7 +5,7 @@ from examples.minigrid.ablation import (
     ArmResult,
     EpisodeEvent,
     EpisodeProbe,
-    _synthetic_canaries,
+    _synthetic_probe_patterns,
     run_ablation,
     run_arm,
 )
@@ -107,31 +107,31 @@ class TestArmResult:
         )
         assert r.mean_steps == 15.0
 
-    def test_mean_retention_none_when_no_canaries(self):
+    def test_mean_retention_none_when_no_probe_patterns(self):
         r = ArmResult(name="x", seed=0)
         assert r.mean_retention is None
 
-    def test_mean_retention_averages_canary_overlaps(self):
+    def test_mean_retention_averages_overlaps(self):
         r = ArmResult(name="x", seed=0, final_retention=[0.8, 0.6, 0.4])
         assert r.mean_retention == 0.6
 
 
-class TestSyntheticCanaries:
+class TestSyntheticProbePatterns:
     def test_dim_and_shape(self):
-        canaries = _synthetic_canaries(dim=256, n=8)
-        assert len(canaries) == 8
-        for c in canaries:
+        probe_patterns = _synthetic_probe_patterns(dim=256, n=8)
+        assert len(probe_patterns) == 8
+        for c in probe_patterns:
             assert c.shape == (256,)
             assert c.dtype == bool
 
     def test_sparsity_respected(self):
-        canaries = _synthetic_canaries(dim=1000, n=4, sparsity=0.05)
-        for c in canaries:
+        probe_patterns = _synthetic_probe_patterns(dim=1000, n=4, sparsity=0.05)
+        for c in probe_patterns:
             assert c.sum() == 50  # 1000 * 0.05
 
     def test_deterministic(self):
-        a = _synthetic_canaries(dim=256, n=5, seed=42)
-        b = _synthetic_canaries(dim=256, n=5, seed=42)
+        a = _synthetic_probe_patterns(dim=256, n=5, seed=42)
+        b = _synthetic_probe_patterns(dim=256, n=5, seed=42)
         for x, y in zip(a, b, strict=True):
             assert (x == y).all()
 
@@ -166,7 +166,7 @@ class TestRunArm:
             env_id="MiniGrid-Empty-5x5-v0",
             episodes=2,
             seed=0,
-            n_canaries=4,
+            n_probe_patterns=4,
         )
         assert r.name == "hippocampal"
         assert len(r.events) >= 1
@@ -175,7 +175,7 @@ class TestRunArm:
         assert r.final_retention is not None
         assert len(r.final_retention) == 4
         # Immediately after training, retention should still be high for
-        # freshly-bound canaries (synthetic patterns distinct from real
+        # freshly-bound probe patterns (synthetic patterns distinct from real
         # training observations → should survive).
         assert all(0.0 <= o <= 1.0 for o in r.final_retention)
 
@@ -214,10 +214,10 @@ class TestRunAblation:
             n_seeds=1,
             episodes_per_seed=2,
             verbose=False,
-            n_canaries=4,
+            n_probe_patterns=4,
         )
         text = result.format_table()
         assert "HC mechanistic stats" in text
-        # At least the retention line should be present (canaries primed
+        # At least the retention line should be present (probe patterns primed
         # in run_arm always produce a measurement).
-        assert "canary retention" in text
+        assert "probe-pattern retention" in text
