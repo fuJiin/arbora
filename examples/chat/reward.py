@@ -12,10 +12,10 @@ Two biological reward pathways modeled:
 class CuriosityReward:
     """Reward for prediction improvement (dopamine RPE model).
 
-    Tracks expected S1 burst rate per bigram. Reward = improvement
+    Tracks expected T1 burst rate per bigram. Reward = improvement
     over expectation: expected_burst - actual_burst. This gives:
 
-    - High reward for new bigrams where S1 is learning to predict
+    - High reward for new bigrams where T1 is learning to predict
     - Zero reward for fully-predicted bigrams (nothing left to learn)
     - Negative reward for bigrams that got WORSE (shouldn't happen often)
 
@@ -43,7 +43,7 @@ class CuriosityReward:
         # Global baseline for unseen bigrams
         self._global_burst_ema: float = 0.5
 
-    def step(self, char, s1_burst_fraction: float) -> float:
+    def step(self, char, t1_burst_fraction: float) -> float:
         if char is None:
             return 0.0
 
@@ -56,19 +56,19 @@ class CuriosityReward:
             expected = self._global_burst_ema
 
         # RPE: positive when actual burst < expected (better than expected)
-        rpe = expected - s1_burst_fraction
+        rpe = expected - t1_burst_fraction
 
         # Update expected burst (EMA toward actual)
         alpha = 1.0 - self.baseline_decay
         if bigram in self._expected_burst:
             self._expected_burst[bigram] += alpha * (
-                s1_burst_fraction - self._expected_burst[bigram]
+                t1_burst_fraction - self._expected_burst[bigram]
             )
         else:
-            self._expected_burst[bigram] = s1_burst_fraction
+            self._expected_burst[bigram] = t1_burst_fraction
 
         # Update global baseline
-        self._global_burst_ema += alpha * (s1_burst_fraction - self._global_burst_ema)
+        self._global_burst_ema += alpha * (t1_burst_fraction - self._global_burst_ema)
 
         self._prev_char = char
         return self.scale * rpe
@@ -90,7 +90,7 @@ class CaregiverReward:
     on English — any predictable pattern is equally rewarding.
 
     Word detection: accumulates M1's chars, checks at word boundaries
-    (space, punctuation) against a known vocabulary seeded from S2's
+    (space, punctuation) against a known vocabulary seeded from T2's
     word patterns learned during Stage 1 sensory training.
     """
 
@@ -110,7 +110,7 @@ class CaregiverReward:
         self.word_bonus = word_bonus
         self.min_word_length = min_word_length
 
-        # Known vocabulary (seeded from corpus or S2 probe)
+        # Known vocabulary (seeded from corpus or T2 probe)
         self._known_words = known_words or set()
 
         # Current word accumulator
@@ -141,7 +141,7 @@ class CaregiverReward:
                 1 for p2 in self._prefixes if p2.startswith(p) and len(p2) == len(p) + 1
             )
 
-    def step(self, char, s1_burst_fraction: float) -> float:
+    def step(self, char, t1_burst_fraction: float) -> float:
         """Compute combined reward for one M1-produced character.
 
         Live word tracking: every char gets feedback based on how many
@@ -150,7 +150,7 @@ class CaregiverReward:
         "thq" → disappointed (no words start with "thq").
         """
         # Base: curiosity RPE (always active)
-        reward = self._curiosity.step(char, s1_burst_fraction)
+        reward = self._curiosity.step(char, t1_burst_fraction)
 
         if char is None:
             return reward
@@ -295,7 +295,7 @@ class EchoReward:
         self._in_speak_phase = True
         self._echo_pos = 0
 
-    def step(self, char, s1_burst_fraction: float) -> float:
+    def step(self, char, t1_burst_fraction: float) -> float:
         """Compute reward during speak phase.
 
         Match signal uses RPE: reward = bonus * (match - expected).
@@ -304,7 +304,7 @@ class EchoReward:
         Wrong char when expecting match: negative signal.
         """
         # Base: curiosity RPE
-        reward = self._curiosity.step(char, s1_burst_fraction)
+        reward = self._curiosity.step(char, t1_burst_fraction)
 
         if char is None or not self._in_speak_phase:
             return reward

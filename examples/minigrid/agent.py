@@ -34,7 +34,7 @@ class MiniGridAgent(BaseAgent):
         encoder: Encodes MiniGridObs to sparse binary vectors.
         circuit: The neural circuit (process(encoding) -> output).
         n_actions: Number of discrete actions (default 7 for MiniGrid).
-        entry_name: Name of the entry (sensory) region. Default "S1".
+        entry_name: Name of the entry (sensory) region. Default "T1".
     """
 
     def __init__(

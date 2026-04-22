@@ -38,7 +38,7 @@ class TestLaminaProbeReadOnly:
         step_circuit(circuit, encoder, rng)
 
         # Snapshot circuit state
-        region = circuit.region("S1")
+        region = circuit.region("T1")
         l4_active_before = region.l4.active.copy()
         l23_active_before = region.l23.active.copy()
         l4_predicted_before = region.l4.predicted.copy()
@@ -71,7 +71,7 @@ class TestL4KPIs:
 
         snap = probe.snapshot()
         # Recall should be between 0 and 1
-        assert 0.0 <= snap["S1"].input.recall <= 1.0
+        assert 0.0 <= snap["T1"].input.recall <= 1.0
 
     def test_precision_after_steps(self):
         circuit, encoder = make_circuit()
@@ -83,7 +83,7 @@ class TestL4KPIs:
             probe.observe(circuit)
 
         snap = probe.snapshot()
-        assert 0.0 <= snap["S1"].input.precision <= 1.0
+        assert 0.0 <= snap["T1"].input.precision <= 1.0
 
     def test_sparseness_near_target(self):
         """Population sparseness should be near k/N for binary activations."""
@@ -96,7 +96,7 @@ class TestL4KPIs:
             probe.observe(circuit)
 
         snap = probe.snapshot()
-        sparseness = snap["S1"].input.sparseness
+        sparseness = snap["T1"].input.sparseness
         # k=3 columns * n_l4 neurons (burst) out of 64 total
         # Should be in a reasonable range (not 0, not 1)
         assert 0.0 < sparseness < 0.5
@@ -104,7 +104,7 @@ class TestL4KPIs:
     def test_recall_precision_hand_computed(self):
         """Verify recall/precision on manually set state."""
         circuit, _encoder = make_circuit()
-        region = circuit.region("S1")
+        region = circuit.region("T1")
         probe = LaminaProbe()
 
         # Manually set: 10 active, 8 predicted, 6 overlap
@@ -118,10 +118,10 @@ class TestL4KPIs:
 
         # Recall = overlap / active = 8/10 = 0.8
         # (predicted[2:10] & active[0:10] = active[2:10] = 8 neurons)
-        assert abs(snap["S1"].input.recall - 0.8) < 0.01
+        assert abs(snap["T1"].input.recall - 0.8) < 0.01
 
         # Precision = overlap / predicted = 8/8 = 1.0
-        assert abs(snap["S1"].input.precision - 1.0) < 0.01
+        assert abs(snap["T1"].input.precision - 1.0) < 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ class TestL23KPIs:
             probe.observe(circuit)
 
         snap = probe.snapshot()
-        assert snap["S1"].association.eff_dim > 0
+        assert snap["T1"].association.eff_dim > 0
 
     def test_eff_dim_zero_without_enough_samples(self):
         probe = LaminaProbe()
@@ -172,7 +172,7 @@ class TestLinearProbe:
             probe.observe(circuit, stimulus_id=token_id)
 
         snap = probe.snapshot()
-        accuracy = snap["S1"].association.linear_probe
+        accuracy = snap["T1"].association.linear_probe
         # Should be above random (1/8 = 12.5%)
         assert accuracy > 0.15, f"Linear probe accuracy {accuracy:.1%} too low"
 
@@ -196,7 +196,7 @@ class TestContextDiscrimination:
             probe.observe(circuit, stimulus_id=token_id)
 
         snap = probe.snapshot()
-        ctx = snap["S1"].association.ctx_disc
+        ctx = snap["T1"].association.ctx_disc
         # With different preceding contexts, discrimination should be > 0
         assert ctx >= 0.0
 
@@ -225,10 +225,10 @@ class TestNoStimulusId:
 
         snap = probe.snapshot()
         # L4 KPIs should still work
-        assert snap["S1"].input.recall is not None
+        assert snap["T1"].input.recall is not None
         # L2/3 chat KPIs should be 0 (no data)
-        assert snap["S1"].association.linear_probe == 0.0
-        assert snap["S1"].association.ctx_disc == 0.0
+        assert snap["T1"].association.linear_probe == 0.0
+        assert snap["T1"].association.ctx_disc == 0.0
 
 
 # ---------------------------------------------------------------------------

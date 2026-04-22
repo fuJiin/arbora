@@ -20,7 +20,7 @@ def encoder():
 
 @pytest.fixture()
 def circuit(encoder):
-    s1 = SensoryRegion(
+    t1 = SensoryRegion(
         input_dim=encoder.input_dim,
         encoding_width=encoder.encoding_width,
         n_columns=16,
@@ -30,9 +30,9 @@ def circuit(encoder):
         k_columns=2,
         seed=42,
     )
-    bg = BasalGangliaRegion(input_dim=s1.n_l23_total, n_actions=7, seed=789)
+    bg = BasalGangliaRegion(input_dim=t1.n_l23_total, n_actions=7, seed=789)
     m1 = MotorRegion(
-        input_dim=s1.n_l23_total,
+        input_dim=t1.n_l23_total,
         n_columns=8,
         n_l4=0,
         n_l23=2,
@@ -41,11 +41,11 @@ def circuit(encoder):
         seed=123,
     )
     c = Circuit(encoder)
-    c.add_region("S1", s1, entry=True)
+    c.add_region("T1", t1, entry=True)
     c.add_region("BG", bg)
     c.add_region("M1", m1)
-    c.connect(s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
-    c.connect(s1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
+    c.connect(t1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+    c.connect(t1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
     c.connect(bg.output_port, m1.input_port, ConnectionRole.MODULATORY)
     c.finalize()
     return c

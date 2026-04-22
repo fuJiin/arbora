@@ -22,7 +22,7 @@ def make_circuit(n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42):
         seed=seed,
     )
     circuit = Circuit(encoder)
-    circuit.add_region("S1", region, entry=True)
+    circuit.add_region("T1", region, entry=True)
     circuit.finalize()
     return circuit, encoder
 

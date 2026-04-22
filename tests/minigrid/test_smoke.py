@@ -13,7 +13,7 @@ from examples.minigrid.harness import MiniGridHarness
 def test_full_loop_10_episodes():
     """Full pipeline: encoder -> circuit -> agent -> harness -> result."""
     encoder = MiniGridEncoder()
-    s1 = SensoryRegion(
+    t1 = SensoryRegion(
         input_dim=encoder.input_dim,
         encoding_width=encoder.encoding_width,
         n_columns=16,
@@ -24,7 +24,7 @@ def test_full_loop_10_episodes():
         seed=42,
     )
     m1 = MotorRegion(
-        input_dim=s1.n_l23_total,
+        input_dim=t1.n_l23_total,
         n_columns=8,
         n_l4=0,
         n_l23=2,
@@ -33,9 +33,9 @@ def test_full_loop_10_episodes():
         seed=123,
     )
     circuit = Circuit(encoder)
-    circuit.add_region("S1", s1, entry=True)
+    circuit.add_region("T1", t1, entry=True)
     circuit.add_region("M1", m1)
-    circuit.connect(s1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(t1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
     circuit.finalize()
 
     env = MiniGridEnv("MiniGrid-Empty-5x5-v0", max_episodes=10)
@@ -50,7 +50,7 @@ def test_full_loop_10_episodes():
     assert "lamina" in result.probe_snapshots
     assert env.episode_count == 10
 
-    # Verify S1 has learned something (recall > 0)
+    # Verify T1 has learned something (recall > 0)
     snap = result.probe_snapshots["lamina"]
-    assert "S1" in snap
-    assert snap["S1"].input.recall >= 0
+    assert "T1" in snap
+    assert snap["T1"].input.recall >= 0

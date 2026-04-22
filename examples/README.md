@@ -30,6 +30,6 @@ package), not from `examples.*`.
 - **`arc/`** — ARC-AGI-3 spatial reasoning with a transthalamic hierarchy
   (V1 → pulvinar → V2 → BG → M1). Requires the `arc` extra.
 - **`chat/`** — Character-level text learning with a sensory–motor hierarchy
-  (S1 → S2 → S3 → PFC → M2 → M1).
-- **`minigrid/`** — Grid navigation with MiniGrid (S1 → BG → M1). Requires
+  (T1 → T2 → T3 → PFC → M2 → M1).
+- **`minigrid/`** — Grid navigation with MiniGrid (T1 → BG → M1). Requires
   the `minigrid` extra.

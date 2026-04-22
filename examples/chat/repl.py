@@ -3,7 +3,7 @@
 
 Trains a model, then enters interactive mode where you type text and
 see the model's L4 burst rate, L2/3 readout, and internal state in real time.
-Uses the full S1→S2→S3→PFC→M2→M1+BG architecture.
+Uses the full T1→T2→T3→PFC→M2→M1+BG architecture.
 
 Usage:
     uv run python -m examples.chat.repl
@@ -68,10 +68,10 @@ def build_model(alphabet: str):
         timeline_interval=0,
     )
 
-    region1 = cortex._regions["S1"].region
+    region1 = cortex._regions["T1"].region
     motor = cortex._regions["M1"].region
-    decoder = cortex._regions["S1"].dendritic_decoder
-    word_decoder = cortex._regions["S2"].word_decoder
+    decoder = cortex._regions["T1"].dendritic_decoder
+    word_decoder = cortex._regions["T2"].word_decoder
     agent = ChatAgent(encoder=encoder, circuit=cortex)
 
     return cortex, encoder, region1, motor, decoder, word_decoder, agent
@@ -97,9 +97,9 @@ def warmup(cortex, encoder, tokens, log_interval=2000):
             decoder_training=True,
         ).run()
     lamina_snap = result.probe_snapshots.get("lamina", {})
-    s1 = lamina_snap.get("S1")
-    if s1 is not None:
-        recall = s1.input.recall
+    t1 = lamina_snap.get("T1")
+    if t1 is not None:
+        recall = t1.input.recall
         burst_rate = 1.0 - recall
     else:
         recall, burst_rate = 0.0, 1.0
@@ -205,7 +205,7 @@ def print_help():
     print(f"{DIM}  /echo [word]    Hear a word, watch M1 try to reproduce it{RESET}")
     print(f"{DIM}  /quit, /q        Exit{RESET}")
     print()
-    print(f"{DIM}Type text to feed through S1→S2→S3→PFC→M2→M1.{RESET}")
+    print(f"{DIM}Type text to feed through T1→T2→T3→PFC→M2→M1.{RESET}")
     print(f"{DIM}Each char shows L4 burst rate; phrase summary shows avg + BPC.{RESET}")
 
 
@@ -226,10 +226,10 @@ def print_info(cortex, encoder, region1, motor, decoder):
         print(f"  {DIM}Frozen:{RESET} {', '.join(frozen)}")
     print(f"  {DIM}Active connections:{RESET} {', '.join(active_conns) or 'none'}")
 
-    # S1 stats
+    # T1 stats
     burst_sum = float(region1.bursting_columns.sum())
     burst_pct = burst_sum / max(region1.n_columns, 1)
-    print(f"  {DIM}S1 burst rate:{RESET} {burst_pct:.0%} (lower = better predictions)")
+    print(f"  {DIM}T1 burst rate:{RESET} {burst_pct:.0%} (lower = better predictions)")
 
     # Vocabulary from decoder
     if decoder and decoder.n_tokens > 0:
@@ -355,7 +355,7 @@ def run_probe(cortex, word_decoder=None):
 
     # Word decoder stats
     if word_decoder and word_decoder.n_words > 0:
-        print(f"  {BOLD}S2 word decoder{RESET}: {word_decoder.n_words} words")
+        print(f"  {BOLD}T2 word decoder{RESET}: {word_decoder.n_words} words")
 
     print()
 
@@ -364,7 +364,7 @@ def run_echo(agent, motor, word: str):
     """Interactive echo: hear a word, then watch M1 try to reproduce it.
 
     Demonstrates PFC goal maintenance and the full motor pipeline:
-    1. Listen: process word through S1→S2→S3→PFC
+    1. Listen: process word through T1→T2→T3→PFC
     2. PFC snapshots goal, gate closes
     3. Speak: M1 produces chars, compare to target
     """
@@ -568,7 +568,7 @@ def interactive_loop(
         for ch in line:
             token_id = ord(ch)
 
-            # S1 prediction BEFORE processing
+            # T1 prediction BEFORE processing
             preds = decode_prediction(
                 region1.l23.active,
                 decoder,
@@ -587,10 +587,10 @@ def interactive_loop(
             n_burst = int(region1.bursting_columns.sum())
             burst_frac = n_burst / n_active
 
-            # S2 word decoder: step and check for word boundary (optional)
-            s2_region = cortex._regions["S2"].region
+            # T2 word decoder: step and check for word boundary (optional)
+            t2_region = cortex._regions["T2"].region
             completed_word = (
-                word_decoder.step(ch, s2_region.l23.firing_rate)
+                word_decoder.step(ch, t2_region.l23.firing_rate)
                 if word_decoder is not None
                 else None
             )
@@ -621,13 +621,13 @@ def interactive_loop(
                 f"  {color}{display_ch:<4s}{RESET} {color}{burst_pct:>12s}{RESET}\n"
             )
 
-            # At word boundaries, show S2's word-level context
+            # At word boundaries, show T2's word-level context
             if completed_word and word_decoder is not None:
-                s2_preds = word_decoder.predict(s2_region.l23.firing_rate, k=3)
-                if s2_preds:
-                    total = max(sum(s for _, s in s2_preds), 1)
-                    wp = " ".join(f"{w}:{s / total:.0%}" for w, s in s2_preds)
-                    sys.stdout.write(f"  {MAGENTA}     S2 context: {wp}{RESET}\n")
+                t2_preds = word_decoder.predict(t2_region.l23.firing_rate, k=3)
+                if t2_preds:
+                    total = max(sum(s for _, s in t2_preds), 1)
+                    wp = " ".join(f"{w}:{s / total:.0%}" for w, s in t2_preds)
+                    sys.stdout.write(f"  {MAGENTA}     T2 context: {wp}{RESET}\n")
 
         # Phrase-level summary: avg L4 burst + BPC
         if line_total > 0:
@@ -712,7 +712,7 @@ def main():
         print(f"{DIM}Vocab: {len(alphabet)} chars{RESET}")
 
     # Build model
-    print(f"{DIM}Building model (S1→S2→S3→PFC→M2→M1+BG)...{RESET}")
+    print(f"{DIM}Building model (T1→T2→T3→PFC→M2→M1+BG)...{RESET}")
     cortex, encoder, region1, motor, decoder, word_decoder, agent = build_model(
         alphabet_str
     )

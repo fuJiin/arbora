@@ -94,16 +94,16 @@ class TestMotorRegion:
 class TestMotorCircuit:
     def test_motor_detected_as_motor(self, region1, motor, encoder):
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         assert cortex._regions["M1"].motor is True
-        assert cortex._regions["S1"].motor is False
+        assert cortex._regions["T1"].motor is False
 
     def test_motor_runs_in_hierarchy(self, region1, motor, encoder):
         """M1 processes tokens and collects motor metrics."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(
             region1.l23,
@@ -120,10 +120,10 @@ class TestMotorCircuit:
         assert len(snap["M1"].motor_confidences) > 0
 
     def test_motor_with_thalamic_gate(self, region1, motor, encoder):
-        """M1→S1 apical with thalamic gate runs without error."""
+        """M1→T1 apical with thalamic gate runs without error."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(
             region1.l23,
@@ -137,7 +137,7 @@ class TestMotorCircuit:
         mod_probe = ModulatorProbe()
         result = run_circuit(cortex, tokens, probes=[mod_probe])
         mod_snap = result.probe_snapshots["modulators"]
-        assert "M1->S1" in mod_snap.thalamic
+        assert "M1->T1" in mod_snap.thalamic
 
     def test_story_boundary_resets_motor(self, region1, motor, encoder):
         tokens = [
@@ -149,17 +149,17 @@ class TestMotorCircuit:
             (1, "b"),
         ]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
 
     def test_motor_without_hierarchy(self, region1, motor, encoder):
-        """M1 can work without S2 — just S1→M1."""
+        """M1 can work without T2 — just T1→M1."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(20)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         probe = ChatMotorProbe()

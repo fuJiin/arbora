@@ -6,7 +6,7 @@ probe measures and how agranular regions (missing L4) are handled.
 ## Design Principles
 
 - Each lamina has a biological role; KPIs measure whether it fulfills that role
-- Metrics should be per-layer, not per-region (same KPI set across S1/S2/S3 etc.)
+- Metrics should be per-layer, not per-region (same KPI set across T1/T2/T3 etc.)
 - Missing lamina (agranular regions): surviving lamina absorb the missing layer's KPIs
 
 ## L4 — Input Reception + Temporal Prediction
@@ -18,7 +18,7 @@ input via lateral dendritic segments.
 |---|-----|---------|--------|-----------------|
 | 1 | **Prediction recall** | \|predicted ∩ active\| / \|active\| | >70% | Below 50% means segments predict less than half of activations — mostly guessing. 70%+ means temporal patterns are being learned. (This is 1 - burst_rate.) |
 | 2 | **Prediction precision** | \|predicted ∩ active\| / \|predicted\| | >50% | Random precision for k=8 active out of 128 columns is ~6%. 50%+ means segments are selective, not just predicting everything. Low precision with high recall = promiscuous segments. |
-| 3 | **Population sparseness** | (Σr/n)² / (Σr²/n) (Treves-Rolls) | ~k/N (0.016 for S1) | For binary codes, Treves-Rolls equals the fraction of active neurons. Should match the architectural target: k_columns × n_l4 / (n_columns × n_l4) = 8/128 ≈ 0.063 at column level. Drift means excitability or WTA is broken. |
+| 3 | **Population sparseness** | (Σr/n)² / (Σr²/n) (Treves-Rolls) | ~k/N (0.016 for T1) | For binary codes, Treves-Rolls equals the fraction of active neurons. Should match the architectural target: k_columns × n_l4 / (n_columns × n_l4) = 8/128 ≈ 0.063 at column level. Drift means excitability or WTA is broken. |
 
 **Current state**: We have column-level burst rate (= 1 - recall) and
 prediction hit rate (conflates precision/recall). Missing: neuron-level
@@ -59,7 +59,7 @@ errors in target regions.
 Motor and prefrontal regions lack a true L4 (granular layer). Input arrives
 directly at L2/3. This changes the KPI mapping:
 
-| Lamina | Granular (S1/S2/S3) | Agranular (M1/M2/PFC) |
+| Lamina | Granular (T1/T2/T3) | Agranular (M1/M2/PFC) |
 |--------|---------------------|----------------------|
 | L4 | Input + prediction (3 KPIs) | *absent* |
 | L2/3 | Context enrichment (3 KPIs) | Input + context (absorbs L4 KPIs) |

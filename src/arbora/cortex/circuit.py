@@ -224,7 +224,7 @@ class Circuit:
     def set_reward_source(self, source) -> None:
         """Set a pluggable reward source for BG learning.
 
-        The source should have a step(char, s2_active_columns) method
+        The source should have a step(char, t2_active_columns) method
         that returns a reward float or None. Pass None to revert to
         default turn-taking reward.
         """
@@ -332,7 +332,7 @@ class Circuit:
 
         Routing is explicit — pass the Lamina objects directly::
 
-            circuit.connect(s1.l23, s2.l4, ConnectionRole.FEEDFORWARD)
+            circuit.connect(t1.l23, t2.l4, ConnectionRole.FEEDFORWARD)
 
         Region names and lamina IDs are derived from the Lamina's
         back-reference to its parent region.

@@ -109,7 +109,7 @@ class TestBasalGangliaCircuitIntegration:
         from arbora.encoders.charbit import CharbitEncoder
 
         encoder = CharbitEncoder(length=4, width=5, chars="abcd")
-        s1 = SensoryRegion(
+        t1 = SensoryRegion(
             input_dim=4 * 5,
             encoding_width=5,
             n_columns=8,
@@ -118,9 +118,9 @@ class TestBasalGangliaCircuitIntegration:
             k_columns=2,
             seed=42,
         )
-        bg = BasalGangliaRegion(input_dim=s1.n_l23_total, n_actions=7, seed=789)
+        bg = BasalGangliaRegion(input_dim=t1.n_l23_total, n_actions=7, seed=789)
         m1 = MotorRegion(
-            input_dim=s1.n_l23_total,
+            input_dim=t1.n_l23_total,
             n_columns=4,
             n_l4=2,
             n_l23=2,
@@ -128,11 +128,11 @@ class TestBasalGangliaCircuitIntegration:
             seed=456,
         )
         circuit = Circuit(encoder)
-        circuit.add_region("S1", s1, entry=True)
+        circuit.add_region("T1", t1, entry=True)
         circuit.add_region("BG", bg)
         circuit.add_region("M1", m1)
-        circuit.connect(s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
-        circuit.connect(s1.output_port, m1.l4, ConnectionRole.FEEDFORWARD)
+        circuit.connect(t1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+        circuit.connect(t1.output_port, m1.l4, ConnectionRole.FEEDFORWARD)
         circuit.connect(bg.output_port, m1.l4, ConnectionRole.MODULATORY)
         circuit.finalize()
 
@@ -147,7 +147,7 @@ class TestBasalGangliaCircuitIntegration:
         from arbora.encoders.charbit import CharbitEncoder
 
         encoder = CharbitEncoder(length=4, width=5, chars="abcd")
-        s1 = SensoryRegion(
+        t1 = SensoryRegion(
             input_dim=4 * 5,
             encoding_width=5,
             n_columns=8,
@@ -157,13 +157,13 @@ class TestBasalGangliaCircuitIntegration:
             seed=42,
         )
         bg = BasalGangliaRegion(
-            input_dim=s1.n_l23_total,
+            input_dim=t1.n_l23_total,
             n_actions=7,
             learning_rate=0.1,
             seed=789,
         )
         m1 = MotorRegion(
-            input_dim=s1.n_l23_total,
+            input_dim=t1.n_l23_total,
             n_columns=4,
             n_l4=2,
             n_l23=2,
@@ -171,11 +171,11 @@ class TestBasalGangliaCircuitIntegration:
             seed=456,
         )
         circuit = Circuit(encoder)
-        circuit.add_region("S1", s1, entry=True)
+        circuit.add_region("T1", t1, entry=True)
         circuit.add_region("BG", bg)
         circuit.add_region("M1", m1)
-        circuit.connect(s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
-        circuit.connect(s1.output_port, m1.l4, ConnectionRole.FEEDFORWARD)
+        circuit.connect(t1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+        circuit.connect(t1.output_port, m1.l4, ConnectionRole.FEEDFORWARD)
         circuit.connect(bg.output_port, m1.l4, ConnectionRole.MODULATORY)
         circuit.finalize()
 

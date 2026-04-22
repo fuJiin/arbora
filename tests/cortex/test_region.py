@@ -534,7 +534,7 @@ class TestSensoryRegion:
         assert s.active_columns.sum() == 2
 
     def test_different_inputs_different_columns(self):
-        s1 = SensoryRegion(
+        t1 = SensoryRegion(
             input_dim=10,
             n_columns=8,
             n_l4=2,
@@ -544,10 +544,10 @@ class TestSensoryRegion:
         )
         enc1 = np.zeros(10)
         enc1[0] = 1.0
-        s1.process(enc1)
-        cols1 = s1.active_columns.copy()
+        t1.process(enc1)
+        cols1 = t1.active_columns.copy()
 
-        s2 = SensoryRegion(
+        t2 = SensoryRegion(
             input_dim=10,
             n_columns=8,
             n_l4=2,
@@ -557,8 +557,8 @@ class TestSensoryRegion:
         )
         enc2 = np.zeros(10)
         enc2[9] = 1.0
-        s2.process(enc2)
-        cols2 = s2.active_columns.copy()
+        t2.process(enc2)
+        cols2 = t2.active_columns.copy()
 
         assert not np.array_equal(cols1, cols2)
 

@@ -163,13 +163,13 @@ class RepresentationTracker:
         sims = []
         for i, t1 in enumerate(top_tokens):
             for t2 in top_tokens[i + 1 :]:
-                s1 = token_col_profile[t1]
-                s2 = token_col_profile[t2]
-                union = len(s1 | s2)
+                a = token_col_profile[t1]
+                b = token_col_profile[t2]
+                union = len(a | b)
                 if union == 0:
                     sims.append(0.0)
                 else:
-                    sims.append(len(s1 & s2) / union)
+                    sims.append(len(a & b) / union)
 
         sims_arr = np.array(sims) if sims else np.array([0.0])
 
@@ -234,10 +234,10 @@ class RepresentationTracker:
             rng = np.random.default_rng(tid)
             for _ in range(pairs):
                 i, j = rng.choice(n, 2, replace=False)
-                s1, s2 = patterns[i], patterns[j]
-                union = len(s1 | s2)
+                a, b = patterns[i], patterns[j]
+                union = len(a | b)
                 if union > 0:
-                    dists.append(1.0 - len(s1 & s2) / union)
+                    dists.append(1.0 - len(a & b) / union)
                 else:
                     dists.append(0.0)
 

@@ -176,8 +176,8 @@ class TestHierarchyApical:
             (1, "b"),
         ]
         circuit = Circuit(encoder)
-        circuit.add_region("S1", r1, entry=True)
-        circuit.add_region("S2", r2)
+        circuit.add_region("T1", r1, entry=True)
+        circuit.add_region("T2", r2)
         circuit.connect(
             r1.l23,
             r2.l4,
@@ -189,12 +189,12 @@ class TestHierarchyApical:
         assert result.elapsed_seconds > 0
 
     def test_apical_context_flows(self, regions, encoder):
-        """After processing tokens, S1 apical context should be non-zero."""
+        """After processing tokens, T1 apical context should be non-zero."""
         r1, r2 = regions
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
         circuit = Circuit(encoder)
-        circuit.add_region("S1", r1, entry=True)
-        circuit.add_region("S2", r2)
+        circuit.add_region("T1", r1, entry=True)
+        circuit.add_region("T2", r2)
         circuit.connect(
             r1.l23,
             r2.l4,
@@ -227,8 +227,8 @@ class TestHierarchyApical:
         )
         tokens = [(0, "a"), (1, "b"), (2, "c")]
         circuit = Circuit(encoder)
-        circuit.add_region("S1", r1, entry=True)
-        circuit.add_region("S2", r2)
+        circuit.add_region("T1", r1, entry=True)
+        circuit.add_region("T2", r2)
         circuit.connect(
             r1.l23,
             r2.l4,

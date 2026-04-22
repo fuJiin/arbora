@@ -24,7 +24,7 @@ process() might mutate" pattern — `CorticalRegion` has many internal
 state arrays (segment traces, prediction contexts, RNG state, etc.)
 and missing any of them breaks measurement determinism.
 
-Cost is O(N_refs) deepcopies per `measure()` call; for a moderate S1
+Cost is O(N_refs) deepcopies per `measure()` call; for a moderate T1
 (~1024 neurons, a few MB of weights) that's tens of MB of temporary
 allocation per call. Acceptable given the tracker is used a handful
 of times per ablation run, not per-step.
@@ -33,7 +33,7 @@ Usage
 -----
 ::
 
-    tracker = CortexStabilityTracker(s1_region, encodings=[enc1, enc2, ...])
+    tracker = CortexStabilityTracker(t1_region, encodings=[enc1, enc2, ...])
     # ... run some training ...
     overlaps = tracker.measure()
     # overlaps[i] ∈ [0, 1] = Jaccard between current L2/3 active pattern
@@ -57,7 +57,7 @@ class CortexStabilityTracker:
     Parameters
     ----------
     region : CorticalRegion
-        The region whose L2/3 stability we're tracking. Typically S1.
+        The region whose L2/3 stability we're tracking. Typically T1.
     encodings : list of np.ndarray
         Raw input encodings (dimensioned to `region.input_dim`). These
         are the fixed reference stimuli re-presented at each

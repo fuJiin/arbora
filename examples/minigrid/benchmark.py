@@ -25,7 +25,7 @@ from examples.minigrid.env import MiniGridEnv
 
 
 def build_circuit(encoder: MiniGridEncoder) -> Circuit:
-    s1 = SensoryRegion(
+    t1 = SensoryRegion(
         input_dim=encoder.input_dim,
         encoding_width=encoder.encoding_width,
         n_columns=64,
@@ -36,7 +36,7 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
         seed=42,
     )
     m1 = MotorRegion(
-        input_dim=s1.n_l23_total,
+        input_dim=t1.n_l23_total,
         n_columns=16,
         n_l4=0,
         n_l23=4,
@@ -44,13 +44,13 @@ def build_circuit(encoder: MiniGridEncoder) -> Circuit:
         n_output_tokens=7,
         seed=456,
     )
-    bg = BasalGangliaRegion(input_dim=s1.n_l23_total, n_actions=7, seed=789)
+    bg = BasalGangliaRegion(input_dim=t1.n_l23_total, n_actions=7, seed=789)
     circuit = Circuit(encoder)
-    circuit.add_region("S1", s1, entry=True, input_region=True)
+    circuit.add_region("T1", t1, entry=True, input_region=True)
     circuit.add_region("BG", bg)
     circuit.add_region("M1", m1, output_region=True)
-    circuit.connect(s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
-    circuit.connect(s1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(t1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(t1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
     circuit.connect(bg.output_port, m1.input_port, ConnectionRole.MODULATORY)
     circuit.finalize()
     return circuit

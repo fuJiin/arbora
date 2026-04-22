@@ -1,11 +1,11 @@
-"""Word-level decoder for S2: maps L2/3 patterns to words.
+"""Word-level decoder for T2: maps L2/3 patterns to words.
 
 Wraps DendriticDecoder to operate at word boundaries. Accumulates
 characters, and when a boundary is hit (space, punctuation), records
-the completed word against S2's L2/3 state.
+the completed word against T2's L2/3 state.
 
-Lets us see what words S2 is "thinking about" at any moment —
-qualitative insight into the context S2 sends to S1 via apical.
+Lets us see what words T2 is "thinking about" at any moment —
+qualitative insight into the context T2 sends to T1 via apical.
 """
 
 import numpy as np
@@ -79,7 +79,7 @@ class WordDecoder:
                 word = "".join(self._current_chars)
                 wid = self._get_word_id(word)
                 if wid >= 0 and self._last_l23 is not None:
-                    # Train decoder: S2's state at end of word → word ID
+                    # Train decoder: T2's state at end of word → word ID
                     self._decoder.observe(wid, self._last_l23)
             self._current_chars.clear()
             self._last_l23 = l23_state.copy()

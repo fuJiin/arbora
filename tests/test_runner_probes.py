@@ -75,7 +75,7 @@ def _make_circuit_and_env(text: str):
         seed=42,
     )
     circuit = Circuit(encoder)
-    circuit.add_region("S1", region, entry=True)
+    circuit.add_region("T1", region, entry=True)
     circuit.finalize()
 
     tokens = _make_tokens(text)
@@ -124,7 +124,7 @@ class TestTrainProbeWiring:
             encoder.input_dim, n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42
         )
         circuit = Circuit(encoder)
-        circuit.add_region("S1", region, entry=True)
+        circuit.add_region("T1", region, entry=True)
         circuit.finalize()
         env = ChatEnv(tokens)
         agent = ChatAgent(encoder=encoder, circuit=circuit)
@@ -191,7 +191,7 @@ class TestTrainProbeWiring:
             encoder.input_dim, n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42
         )
         circuit = Circuit(encoder)
-        circuit.add_region("S1", region, entry=True)
+        circuit.add_region("T1", region, entry=True)
         circuit.finalize()
         env = ChatEnv(tokens)
         agent = ChatAgent(encoder=encoder, circuit=circuit)
@@ -215,7 +215,7 @@ class TestHarnessDirectUsage:
             encoder.input_dim, n_columns=16, n_l4=4, n_l23=4, k_columns=3, seed=42
         )
         circuit = Circuit(encoder)
-        circuit.add_region("S1", region, entry=True)
+        circuit.add_region("T1", region, entry=True)
         tokens = _make_tokens("abcdef")
         spy = SpyProbe()
 
@@ -240,10 +240,10 @@ class TestEndToEndProbeKPIs:
         result = ChatTrainHarness(env, agent, log_interval=9999, probes=[probe]).run()
 
         snap = result.probe_snapshots["lamina"]
-        assert "S1" in snap
-        assert snap["S1"].input.recall > 0
-        assert snap["S1"].input.sparseness > 0
-        assert snap["S1"].association.eff_dim > 0
+        assert "T1" in snap
+        assert snap["T1"].input.recall > 0
+        assert snap["T1"].input.sparseness > 0
+        assert snap["T1"].association.eff_dim > 0
 
     def test_chat_lamina_probe_via_train(self):
         """ChatLaminaProbe produces linear probe accuracy through train()."""
@@ -260,6 +260,6 @@ class TestEndToEndProbeKPIs:
         result = ChatTrainHarness(env, agent, log_interval=9999, probes=[probe]).run()
 
         snap = result.probe_snapshots["chat_lamina"]
-        assert "S1" in snap
+        assert "T1" in snap
         # Linear probe should have attempted a fit
-        assert snap["S1"].association.linear_probe is not None
+        assert snap["T1"].association.linear_probe is not None

@@ -14,9 +14,9 @@ from examples.chat.probes import ChatMotorProbe
 
 
 def _make_motor_circuit():
-    """Build S1→M1 circuit with BG."""
+    """Build T1→M1 circuit with BG."""
     encoder = CharbitEncoder(length=4, width=5, chars="abcd")
-    s1 = SensoryRegion(
+    t1 = SensoryRegion(
         input_dim=4 * 5,
         encoding_width=5,
         n_columns=8,
@@ -26,7 +26,7 @@ def _make_motor_circuit():
         seed=42,
     )
     m1 = MotorRegion(
-        input_dim=s1.n_l23_total,
+        input_dim=t1.n_l23_total,
         n_columns=4,
         n_l4=2,
         n_l23=2,
@@ -34,13 +34,13 @@ def _make_motor_circuit():
         seed=456,
     )
     circuit = Circuit(encoder)
-    circuit.add_region("S1", s1, entry=True)
-    bg = BasalGangliaRegion(input_dim=s1.n_l23_total, n_actions=7)
+    circuit.add_region("T1", t1, entry=True)
+    bg = BasalGangliaRegion(input_dim=t1.n_l23_total, n_actions=7)
     circuit.add_region("BG", bg)
     circuit.add_region("M1", m1)
-    circuit.connect(s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(t1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
     circuit.connect(
-        s1.output_port,
+        t1.output_port,
         m1.l4,
         ConnectionRole.FEEDFORWARD,
         surprise_tracker=SurpriseTracker(),
