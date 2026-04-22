@@ -21,3 +21,4 @@ experiments/figures/
 .agents
 /data/
 environment_files/
+.ipynb_checkpoints/
