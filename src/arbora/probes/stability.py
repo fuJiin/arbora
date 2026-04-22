@@ -7,10 +7,12 @@ destructively to report Jaccard drift. The output is a "drift curve":
 how much the region's response to a fixed stimulus has changed over
 training.
 
-Motivated by HIPPOCAMPUS.md §3 (cortical-drift problem): HC binds
-memories keyed on S1 L2/3 patterns, so S1 drift invalidates those
-keys. We need to measure drift *directly* to disambiguate it from
-HC-internal saturation — this tracker provides that measurement.
+Motivation: HC binds memories keyed on cortical L2/3 patterns, so if
+those patterns drift as the cortex learns, HC retrieval breaks — the
+keys no longer match what CA3 stored them against. This tracker
+measures drift directly so it can be disambiguated from HC-internal
+capacity failures (CA3 saturation, which is covered by
+`HippocampalProbe` / `RetentionTracker`).
 
 Non-destructive measurement
 ---------------------------
