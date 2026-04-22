@@ -29,6 +29,12 @@ from examples.text_exploration.data import (
     load_words,
     train_test_split,
 )
+from examples.text_exploration.diagnostics import (
+    character_sdr_overlap,
+    context_sensitivity,
+    format_diagnostics,
+    weight_distribution,
+)
 from examples.text_exploration.trainer import T1Trainer
 
 
@@ -104,6 +110,11 @@ def main() -> None:
         default=200,
         help="Print a progress line every N words (0 = silent)",
     )
+    parser.add_argument(
+        "--diagnostics",
+        action="store_true",
+        help="After training, run the three diagnostic checkpoints",
+    )
     args = parser.parse_args()
 
     all_words = alphabet_filter(load_words(args.words), DEFAULT_ALPHABET)
@@ -151,6 +162,16 @@ def main() -> None:
     chance = 1.0 / len(DEFAULT_ALPHABET)
     above_chance = test_acc > chance
     print(f"  above-chance (1/{len(DEFAULT_ALPHABET)}={chance:.3f}): {above_chance}")
+
+    if args.diagnostics:
+        print("\nRunning diagnostic checkpoints...\n")
+        sdr = character_sdr_overlap(trainer)
+        ctx = context_sensitivity(
+            trainer,
+            prefixes=["c", "ca", "de", "sh", "th", "str"],
+        )
+        weights = weight_distribution(trainer)
+        print(format_diagnostics(sdr, ctx, weights))
 
 
 if __name__ == "__main__":
