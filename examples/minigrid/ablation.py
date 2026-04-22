@@ -240,8 +240,15 @@ def run_arm(
     episodes: int,
     seed: int,
     n_probe_patterns: int = 8,
+    trace: bool = False,
+    trace_every: int = 1,
 ) -> ArmResult:
-    """Run one arm on one seed and return the episode history + HC diagnostics."""
+    """Run one arm on one seed and return the episode history + HC diagnostics.
+
+    Set `trace=True` to stream a compact per-step line (see
+    `examples.minigrid.trace.TraceProbe`). Intended for debugging
+    individual episodes, not for large sweeps.
+    """
     encoder = MiniGridEncoder()
     circuit = builder(encoder)
     env = MiniGridEnv(env_id, max_episodes=episodes, seed=seed)
@@ -259,9 +266,13 @@ def run_arm(
 
     episode_probe = EpisodeProbe()
     hc_probe = HippocampalProbe(max_steps=_HC_PROBE_MAX_STEPS)
-    harness = MiniGridHarness(
-        env, agent, probes=[episode_probe, hc_probe], log_interval=10**9
-    )
+    probes: list = [episode_probe, hc_probe]
+    if trace:
+        # Import here so main-path doesn't pay the cost when unused.
+        from examples.minigrid.trace import TraceProbe
+
+        probes.append(TraceProbe(every=trace_every))
+    harness = MiniGridHarness(env, agent, probes=probes, log_interval=10**9)
     harness.run()
 
     hc_summary = hc_probe.snapshot().get("summary", {})
@@ -386,6 +397,8 @@ def run_ablation(
     episodes_per_seed: int = 100,
     verbose: bool = True,
     n_probe_patterns: int = 8,
+    trace: bool = False,
+    trace_every: int = 1,
 ) -> AblationResult:
     """Run both arms across `n_seeds` seeds and return aggregated results."""
     baseline_results: list[ArmResult] = []
@@ -401,6 +414,8 @@ def run_ablation(
                 episodes=episodes_per_seed,
                 seed=seed,
                 n_probe_patterns=n_probe_patterns,
+                trace=trace,
+                trace_every=trace_every,
             )
         )
         if verbose:
@@ -413,6 +428,8 @@ def run_ablation(
                 episodes=episodes_per_seed,
                 seed=seed,
                 n_probe_patterns=n_probe_patterns,
+                trace=trace,
+                trace_every=trace_every,
             )
         )
         if verbose:
@@ -430,6 +447,18 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--episodes", type=int, default=100)
     parser.add_argument("--probe-patterns", type=int, default=8)
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="Stream a compact per-step trace to stdout. For debugging "
+        "individual episodes — produces a lot of output on long runs.",
+    )
+    parser.add_argument(
+        "--trace-every",
+        type=int,
+        default=1,
+        help="With --trace, print every N-th step. Default 1.",
+    )
     args = parser.parse_args()
 
     print(
@@ -441,6 +470,8 @@ def main() -> None:
         n_seeds=args.seeds,
         episodes_per_seed=args.episodes,
         n_probe_patterns=args.probe_patterns,
+        trace=args.trace,
+        trace_every=args.trace_every,
     )
     print()
     print(result.format_table())
