@@ -35,9 +35,7 @@ class TestStep:
     def test_updates_prev_l23(self, trainer: T1Trainer):
         """After step, `_prev_l23` should equal the region's L2/3 active."""
         trainer.step("a")
-        np.testing.assert_array_equal(
-            trainer._prev_l23, trainer.region.l23.active
-        )
+        np.testing.assert_array_equal(trainer._prev_l23, trainer.region.l23.active)
 
     def test_eval_mode_does_not_learn(self, trainer: T1Trainer):
         """train=False must not grow the decoder or update region weights."""

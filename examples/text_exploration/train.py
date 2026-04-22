@@ -95,12 +95,17 @@ def main() -> None:
         default=None,
         help="Wordlist path (default: data/text/common_words.txt)",
     )
-    parser.add_argument("--epochs", type=int, default=3,
-                        help="Passes over the training wordlist")
+    parser.add_argument(
+        "--epochs", type=int, default=3, help="Passes over the training wordlist"
+    )
     parser.add_argument("--test-frac", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--log-every", type=int, default=200,
-                        help="Print a progress line every N words (0 = silent)")
+    parser.add_argument(
+        "--log-every",
+        type=int,
+        default=200,
+        help="Print a progress line every N words (0 = silent)",
+    )
     args = parser.parse_args()
 
     all_words = alphabet_filter(load_words(args.words), DEFAULT_ALPHABET)
@@ -143,9 +148,7 @@ def main() -> None:
     )
     chance = 1.0 / len(DEFAULT_ALPHABET)
     above_chance = test_acc > chance
-    print(
-        f"  above-chance (1/{len(DEFAULT_ALPHABET)}={chance:.3f}): {above_chance}"
-    )
+    print(f"  above-chance (1/{len(DEFAULT_ALPHABET)}={chance:.3f}): {above_chance}")
 
 
 if __name__ == "__main__":
