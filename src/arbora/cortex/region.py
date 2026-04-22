@@ -480,7 +480,17 @@ class CorticalRegion:
         LTP on active neurons (the winning neuron in each active column).
         LTD on active neurons' inactive input connections.
         Subthreshold LTP on all neurons in inactive columns.
+
+        Passive decay: `ff_weights *= synapse_decay` is applied once per
+        learning step, before any LTP/LTD update. Acts as a second brake
+        on weight growth (the first being LTD). With `synapse_decay=1.0`
+        (the T1 default) this is a no-op.
         """
+        # Passive synapse decay: applied once per learning step before
+        # LTP/LTD. Mask positions stay 0 under multiplication.
+        if self.synapse_decay < 1.0:
+            self.ff_weights *= self.synapse_decay
+
         # Cache attribute lookups for hot loop
         ff_weights = self.ff_weights
         neuromod = self.surprise_modulator * self.reward_modulator

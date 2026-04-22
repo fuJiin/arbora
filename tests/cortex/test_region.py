@@ -317,6 +317,51 @@ class TestLearning:
         assert r.l23_seg_perm.max() <= 1.0
         assert r.l23_seg_perm.min() >= 0.0
 
+    def test_synapse_decay_shrinks_ff_weights(self):
+        """synapse_decay < 1.0 must actually apply to ff_weights.
+
+        Regression: the param was captured in __init__ but never read.
+        Uses `process()` (not `step()`) because ff-weight Hebbian
+        learning runs inside `process()` after activation.
+        """
+        kwargs = dict(n_columns=4, n_l4=2, n_l23=2, k_columns=1, learning_rate=0.1)
+        r_no_decay = CorticalRegion(8, synapse_decay=1.0, seed=0, **kwargs)
+        r_decay = CorticalRegion(8, synapse_decay=0.9, seed=0, **kwargs)
+
+        inp = np.zeros(8)
+        inp[0] = 1.0  # drives column 0
+        for _ in range(20):
+            r_no_decay.process(inp)
+            r_decay.process(inp)
+
+        # The sum of ff_weights should be strictly smaller when decay<1.
+        assert r_decay.ff_weights.sum() < r_no_decay.ff_weights.sum()
+
+    def test_synapse_decay_noop_at_one(self):
+        """synapse_decay=1.0 path must not mutate ff_weights passively.
+
+        Hardens the fast-path check: if the no-op branch regresses
+        and always multiplies, floating-point noise would still pass
+        the `<` test above but this test pins exact equality.
+        """
+        r = CorticalRegion(
+            8,
+            n_columns=4,
+            n_l4=2,
+            n_l23=2,
+            k_columns=1,
+            learning_rate=0.0,  # zero LR so LTP/LTD are no-ops
+            ltd_rate=0.0,
+            synapse_decay=1.0,
+            seed=0,
+        )
+        inp = np.zeros(8)
+        inp[0] = 1.0
+        before = r.ff_weights.copy()
+        for _ in range(20):
+            r.process(inp)
+        np.testing.assert_array_equal(r.ff_weights, before)
+
 
 # ---------------------------------------------------------------------------
 # CorticalRegion: feedback influences activation
