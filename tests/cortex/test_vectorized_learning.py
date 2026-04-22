@@ -15,7 +15,12 @@ from arbora.cortex import CorticalRegion
 
 
 def _make_region(seed=42, n_columns=8, n_l4=4, n_l23=4, ff_sparsity=0.4):
-    """Create a region with known random state."""
+    """Create a region with known random state.
+
+    `synapse_decay=1.0` disables passive ff weight decay. These tests
+    pin the Hebbian LTP/LTD/subthreshold path in isolation; passive
+    decay is a separate mechanism tested in test_region.py.
+    """
     return CorticalRegion(
         input_dim=32,
         n_columns=n_columns,
@@ -23,6 +28,7 @@ def _make_region(seed=42, n_columns=8, n_l4=4, n_l23=4, ff_sparsity=0.4):
         n_l23=n_l23,
         k_columns=3,
         ff_sparsity=ff_sparsity,
+        synapse_decay=1.0,
         seed=seed,
     )
 
