@@ -149,9 +149,12 @@ class TestRunArm:
         assert r.name == "baseline"
         assert r.seed == 0
         assert len(r.events) >= 1
-        # Baseline has no HC, so no mechanistic stats and no retention.
+        # Baseline has no HC → no HC mechanistic stats and no retention.
         assert r.hc_summary == {} or r.hc_summary.get("n_steps", 0) == 0
         assert r.final_retention is None
+        # S1 is present in both arms, so stability IS measured on baseline.
+        assert r.s1_stability is not None
+        assert all(0.0 <= o <= 1.0 for o in r.s1_stability)
 
     def test_hippocampal_runs_to_completion(self):
         """With-HC arm runs a few episodes end-to-end without crashing.
@@ -170,14 +173,13 @@ class TestRunArm:
         )
         assert r.name == "hippocampal"
         assert len(r.events) >= 1
-        # HC arm populates mechanistic summary and retention measurements.
+        # HC arm populates all mechanistic diagnostics.
         assert r.hc_summary["n_steps"] > 0
         assert r.final_retention is not None
         assert len(r.final_retention) == 4
-        # Immediately after training, retention should still be high for
-        # freshly-bound probe patterns (synthetic patterns distinct from real
-        # training observations → should survive).
         assert all(0.0 <= o <= 1.0 for o in r.final_retention)
+        assert r.s1_stability is not None
+        assert all(0.0 <= o <= 1.0 for o in r.s1_stability)
 
 
 class TestRunAblation:
