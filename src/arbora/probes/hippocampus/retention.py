@@ -44,7 +44,7 @@ class RetentionTracker:
         patterns are encoded immediately on construction so they're
         treated as legitimate memories the system should retain.
     patterns : sequence of np.ndarray
-        Cortical-dim observations (typically S1 L2/3 firing patterns).
+        Cortical-dim observations (typically T1 L2/3 firing patterns).
         Each is stored at setup time; subsequent `measure()` calls
         compare retrieval against the stored state.
     """

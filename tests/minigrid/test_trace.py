@@ -28,7 +28,7 @@ class TestInit:
 
 
 class TestObserveFormatting:
-    def test_baseline_circuit_line_contains_s1_m1_bg(self):
+    def test_baseline_circuit_line_contains_t1_m1_bg(self):
         buf = io.StringIO()
         probe = TraceProbe(stream=buf)
         circuit = build_baseline_circuit(MiniGridEncoder())
@@ -36,7 +36,7 @@ class TestObserveFormatting:
         probe.observe(circuit, step=0)
         line = buf.getvalue().strip()
         assert "t=00000" in line
-        assert "S1=" in line
+        assert "T1=" in line
         assert "M1=" in line
         assert "BG_top3=" in line
         # Baseline has no HC — should omit HC fields.

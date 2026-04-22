@@ -18,7 +18,7 @@ from arbora.cortex.region import CorticalRegion
 class MotorRegion(CorticalRegion):
     """Cortical region with L5 output layer for token production.
 
-    Receives S1's L2/3 firing rate as input (full connectivity, no
+    Receives T1's L2/3 firing rate as input (full connectivity, no
     encoding-width structure). Adds:
     - L5 output layer: learned weights mapping L2/3 -> token scores
     - Output weights have structural sparsity (like ff_weights)

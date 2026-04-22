@@ -74,7 +74,7 @@ class ChatAgent(BaseAgent):
     Args:
         encoder: Encodes token strings to input vectors.
         circuit: The neural circuit (process(encoding) -> output).
-        entry_name: Name of the entry (sensory) region. Default "S1".
+        entry_name: Name of the entry (sensory) region. Default "T1".
     """
 
     def __init__(

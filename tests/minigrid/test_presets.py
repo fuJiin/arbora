@@ -27,21 +27,21 @@ class TestBaseline:
     def test_regions_present(self):
         circuit = build_baseline_circuit(MiniGridEncoder())
         names = list(circuit._regions.keys())
-        assert names == ["S1", "BG", "M1"]
+        assert names == ["T1", "BG", "M1"]
 
     def test_dimensions_chain(self):
         circuit = build_baseline_circuit(MiniGridEncoder())
-        s1 = circuit._regions["S1"].region
+        t1 = circuit._regions["T1"].region
         bg = circuit._regions["BG"].region
         m1 = circuit._regions["M1"].region
-        assert bg.input_dim == s1.n_l23_total
-        assert m1.input_dim == s1.n_l23_total
+        assert bg.input_dim == t1.n_l23_total
+        assert m1.input_dim == t1.n_l23_total
 
     def test_edges(self):
         circuit = build_baseline_circuit(MiniGridEncoder())
         assert _edges(circuit) == {
-            ("S1", "BG", ConnectionRole.FEEDFORWARD),
-            ("S1", "M1", ConnectionRole.FEEDFORWARD),
+            ("T1", "BG", ConnectionRole.FEEDFORWARD),
+            ("T1", "M1", ConnectionRole.FEEDFORWARD),
             ("BG", "M1", ConnectionRole.MODULATORY),
         }
 
@@ -52,51 +52,51 @@ class TestBaseline:
 
     def test_override_passthrough(self):
         circuit = build_baseline_circuit(
-            MiniGridEncoder(), s1_overrides={"n_columns": 32}
+            MiniGridEncoder(), t1_overrides={"n_columns": 32}
         )
-        assert circuit._regions["S1"].region.n_columns == 32
+        assert circuit._regions["T1"].region.n_columns == 32
 
 
 class TestHippocampal:
     def test_regions_present(self):
         circuit = build_hippocampal_circuit(MiniGridEncoder())
         names = list(circuit._regions.keys())
-        assert names == ["S1", "HC", "BG", "M1"]
+        assert names == ["T1", "HC", "BG", "M1"]
 
-    def test_hc_dimensions_match_s1_l23(self):
-        """HC is symmetric: its input and output dim both match S1.n_l23_total."""
+    def test_hc_dimensions_match_t1_l23(self):
+        """HC is symmetric: its input and output dim both match T1.n_l23_total."""
         circuit = build_hippocampal_circuit(MiniGridEncoder())
-        s1 = circuit._regions["S1"].region
+        t1 = circuit._regions["T1"].region
         hc = circuit._regions["HC"].region
-        assert hc.input_dim == s1.n_l23_total
-        assert hc.output_port.n_total == s1.n_l23_total
+        assert hc.input_dim == t1.n_l23_total
+        assert hc.output_port.n_total == t1.n_l23_total
 
-    def test_bg_input_dim_sums_s1_and_hc(self):
-        """ARB-123: BG takes both S1 and HC as feedforward sources, so
+    def test_bg_input_dim_sums_t1_and_hc(self):
+        """ARB-123: BG takes both T1 and HC as feedforward sources, so
         its input_dim is the sum of the two stream widths."""
         circuit = build_hippocampal_circuit(MiniGridEncoder())
-        s1 = circuit._regions["S1"].region
+        t1 = circuit._regions["T1"].region
         hc = circuit._regions["HC"].region
         bg = circuit._regions["BG"].region
-        assert bg.input_dim == s1.n_l23_total + hc.output_port.n_total
+        assert bg.input_dim == t1.n_l23_total + hc.output_port.n_total
 
-    def test_m1_input_dim_matches_s1(self):
-        """M1 reads S1 directly (the reflexive sensorimotor path), same
+    def test_m1_input_dim_matches_t1(self):
+        """M1 reads T1 directly (the reflexive sensorimotor path), same
         as in the baseline. HC does NOT feed M1 under the ARB-123
         topology."""
         circuit = build_hippocampal_circuit(MiniGridEncoder())
-        s1 = circuit._regions["S1"].region
+        t1 = circuit._regions["T1"].region
         m1 = circuit._regions["M1"].region
-        assert m1.input_dim == s1.n_l23_total
+        assert m1.input_dim == t1.n_l23_total
 
     def test_edges(self):
-        """The ARB-123 topology: HC → BG, no HC → M1, S1 → M1 restored."""
+        """The ARB-123 topology: HC → BG, no HC → M1, T1 → M1 restored."""
         circuit = build_hippocampal_circuit(MiniGridEncoder())
         edges = _edges(circuit)
         assert edges == {
-            ("S1", "HC", ConnectionRole.FEEDFORWARD),
-            ("S1", "BG", ConnectionRole.FEEDFORWARD),
-            ("S1", "M1", ConnectionRole.FEEDFORWARD),
+            ("T1", "HC", ConnectionRole.FEEDFORWARD),
+            ("T1", "BG", ConnectionRole.FEEDFORWARD),
+            ("T1", "M1", ConnectionRole.FEEDFORWARD),
             ("HC", "BG", ConnectionRole.FEEDFORWARD),
             ("BG", "M1", ConnectionRole.MODULATORY),
         }
@@ -125,31 +125,31 @@ class TestHippocampal:
             MiniGridEncoder(),
             hc_overrides={"ec_dim": 200},  # HC output_port.n_total == input_dim
         )
-        s1 = circuit._regions["S1"].region
+        t1 = circuit._regions["T1"].region
         bg = circuit._regions["BG"].region
-        assert bg.input_dim == s1.n_l23_total + s1.n_l23_total  # HC symmetric
+        assert bg.input_dim == t1.n_l23_total + t1.n_l23_total  # HC symmetric
 
 
 class TestArmsShareConfig:
     """Invariants that keep the ablation honest.
 
-    S1 and M1 must be configured identically across arms — any
+    T1 and M1 must be configured identically across arms — any
     difference would confound the "HC vs no-HC" comparison. BG is an
     intentional exception: its `input_dim` is wider in the HC arm
     because HC adds a feedforward stream, but every other BG field
     (n_actions, seed, learning rates) matches.
     """
 
-    def test_s1_config_matches(self):
+    def test_t1_config_matches(self):
         b = build_baseline_circuit(MiniGridEncoder())
         h = build_hippocampal_circuit(MiniGridEncoder())
-        s1_b = b._regions["S1"].region
-        s1_h = h._regions["S1"].region
-        assert s1_b.n_columns == s1_h.n_columns
-        assert s1_b.n_l4 == s1_h.n_l4
-        assert s1_b.n_l23 == s1_h.n_l23
-        assert s1_b.n_l5 == s1_h.n_l5
-        assert s1_b.k_columns == s1_h.k_columns
+        t1_b = b._regions["T1"].region
+        t1_h = h._regions["T1"].region
+        assert t1_b.n_columns == t1_h.n_columns
+        assert t1_b.n_l4 == t1_h.n_l4
+        assert t1_b.n_l23 == t1_h.n_l23
+        assert t1_b.n_l5 == t1_h.n_l5
+        assert t1_b.k_columns == t1_h.k_columns
 
     def test_m1_input_dim_matches(self):
         b = build_baseline_circuit(MiniGridEncoder())

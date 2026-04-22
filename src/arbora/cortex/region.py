@@ -639,7 +639,7 @@ class CorticalRegion:
 
         Args:
             source_dim: Dimensionality of the source signal.
-            source_name: Identifier for this source (e.g., "S2").
+            source_name: Identifier for this source (e.g., "T2").
             target_lamina: Which lamina receives the apical input.
                 L5 (default) and L2/3 are biologically motivated.
         """

@@ -28,8 +28,8 @@ class TestL5ApicalSegmentInit:
 
     def test_segment_arrays_allocated(self):
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
-        src = r._apical_sources["S2"]
+        r.init_apical_context(source_dim=32, source_name="T2")
+        src = r._apical_sources["T2"]
         assert "seg_indices" in src
         assert "seg_perm" in src
         assert src["seg_indices"].shape == (r.n_l5_total, 4, 8)
@@ -37,23 +37,23 @@ class TestL5ApicalSegmentInit:
 
     def test_no_weights_in_segment_mode(self):
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
-        src = r._apical_sources["S2"]
+        r.init_apical_context(source_dim=32, source_name="T2")
+        src = r._apical_sources["T2"]
         assert "weights" not in src
 
     def test_multiple_sources(self):
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
+        r.init_apical_context(source_dim=32, source_name="T2")
         r.init_apical_context(source_dim=16, source_name="M1")
         assert len(r._apical_sources) == 2
-        assert r._apical_sources["S2"]["seg_indices"].shape[0] == r.n_l5_total
+        assert r._apical_sources["T2"]["seg_indices"].shape[0] == r.n_l5_total
         assert r._apical_sources["M1"]["seg_indices"].shape[0] == r.n_l5_total
 
 
 class TestL5ApicalPrediction:
     """L5 neurons predicted when apical segment matches context."""
 
-    def _setup_predicted_neuron(self, r, source_name="S2"):
+    def _setup_predicted_neuron(self, r, source_name="T2"):
         """Wire segment 0 of L5 neuron 0 to fire for a specific context."""
         src = r._apical_sources[source_name]
         # Set all synapses in segment 0 of neuron 0 to source index 0
@@ -65,15 +65,15 @@ class TestL5ApicalPrediction:
 
     def test_predicted_when_segment_matches(self):
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
+        r.init_apical_context(source_dim=32, source_name="T2")
         self._setup_predicted_neuron(r)
         predicted = r._predict_from_apical_segments(LaminaID.L5)
         assert predicted[0], "L5 neuron 0 should be predicted"
 
     def test_not_predicted_without_context(self):
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
-        src = r._apical_sources["S2"]
+        r.init_apical_context(source_dim=32, source_name="T2")
+        src = r._apical_sources["T2"]
         src["seg_indices"][0, 0, :] = 0
         src["seg_perm"][0, 0, :] = 1.0
         # No context set
@@ -82,7 +82,7 @@ class TestL5ApicalPrediction:
 
     def test_compute_predictions_includes_l5(self):
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
+        r.init_apical_context(source_dim=32, source_name="T2")
         self._setup_predicted_neuron(r)
         r._compute_predictions()
         assert r.l5.predicted[0]
@@ -91,7 +91,7 @@ class TestL5ApicalPrediction:
 class TestL5ApicalBACFiring:
     """BAC firing: feedforward + apical coincidence triggers L5 burst."""
 
-    def _wire_column_apical(self, r, col, source_name="S2"):
+    def _wire_column_apical(self, r, col, source_name="T2"):
         """Wire all L5 neurons in a column so apical segments fire."""
         src = r._apical_sources[source_name]
         n_l5 = r.n_l5
@@ -104,7 +104,7 @@ class TestL5ApicalBACFiring:
 
     def test_apical_boost_biases_winner(self):
         r = _make_region(fb_boost=0.5)
-        r.init_apical_context(source_dim=32, source_name="S2")
+        r.init_apical_context(source_dim=32, source_name="T2")
 
         # Run a few steps to build up firing rates
         rng = np.random.default_rng(123)
@@ -112,7 +112,7 @@ class TestL5ApicalBACFiring:
             r.step(rng.random(r.n_l4_total))
 
         # Wire segment so L5 neuron 1 in column 0 is predicted
-        src = r._apical_sources["S2"]
+        src = r._apical_sources["T2"]
         target_neuron = 0 * r.n_l5 + 1  # col 0, neuron 1
         src["seg_indices"][target_neuron, 0, :] = 0
         src["seg_perm"][target_neuron, 0, :] = 1.0
@@ -143,7 +143,7 @@ class TestL5ApicalBACFiring:
     def test_no_prediction_without_context(self):
         """No apical context means no L5 predictions."""
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
+        r.init_apical_context(source_dim=32, source_name="T2")
         rng = np.random.default_rng(0)
         r.step(rng.random(r.n_l4_total))
         # No context was set, so no apical predictions
@@ -152,7 +152,7 @@ class TestL5ApicalBACFiring:
     def test_bac_all_l5_fire_with_apical(self):
         """BAC: feedforward + apical → all L5 neurons fire in column."""
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
+        r.init_apical_context(source_dim=32, source_name="T2")
         self._wire_column_apical(r, col=0)
 
         # Set up: column 0 active with only 1 L2/3 neuron active
@@ -203,7 +203,7 @@ class TestL5ApicalBACFiring:
     def test_bac_requires_feedforward(self):
         """Apical alone does NOT activate L5 — requires feedforward."""
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
+        r.init_apical_context(source_dim=32, source_name="T2")
         self._wire_column_apical(r, col=0)
 
         # No columns active (no feedforward drive)
@@ -218,7 +218,7 @@ class TestL5ApicalBACFiring:
     def test_bac_amplifies_only_apical_columns(self):
         """BAC amplifies only columns with apical, others stay proportional."""
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
+        r.init_apical_context(source_dim=32, source_name="T2")
         # Wire apical only for column 0, not column 1
         self._wire_column_apical(r, col=0)
 
@@ -261,8 +261,8 @@ class TestL5ApicalLearning:
     def test_growth_on_unpredicted_column(self):
         """Active L5 but not predicted → grow segment on winner."""
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
-        src = r._apical_sources["S2"]
+        r.init_apical_context(source_dim=32, source_name="T2")
+        src = r._apical_sources["T2"]
         # Set context
         src["context"][:] = 0.0
         src["context"][0] = 1.0
@@ -284,8 +284,8 @@ class TestL5ApicalLearning:
     def test_reinforce_on_predicted_column(self):
         """Active L5 AND predicted → reinforce matching segments."""
         r = _make_region(fb_boost=0.5)
-        r.init_apical_context(source_dim=32, source_name="S2")
-        src = r._apical_sources["S2"]
+        r.init_apical_context(source_dim=32, source_name="T2")
+        src = r._apical_sources["T2"]
 
         # Set up: wire neuron 0 to be predicted
         src["seg_indices"][0, 0, :] = 0
@@ -307,8 +307,8 @@ class TestL5ApicalLearning:
     def test_punish_false_positive(self):
         """Predicted but not active → punish segment."""
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
-        src = r._apical_sources["S2"]
+        r.init_apical_context(source_dim=32, source_name="T2")
+        src = r._apical_sources["T2"]
 
         # Wire neuron 0 predicted but make it inactive
         src["seg_indices"][0, 0, :] = 0
@@ -338,8 +338,8 @@ class TestSegmentsAlwaysUsed:
 
     def test_segments_with_context(self):
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
-        src = r._apical_sources["S2"]
+        r.init_apical_context(source_dim=32, source_name="T2")
+        src = r._apical_sources["T2"]
         src["context"][:] = 0.5  # Nonzero context
         rng = np.random.default_rng(0)
         # Should not crash — segment path runs
@@ -349,7 +349,7 @@ class TestSegmentsAlwaysUsed:
 
     def test_always_has_segments(self):
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
-        src = r._apical_sources["S2"]
+        r.init_apical_context(source_dim=32, source_name="T2")
+        src = r._apical_sources["T2"]
         assert "seg_indices" in src
         assert "weights" not in src

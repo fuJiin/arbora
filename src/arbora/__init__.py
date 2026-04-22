@@ -7,14 +7,14 @@ Quick start::
 
     from arbora import Circuit, SensoryRegion, MotorRegion, ConnectionRole
 
-    s1 = SensoryRegion(input_dim=100, n_columns=32, n_l4=4, n_l23=4, k_columns=4)
-    m1 = MotorRegion(input_dim=s1.n_l23_total, n_columns=16, n_l4=0, n_l23=4,
+    t1 = SensoryRegion(input_dim=100, n_columns=32, n_l4=4, n_l23=4, k_columns=4)
+    m1 = MotorRegion(input_dim=t1.n_l23_total, n_columns=16, n_l4=0, n_l23=4,
                      k_columns=2, n_output_tokens=7)
 
     circuit = Circuit(encoder)
-    circuit.add_region("S1", s1, entry=True, input_region=True)
+    circuit.add_region("T1", t1, entry=True, input_region=True)
     circuit.add_region("M1", m1, output_region=True)
-    circuit.connect(s1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
+    circuit.connect(t1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
     circuit.finalize()
 
     output = circuit.process(encoding)

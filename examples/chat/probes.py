@@ -210,10 +210,10 @@ class ChatLaminaProbe(LaminaProbe):
             pairs = min(50, n * (n - 1) // 2)
             for _ in range(pairs):
                 i, j = rng.choice(n, 2, replace=False)
-                s1, s2 = patterns[i], patterns[j]
-                union = len(s1 | s2)
+                a, b = patterns[i], patterns[j]
+                union = len(a | b)
                 if union > 0:
-                    all_dists.append(1.0 - len(s1 & s2) / union)
+                    all_dists.append(1.0 - len(a & b) / union)
 
         return float(np.mean(all_dists)) if all_dists else 0.0
 

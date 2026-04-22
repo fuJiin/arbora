@@ -127,7 +127,7 @@ class TestRewardIntegration:
         """Reward connection runs without error and collects metrics."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(
@@ -155,7 +155,7 @@ class TestRewardIntegration:
             (1, "b"),
         ]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(
@@ -173,7 +173,7 @@ class TestRewardIntegration:
         """reward_modulators dict is populated when reward connections exist."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(30)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(
@@ -192,7 +192,7 @@ class TestRewardIntegration:
         """Without reward connections, reward_modulators is empty."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(20)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         mod_probe = ModulatorProbe()
@@ -291,7 +291,7 @@ class TestTurnTakingCounters:
             (2, "c"),
         ]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(
@@ -320,7 +320,7 @@ class TestTurnTakingCounters:
         """Without EOM, all steps are input phase."""
         tokens = [(i % 4, chr(ord("a") + i % 4)) for i in range(20)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         cortex.add_region("M1", motor)
         cortex.connect(region1.l23, motor.l4, ConnectionRole.FEEDFORWARD)
         cortex.connect(

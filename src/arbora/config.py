@@ -13,7 +13,7 @@ class PlasticityRule(Enum):
     """Feedforward weight learning rule.
 
     HEBBIAN: immediate LTP/LTD on ff_weights each step (two-factor).
-        Used by sensory regions (S1, S2, S3) that learn input statistics.
+        Used by sensory regions (T1, T2, T3) that learn input statistics.
 
     THREE_FACTOR: accumulate Hebbian coincidences in eligibility traces,
         consolidate into ff_weights only when apply_reward() is called.
@@ -58,8 +58,8 @@ class CortexConfig:
     seed: int = 0
 
 
-def _default_s1_config() -> CortexConfig:
-    """S1 defaults tuned for TinyDialogues char-level input.
+def _default_t1_config() -> CortexConfig:
+    """T1 defaults tuned for TinyDialogues char-level input.
 
     128 columns with k=8 gives ~6.25% activation fraction — the sweet
     spot for dendritic segment learning. Sweep results (30k chars):
@@ -85,13 +85,13 @@ def _default_s1_config() -> CortexConfig:
 def _default_region2_config() -> CortexConfig:
     """Region 2 defaults: slower temporal dynamics, moderate learning rate.
 
-    Tuned for char-level S1 input (128-dim L2/3 firing rates).
+    Tuned for char-level T1 input (128-dim L2/3 firing rates).
     32 cols with k=2 gives selective columns while maintaining context
     discrimination. lr=0.03 and ltd=0.30 balance weight growth with
-    pruning on the higher-dimensional S1 output.
+    pruning on the higher-dimensional T1 output.
 
     Use encoding_width=0 (sliding window) when constructing the SensoryRegion,
-    since S1's L2/3 output has no character-position structure.
+    since T1's L2/3 output has no character-position structure.
     """
     return CortexConfig(
         n_columns=32,
@@ -105,15 +105,15 @@ def _default_region2_config() -> CortexConfig:
 
 
 def _default_region3_config() -> CortexConfig:
-    """Region 3 (S3) defaults: association cortex for topic/theme extraction.
+    """Region 3 (T3) defaults: association cortex for topic/theme extraction.
 
-    Receives S2's L2/3 firing rates through a temporal buffer.
-    S2 changes roughly every word (~4 chars), so a buffer_depth=8
-    on S2 output spans ~8 words — approximately one phrase/clause.
+    Receives T2's L2/3 firing rates through a temporal buffer.
+    T2 changes roughly every word (~4 chars), so a buffer_depth=8
+    on T2 output spans ~8 words — approximately one phrase/clause.
 
-    Slower dynamics than S2: higher voltage_decay retains context longer,
+    Slower dynamics than T2: higher voltage_decay retains context longer,
     high eligibility_decay for extended temporal credit assignment.
-    Same 32c/k4 as S2 — distributed representation works well at this scale.
+    Same 32c/k4 as T2 — distributed representation works well at this scale.
     """
     return CortexConfig(
         n_columns=32,
@@ -134,30 +134,30 @@ class HierarchyConfig:
     region2: CortexConfig = field(default_factory=_default_region2_config)
     surprise_baseline_decay: float = 0.99
     surprise_min_baseline: float = 0.01
-    # Apical feedback: disabled by default until S2 representations mature.
-    # When enabled, feedback is precision-weighted by S2's confidence
+    # Apical feedback: disabled by default until T2 representations mature.
+    # When enabled, feedback is precision-weighted by T2's confidence
     # (1 - burst_rate), modeling thalamic gating / predictive coding.
     enable_apical_feedback: bool = False
-    # Temporal buffer: S2 sees a sliding window of recent S1 states.
+    # Temporal buffer: T2 sees a sliding window of recent T1 states.
     # buffer_depth=1 is direct pass-through (default, backward compatible).
     ff_buffer_depth: int = 1
-    # Burst gating: S2 only sees novel/surprising events (bursting columns).
+    # Burst gating: T2 only sees novel/surprising events (bursting columns).
     ff_burst_gate: bool = False
     # Thalamic gating: receiver-side surprise suppresses feedback until stable.
     gate_feedback: bool = False
-    # Motor cortex: M1 receives S1 L2/3, predicts next token, feeds back.
+    # Motor cortex: M1 receives T1 L2/3, predicts next token, feeds back.
     enable_motor: bool = False
-    # Reward modulation: M1→S1 dopaminergic signal from turn-taking reward.
+    # Reward modulation: M1→T1 dopaminergic signal from turn-taking reward.
     enable_reward: bool = False
 
 
 def _default_motor_config() -> CortexConfig:
     """Motor region defaults: responsive to current context, moderate learning.
 
-    Receives S1's L2/3 firing rate (128-dim). 32 columns with k=4
+    Receives T1's L2/3 firing rate (128-dim). 32 columns with k=4
     competitive selection gives 16 active L2/3 neurons — enough signal
     for DendriticDecoder to map M1 state → tokens (replaces degenerate
-    k=1 column→token frequency mapping). Lower voltage_decay than S2
+    k=1 column→token frequency mapping). Lower voltage_decay than T2
     for crisper output decisions. Moderate LTD for column specialization.
     """
     return CortexConfig(

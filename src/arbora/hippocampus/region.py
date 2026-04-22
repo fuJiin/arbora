@@ -26,7 +26,7 @@ activation toward the stored attractor (pattern completion).
 Symmetric I/O
 -------------
 For v1 HC is symmetric: ``input_dim == output_dim``. EC.reverse projects
-back to the original cortical dimension. Asymmetric wiring (e.g. S1 dim
+back to the original cortical dimension. Asymmetric wiring (e.g. T1 dim
 != M1 dim) will need a separate projection layer or an EC variant with
 independent reverse dim; defer until ARB-117 actually hits that case.
 

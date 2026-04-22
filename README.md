@@ -15,18 +15,18 @@ from arbora import (
 )
 
 # Build regions
-s1 = SensoryRegion(input_dim=100, n_columns=32, n_l4=4, n_l23=4, k_columns=4)
-m1 = MotorRegion(input_dim=s1.n_l23_total, n_columns=16, n_l4=0, n_l23=4,
+t1 = SensoryRegion(input_dim=100, n_columns=32, n_l4=4, n_l23=4, k_columns=4)
+m1 = MotorRegion(input_dim=t1.n_l23_total, n_columns=16, n_l4=0, n_l23=4,
                  k_columns=2, n_output_tokens=7)
-bg = BasalGangliaRegion(input_dim=s1.n_l23_total, n_actions=7)
+bg = BasalGangliaRegion(input_dim=t1.n_l23_total, n_actions=7)
 
 # Wire circuit
 circuit = Circuit(encoder)
-circuit.add_region("S1", s1, entry=True, input_region=True)
+circuit.add_region("T1", t1, entry=True, input_region=True)
 circuit.add_region("BG", bg)
 circuit.add_region("M1", m1, output_region=True)
-circuit.connect(s1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
-circuit.connect(s1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
+circuit.connect(t1.output_port, bg.input_port, ConnectionRole.FEEDFORWARD)
+circuit.connect(t1.output_port, m1.input_port, ConnectionRole.FEEDFORWARD)
 circuit.connect(bg.output_port, m1.input_port, ConnectionRole.MODULATORY)
 circuit.finalize()
 
@@ -41,7 +41,7 @@ A framework for building biologically-grounded neural circuits that learn from r
 
 | Arbora concept | Biology | What it does |
 |---------------|---------|-------------|
-| `SensoryRegion` | Granular cortex (V1, S1) | L4 input reception, L2/3 association, dendritic prediction |
+| `SensoryRegion` | Granular cortex (V1, T1) | L4 input reception, L2/3 association, dendritic prediction |
 | `MotorRegion` | Agranular cortex (M1) | L2/3 input, L5 action output, three-factor RL |
 | `BasalGangliaRegion` | Striatum + GPi | Per-action Go/NoGo gating, tonic DA exploration |
 | `ThalamicNucleus` | Pulvinar / higher-order thalamus | Gated relay between cortical regions |
@@ -59,11 +59,11 @@ NeuronGroup          -- universal base (firing_rate + modulation)
   Lamina             -- cortex-specific (+ voltage, active, predicted, trace)
 
 Region types:
-  Sensory (S1):  L4 --> L2/3           (granular, n_l5=0)
+  Sensory (T1):  L4 --> L2/3           (granular, n_l5=0)
   Motor (M1):    L2/3 --> L5           (agranular, n_l4=0)
   BG:            striatum --> gpi      (subcortical, NeuronGroup)
   Thalamus:      driver --> relay      (gated, Hebbian learned)
-  Full (S2+):    L4 --> L2/3 --> L5
+  Full (T2+):    L4 --> L2/3 --> L5
 
 Connection roles:
   FEEDFORWARD   additive drive through ff_weights
@@ -86,8 +86,8 @@ cd arbora
 See `examples/` for complete applications built on Arbora:
 
 - **`examples/arc/`** -- ARC-AGI-3 spatial reasoning with transthalamic hierarchy (V1->pulvinar->V2->BG->M1)
-- **`examples/chat/`** -- Character-level text learning with sensory-motor hierarchy (S1->S2->S3->PFC->M2->M1)
-- **`examples/minigrid/`** -- Grid navigation with MiniGrid (S1->BG->M1)
+- **`examples/chat/`** -- Character-level text learning with sensory-motor hierarchy (T1->T2->T3->PFC->M2->M1)
+- **`examples/minigrid/`** -- Grid navigation with MiniGrid (T1->BG->M1)
 
 Run an example (examples import each other as a package, so invoke them with `python -m`):
 

@@ -132,8 +132,8 @@ class TestMultiRegionCircuit:
             (1, "b"),
         ]
         circuit = Circuit(encoder)
-        circuit.add_region("S1", region1, entry=True)
-        circuit.add_region("S2", region2)
+        circuit.add_region("T1", region1, entry=True)
+        circuit.add_region("T2", region2)
         circuit.connect(
             region1.l23,
             region2.l4,
@@ -144,7 +144,7 @@ class TestMultiRegionCircuit:
         result = run_circuit(circuit, tokens, log_interval=1000, probes=[mod_probe])
         assert result.elapsed_seconds > 0
         mod_snap = result.probe_snapshots["modulators"]
-        assert len(mod_snap.surprise.get("S2", [])) > 0
+        assert len(mod_snap.surprise.get("T2", [])) > 0
 
     def test_region2_receives_l23_output(self, region1, region2, encoder):
         """Region 2 input_dim must match Region 1 L2/3 total neurons."""
@@ -154,8 +154,8 @@ class TestMultiRegionCircuit:
         """Region 2 should produce activations after Region 1."""
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
         circuit = Circuit(encoder)
-        circuit.add_region("S1", region1, entry=True)
-        circuit.add_region("S2", region2)
+        circuit.add_region("T1", region1, entry=True)
+        circuit.add_region("T2", region2)
         circuit.connect(
             region1.l23,
             region2.l4,

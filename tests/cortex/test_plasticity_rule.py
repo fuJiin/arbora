@@ -362,10 +362,10 @@ class TestConfigFactories:
         cfg = _default_premotor_config()
         assert cfg.plasticity_rule == PlasticityRule.THREE_FACTOR
 
-    def test_default_s1_config_is_hebbian(self):
-        from arbora.config import _default_s1_config
+    def test_default_t1_config_is_hebbian(self):
+        from arbora.config import _default_t1_config
 
-        cfg = _default_s1_config()
+        cfg = _default_t1_config()
         assert cfg.plasticity_rule == PlasticityRule.HEBBIAN
 
     def test_make_pfc_region_passes_rule(self):
@@ -393,5 +393,5 @@ class TestConfigFactories:
         from arbora.config import CortexConfig, make_sensory_region
 
         cfg = CortexConfig()
-        s1 = make_sensory_region(cfg, input_dim=16)
-        assert s1.plasticity_rule == PlasticityRule.HEBBIAN
+        t1 = make_sensory_region(cfg, input_dim=16)
+        assert t1.plasticity_rule == PlasticityRule.HEBBIAN

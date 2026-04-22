@@ -2,7 +2,7 @@
 
 Subclasses CorticalRegion with PFC-specific properties:
 - Slow voltage decay (working memory via sustained activity)
-- Multi-source input (S2 word-level + S3 topic-level concatenated)
+- Multi-source input (T2 word-level + T3 topic-level concatenated)
 - Three-factor learning: eligibility traces + reward consolidation
 - BG per-stripe input gating (controls when goals update vs maintain)
 
@@ -11,7 +11,7 @@ input rather than raw sensory. Same minicolumn architecture, different
 parameters.
 
 Three-factor learning on ff_weights:
-  During listen phase (gate open), PFC processes S2+S3 input and records
+  During listen phase (gate open), PFC processes T2+T3 input and records
   Hebbian coincidences in eligibility traces (not weights). After the
   speak phase, reward consolidates traces into weights. This teaches PFC
   to produce activation patterns that lead to downstream reward — not

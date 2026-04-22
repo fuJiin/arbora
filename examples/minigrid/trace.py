@@ -9,11 +9,11 @@ Line format
 -----------
 ::
 
-    t=0042 ep=1 S1=16 EC=10 DG=40 CA3=10 match=+0.12 M1=2 BG_top3=[+0.40 -0.21 -0.33]
+    t=0042 ep=1 T1=16 EC=10 DG=40 CA3=10 match=+0.12 M1=2 BG_top3=[+0.40 -0.21 -0.33]
 
 - `t`       step index within the run (not episode)
 - `ep`      1-indexed episode number
-- `S1`      count of active S1 L2/3 neurons
+- `T1`      count of active T1 L2/3 neurons
 - `EC/DG/CA3`  active-unit counts inside HC (omitted if no HC in circuit)
 - `match`   CA1 cosine-similarity of CA3 vs direct-EC drive
 - `M1`      chosen action id (from motor region's last_output)
@@ -46,7 +46,7 @@ class TraceProbe:
     every : int
         Print every N-th observe() call. Useful for very long runs.
     sensory_name : str
-        Name of the sensory region in the circuit. Default "S1".
+        Name of the sensory region in the circuit. Default "T1".
     motor_name : str
         Name of the motor region. Default "M1".
     bg_name : str
@@ -60,7 +60,7 @@ class TraceProbe:
         *,
         stream: TextIO | None = None,
         every: int = 1,
-        sensory_name: str = "S1",
+        sensory_name: str = "T1",
         motor_name: str = "M1",
         bg_name: str = "BG",
     ):
@@ -100,9 +100,9 @@ class TraceProbe:
     def _format_line(self, circuit: Circuit, step: int) -> str:
         parts = [f"t={step:05d}", f"ep={self._episode}"]
 
-        s1 = self._get_region(circuit, self.sensory_name)
-        if s1 is not None and hasattr(s1, "l23"):
-            parts.append(f"S1={int(s1.l23.active.sum())}")
+        t1 = self._get_region(circuit, self.sensory_name)
+        if t1 is not None and hasattr(t1, "l23"):
+            parts.append(f"T1={int(t1.l23.active.sum())}")
 
         hc = _find_hc(circuit)
         if hc is not None:

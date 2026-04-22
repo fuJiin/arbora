@@ -5,13 +5,13 @@ for M1 to execute. Uses the same minicolumn architecture as all other
 regions — the key difference is HOW it's wired:
 
 - PFC feedforward: static goal (WHAT to produce)
-- S2 feedforward: word-level context (linguistic context)
+- T2 feedforward: word-level context (linguistic context)
 - Lateral segments: temporal sequencing (WHERE in the sequence)
 - M1 feedforward output: current step (drive M1's column competition)
 
 The lateral segments learn character sequence patterns through normal
-Hebbian learning — the same mechanism S2 uses to learn word patterns.
-S2 predicts "what comes next" bottom-up; M2 generates "what comes next"
+Hebbian learning — the same mechanism T2 uses to learn word patterns.
+T2 predicts "what comes next" bottom-up; M2 generates "what comes next"
 top-down. Same segments, different direction.
 
 Biologically maps to Broca's area / ventral premotor cortex:
@@ -87,10 +87,10 @@ class PremotorRegion(CorticalRegion):
     ) -> np.ndarray:
         """Feedforward with additive PFC goal drive.
 
-        encoding: S2 word-level context (feedforward from sensory)
+        encoding: T2 word-level context (feedforward from sensory)
         goal_drive: PFC goal (additive, biases which sequence unfolds)
 
-        The combination of S2 context + PFC goal + lateral segment
+        The combination of T2 context + PFC goal + lateral segment
         predictions drives column selection. Lateral segments carry
         temporal state ("just produced 'h', next is 'i'").
         """

@@ -5,10 +5,10 @@ and what reward signals are used. Stages are applied to a Circuit
 via their configure function.
 
 Stages model infant development:
-  1. Sensory:  S1->S2->S3 representation learning
-  2. Babbling: M1->S1->M1 motor exploration (S1 frozen)
-  3. Guided:   M1+BG+S2 word-level RL
-  4. Imitation: S1->S2->M2->M1 echolalia
+  1. Sensory:  T1->T2->T3 representation learning
+  2. Babbling: M1->T1->M1 motor exploration (T1 frozen)
+  3. Guided:   M1+BG+T2 word-level RL
+  4. Imitation: T1->T2->M2->M1 echolalia
   5. Generation: PFC->M2->M1 goal-directed RL
 """
 
@@ -111,34 +111,34 @@ def configure_sensory(circuit) -> None:
 
     Enables the full sensory hierarchy and motor listening pathway.
     Disables motor monitoring apical (M1->M2, M2->PFC) and
-    M1->S1 apical (motor shouldn't influence sensory during learning).
+    M1->T1 apical (motor shouldn't influence sensory during learning).
     """
-    _apply_learning_regions(circuit, ["S1", "S2", "S3", "M1", "M2", "PFC"])
+    _apply_learning_regions(circuit, ["T1", "T2", "T3", "M1", "M2", "PFC"])
     _apply_motor_settings(circuit, exploration_noise=0.0, force_motor_active=False)
     _apply_reward_source(circuit, "turn_taking")
 
     # Sensory feedforward: on
-    circuit.enable_connection("S1", "S2", ConnectionRole.FEEDFORWARD)
-    circuit.enable_connection("S2", "S3", ConnectionRole.FEEDFORWARD)
+    circuit.enable_connection("T1", "T2", ConnectionRole.FEEDFORWARD)
+    circuit.enable_connection("T2", "T3", ConnectionRole.FEEDFORWARD)
 
     # Apical feedback (sensory top-down): on
-    circuit.enable_connection("S2", "S1", ConnectionRole.APICAL)
-    circuit.enable_connection("S3", "S2", ConnectionRole.APICAL)
+    circuit.enable_connection("T2", "T1", ConnectionRole.APICAL)
+    circuit.enable_connection("T3", "T2", ConnectionRole.APICAL)
 
-    # Motor pathway listening: S2->M2->M1
-    circuit.enable_connection("S2", "M2", ConnectionRole.FEEDFORWARD)
+    # Motor pathway listening: T2->M2->M1
+    circuit.enable_connection("T2", "M2", ConnectionRole.FEEDFORWARD)
     circuit.enable_connection("M2", "M1", ConnectionRole.FEEDFORWARD)
 
-    # PFC listening: S2->PFC, S3->PFC, PFC->M2
-    circuit.enable_connection("S2", "PFC", ConnectionRole.FEEDFORWARD)
-    circuit.enable_connection("S3", "PFC", ConnectionRole.FEEDFORWARD)
+    # PFC listening: T2->PFC, T3->PFC, PFC->M2
+    circuit.enable_connection("T2", "PFC", ConnectionRole.FEEDFORWARD)
+    circuit.enable_connection("T3", "PFC", ConnectionRole.FEEDFORWARD)
     circuit.enable_connection("PFC", "M2", ConnectionRole.FEEDFORWARD)
 
-    # Cross-hierarchy apical: S1->M1 on (surprise carries to motor)
-    circuit.enable_connection("S1", "M1", ConnectionRole.APICAL)
+    # Cross-hierarchy apical: T1->M1 on (surprise carries to motor)
+    circuit.enable_connection("T1", "M1", ConnectionRole.APICAL)
 
     # Motor->sensory apical: off during listening
-    _try_disable(circuit, "M1", "S1", ConnectionRole.APICAL)
+    _try_disable(circuit, "M1", "T1", ConnectionRole.APICAL)
 
     # Motor monitoring apical: off during listening
     _try_disable(circuit, "M1", "M2", ConnectionRole.APICAL)
@@ -155,35 +155,35 @@ def configure_babbling(circuit) -> None:
     configure_sensory(circuit)
 
     # Override motor and reward settings for babbling
-    _apply_learning_regions(circuit, ["S1", "S2", "S3", "M1", "M2", "PFC"])
+    _apply_learning_regions(circuit, ["T1", "T2", "T3", "M1", "M2", "PFC"])
     _apply_motor_settings(circuit, exploration_noise=0.5, force_motor_active=True)
     _apply_reward_source(circuit, "caregiver")
 
 
 def configure_guided_babbling(circuit) -> None:
-    """Guided babbling: S1->M1 + S1->S2 (for word reward), apical on.
+    """Guided babbling: T1->M1 + T1->T2 (for word reward), apical on.
 
-    Only M1 learns. Motor monitoring off. S3 pathway disabled.
+    Only M1 learns. Motor monitoring off. T3 pathway disabled.
     """
     _apply_learning_regions(circuit, ["M1"])
     _apply_motor_settings(circuit, exploration_noise=0.5, force_motor_active=True)
     _apply_reward_source(circuit, "caregiver")
 
-    # S1->M1 feedforward: on
-    _try_enable(circuit, "S1", "M1", ConnectionRole.FEEDFORWARD)
+    # T1->M1 feedforward: on
+    _try_enable(circuit, "T1", "M1", ConnectionRole.FEEDFORWARD)
 
-    # S1->S2 feedforward: on (S2 provides reward signal)
-    circuit.enable_connection("S1", "S2", ConnectionRole.FEEDFORWARD)
+    # T1->T2 feedforward: on (T2 provides reward signal)
+    circuit.enable_connection("T1", "T2", ConnectionRole.FEEDFORWARD)
 
-    # S2->S1 apical: on (word context helps)
-    circuit.enable_connection("S2", "S1", ConnectionRole.APICAL)
+    # T2->T1 apical: on (word context helps)
+    circuit.enable_connection("T2", "T1", ConnectionRole.APICAL)
 
-    # S3 pathway: off
-    _try_disable(circuit, "S2", "S3", ConnectionRole.FEEDFORWARD)
-    _try_disable(circuit, "S3", "S2", ConnectionRole.APICAL)
+    # T3 pathway: off
+    _try_disable(circuit, "T2", "T3", ConnectionRole.FEEDFORWARD)
+    _try_disable(circuit, "T3", "T2", ConnectionRole.APICAL)
 
-    # M1->S1 apical: off
-    _try_disable(circuit, "M1", "S1", ConnectionRole.APICAL)
+    # M1->T1 apical: off
+    _try_disable(circuit, "M1", "T1", ConnectionRole.APICAL)
 
 
 # ------------------------------------------------------------------
@@ -211,7 +211,7 @@ SENSORY_STAGE = TrainingStage(
     name="sensory",
     description="Sensory learning + motor pathway listening",
     n_tokens=1_000_000,
-    learning_regions=["S1", "S2", "S3", "M1", "M2", "PFC"],
+    learning_regions=["T1", "T2", "T3", "M1", "M2", "PFC"],
     save_checkpoint="stage1_sensory",
     configure=configure_sensory,
 )
@@ -220,7 +220,7 @@ BABBLING_STAGE = TrainingStage(
     name="babbling",
     description="Interleaved listening + babbling with caregiver reward",
     n_tokens=200_000,
-    learning_regions=["S1", "S2", "S3", "M1", "M2", "PFC"],
+    learning_regions=["T1", "T2", "T3", "M1", "M2", "PFC"],
     load_checkpoint="stage1_sensory",
     save_checkpoint="stage2_babbling",
     exploration_noise=0.5,
@@ -231,7 +231,7 @@ BABBLING_STAGE = TrainingStage(
 
 GUIDED_BABBLING_STAGE = TrainingStage(
     name="guided_babbling",
-    description="Continued motor learning with caregiver reward + S2 context",
+    description="Continued motor learning with caregiver reward + T2 context",
     n_tokens=500_000,
     learning_regions=["M1"],
     load_checkpoint="stage2_babbling",

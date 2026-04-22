@@ -62,13 +62,13 @@ class TestL5LateralPrediction:
     def test_lateral_and_apical_predictions_combine(self):
         """Both lateral and apical predictions OR into predicted_l5."""
         r = _make_region()
-        r.init_apical_context(source_dim=32, source_name="S2")
+        r.init_apical_context(source_dim=32, source_name="T2")
         # Lateral: neuron 0 predicts neuron 1
         r.l5_seg_indices[1, 0, :] = 0
         r.l5_seg_perm[1, 0, :] = 1.0
         r.l5.active[0] = True
         # Apical: context predicts neuron 2
-        src = r._apical_sources["S2"]
+        src = r._apical_sources["T2"]
         src["seg_indices"][2, 0, :] = 0
         src["seg_perm"][2, 0, :] = 1.0
         src["context"][0] = 1.0

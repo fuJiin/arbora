@@ -139,7 +139,7 @@ class TestConnectionLaminaFields:
     def test_connection_defaults(self):
         from arbora.cortex.circuit import Connection, ConnectionRole
 
-        conn = Connection(source="S1", target="S2", role=ConnectionRole.FEEDFORWARD)
+        conn = Connection(source="T1", target="T2", role=ConnectionRole.FEEDFORWARD)
         assert conn.source_lamina == "L2/3"
         assert conn.target_lamina == "L4"
 
@@ -147,8 +147,8 @@ class TestConnectionLaminaFields:
         from arbora.cortex.circuit import Connection, ConnectionRole
 
         conn = Connection(
-            source="S1",
-            target="S2",
+            source="T1",
+            target="T2",
             role=ConnectionRole.FEEDFORWARD,
             source_lamina="L5",
             target_lamina="L4",
@@ -176,12 +176,12 @@ class TestConnectionLaminaFields:
             k_columns=2,
         )
         cortex = Circuit(encoder)
-        cortex.add_region("S1", r1, entry=True)
-        cortex.add_region("S2", r2)
+        cortex.add_region("T1", r1, entry=True)
+        cortex.add_region("T2", r2)
         cortex.connect(r1.l23, r2.l4, ConnectionRole.FEEDFORWARD)
         conn = cortex._connections[0]
-        assert conn.source == "S1"
-        assert conn.target == "S2"
+        assert conn.source == "T1"
+        assert conn.target == "T2"
         assert conn.source_lamina == "L2/3"
         assert conn.target_lamina == "L4"
 
@@ -206,13 +206,13 @@ class TestConnectionLaminaFields:
             k_columns=2,
         )
         cortex = Circuit(encoder)
-        cortex.add_region("S1", r1, entry=True)
-        cortex.add_region("S2", r2)
+        cortex.add_region("T1", r1, entry=True)
+        cortex.add_region("T2", r2)
         # Connect using Lamina objects instead of strings
         cortex.connect(r1.l23, r2.l4, ConnectionRole.FEEDFORWARD)
         conn = cortex._connections[0]
-        assert conn.source == "S1"
-        assert conn.target == "S2"
+        assert conn.source == "T1"
+        assert conn.target == "T2"
         assert conn.source_lamina == "L2/3"
         assert conn.target_lamina == "L4"
 
@@ -237,8 +237,8 @@ class TestConnectionLaminaFields:
             k_columns=2,
         )
         cortex = Circuit(encoder)
-        cortex.add_region("S1", r1, entry=True)
-        cortex.add_region("S2", r2)
+        cortex.add_region("T1", r1, entry=True)
+        cortex.add_region("T2", r2)
         # L5 -> L4 connection via Lamina objects
         cortex.connect(r1.l5, r2.l4, ConnectionRole.FEEDFORWARD)
         conn = cortex._connections[0]

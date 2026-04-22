@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sweep S1 parameters in isolation.
+"""Sweep T1 parameters in isolation.
 
 Tests segment learning, neuron counts, and trace dynamics on char-level
 TinyDialogues data using the real CharbitEncoder (not random encoding).
@@ -7,7 +7,7 @@ TinyDialogues data using the real CharbitEncoder (not random encoding).
 Outputs CSV + summary table for analysis.
 
 Usage:
-    uv run experiments/scripts/sweep_s1.py [--tokens N] [--confirm-tokens N]
+    uv run experiments/scripts/sweep_t1.py [--tokens N] [--confirm-tokens N]
 """
 
 import argparse
@@ -27,7 +27,7 @@ from arbora.probes.bpc import BPCProbe
 from arbora.probes.diagnostics import CortexDiagnostics
 from examples.chat.data import STORY_BOUNDARY, prepare_tokens_tinydialogues
 
-# --- Encoder (matches canonical S1) ---
+# --- Encoder (matches canonical T1) ---
 
 DEFAULT_CHARS = (
     " abcdefghijklmnopqrstuvwxyz.?,!'\"\n-:;()0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -35,7 +35,7 @@ DEFAULT_CHARS = (
 
 
 class CharbitEncoder:
-    """Minimal charbit encoder matching canonical S1 config."""
+    """Minimal charbit encoder matching canonical T1 config."""
 
     def __init__(self, length: int = 8, width: int = 101, chars: str = DEFAULT_CHARS):
         self.length = length
@@ -101,10 +101,10 @@ class L23ContextTracker:
             pairs = min(50, n * (n - 1) // 2)
             for _ in range(pairs):
                 i, j = rng.choice(n, 2, replace=False)
-                s1, s2 = patterns[i], patterns[j]
-                union = len(s1 | s2)
+                a, b = patterns[i], patterns[j]
+                union = len(a | b)
                 if union > 0:
-                    all_dists.append(1.0 - len(s1 & s2) / union)
+                    all_dists.append(1.0 - len(a & b) / union)
         return float(np.mean(all_dists)) if all_dists else 0.0
 
 
@@ -343,7 +343,7 @@ def run_config(
 
 
 def build_configs() -> list[tuple[str, dict]]:
-    """Parameter grid for S1 sweep."""
+    """Parameter grid for T1 sweep."""
     configs = []
 
     # === Group 1: Baseline ===
@@ -383,7 +383,7 @@ def build_configs() -> list[tuple[str, dict]]:
 
     # === Group 6: Neuron counts (asymmetric) ===
     # Biology: L4 thickest in sensory, L5 thinnest
-    configs.append(("n_l5=0", {"n_l5": 0}))  # L5 inert in S1-only, verify
+    configs.append(("n_l5=0", {"n_l5": 0}))  # L5 inert in T1-only, verify
     configs.append(("n_l4=6", {"n_l4": 6}))
     configs.append(("n_l4=8", {"n_l4": 8}))
     configs.append(("l4=6_l23=4_l5=2", {"n_l4": 6, "n_l23": 4, "n_l5": 2}))
@@ -527,7 +527,7 @@ def print_summary(results: list[Result]):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Sweep S1 parameters")
+    parser = argparse.ArgumentParser(description="Sweep T1 parameters")
     parser.add_argument(
         "--tokens", type=int, default=30000, help="Tokens per config for initial sweep"
     )
@@ -544,7 +544,7 @@ def main():
         default=None,
         help="Run only this config name (for debugging)",
     )
-    parser.add_argument("--out-dir", type=str, default="experiments/runs/sweep_s1")
+    parser.add_argument("--out-dir", type=str, default="experiments/runs/sweep_t1")
     args = parser.parse_args()
 
     # Load data

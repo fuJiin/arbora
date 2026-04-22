@@ -4,7 +4,7 @@ BPC = -1/N * Σ log₂(P(char_i | context))
 
 Uses the dendritic decoder's segment overlap scores as unnormalized
 log-likelihoods, softmax-normalized to get probabilities. This measures
-how well S1's L2/3 representations support downstream token prediction —
+how well T1's L2/3 representations support downstream token prediction —
 exactly what a downstream cortical region would compute.
 
 Random baseline over V chars: log₂(V) ≈ 4.9 for 30 chars.

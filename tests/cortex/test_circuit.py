@@ -47,7 +47,7 @@ class TestSingleRegion:
         """Circuit with one entry region processes tokens without error."""
         tokens = [(0, "a"), (1, "b"), (2, "c"), (0, "a"), (1, "b")]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
 
@@ -60,7 +60,7 @@ class TestSingleRegion:
             (1, "b"),
         ]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         result = run_circuit(cortex, tokens)
         assert result.elapsed_seconds > 0
 
@@ -77,8 +77,8 @@ class TestHierarchy:
             (1, "b"),
         ]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23,
             region2.l4,
@@ -89,14 +89,14 @@ class TestHierarchy:
         result = run_circuit(cortex, tokens, probes=[mod_probe])
         assert result.elapsed_seconds > 0
         mod_snap = result.probe_snapshots["modulators"]
-        assert "S2" in mod_snap.surprise
-        assert len(mod_snap.surprise["S2"]) > 0
+        assert "T2" in mod_snap.surprise
+        assert len(mod_snap.surprise["T2"]) > 0
 
     def test_hierarchy_region2_activates(self, region1, region2, encoder):
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23,
             region2.l4,
@@ -107,7 +107,7 @@ class TestHierarchy:
         assert region2.active_columns.sum() > 0
 
     def test_hierarchy_with_buffer_runs(self, region1, encoder):
-        """End-to-end with buffer_depth=3, S2 activates."""
+        """End-to-end with buffer_depth=3, T2 activates."""
         buf_depth = 3
         region2 = SensoryRegion(
             input_dim=region1.n_l23_total * buf_depth,
@@ -121,8 +121,8 @@ class TestHierarchy:
         )
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(30)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23,
             region2.l4,
@@ -139,38 +139,38 @@ class TestTopoOrder:
     def test_topo_order(self, region1, region2, encoder):
         """Feedforward edges determine processing order."""
         cortex = Circuit(encoder)
-        # Add S2 first, but S1 is entry and feeds S2
-        cortex.add_region("S2", region2)
-        cortex.add_region("S1", region1, entry=True)
+        # Add T2 first, but T1 is entry and feeds T2
+        cortex.add_region("T2", region2)
+        cortex.add_region("T1", region1, entry=True)
         cortex.connect(region1.l23, region2.l4, ConnectionRole.FEEDFORWARD)
         order = cortex._topo_order()
-        assert order.index("S1") < order.index("S2")
+        assert order.index("T1") < order.index("T2")
 
 
 class TestValidation:
     def test_missing_entry_raises(self, region1, encoder):
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1)
+        cortex.add_region("T1", region1)
         with pytest.raises(ValueError, match="No entry region"):
             cortex.process(encoder.encode("a"))
 
     def test_duplicate_region_raises(self, region1, encoder):
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         with pytest.raises(ValueError, match="Duplicate"):
-            cortex.add_region("S1", region1)
+            cortex.add_region("T1", region1)
 
     def test_unregistered_lamina_in_connect_raises(self, region1, region2, encoder):
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         # region2 not registered — its lamina should fail
         with pytest.raises(ValueError, match="not registered"):
             cortex.connect(region1.l23, region2.l4, ConnectionRole.FEEDFORWARD)
 
     def test_unknown_role_raises(self, region1, region2, encoder):
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         with pytest.raises(ValueError, match="Unknown connection role"):
             cortex.connect(region1.l23, region2.l4, "bogus")
 
@@ -180,8 +180,8 @@ class TestApical:
         """connect(..., 'apical') calls init_apical_segments on target."""
         assert not region1.has_apical
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(region2.l23, region1.l4, ConnectionRole.APICAL)
         assert region1.has_apical
 
@@ -189,21 +189,21 @@ class TestApical:
 class TestAccessors:
     def test_timelines(self, region1, encoder):
         cortex = Circuit(encoder, enable_timeline=True)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         run_circuit(cortex, [(0, "a"), (1, "b")])
-        assert "S1" in cortex.timelines
-        assert len(cortex.timelines["S1"].frames) > 0
+        assert "T1" in cortex.timelines
+        assert len(cortex.timelines["T1"].frames) > 0
 
     def test_diagnostics(self, region1, encoder):
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
+        cortex.add_region("T1", region1, entry=True)
         run_circuit(cortex, [(0, "a"), (1, "b")])
-        assert "S1" in cortex.diagnostics
+        assert "T1" in cortex.diagnostics
 
     def test_region_accessor(self, region1, encoder):
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        assert cortex.region("S1") is region1
+        cortex.add_region("T1", region1, entry=True)
+        assert cortex.region("T1") is region1
 
 
 class TestTemporalBuffer:
@@ -211,8 +211,8 @@ class TestTemporalBuffer:
         """Default buffer_depth=1 behaves identically to no buffer."""
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(10)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23,
             region2.l4,
@@ -238,8 +238,8 @@ class TestTemporalBuffer:
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(5)]
 
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23, region2.l4, ConnectionRole.FEEDFORWARD, buffer_depth=buf_depth
         )
@@ -249,7 +249,7 @@ class TestTemporalBuffer:
         assert ff_conn._buffer is not None
         assert ff_conn._buffer.shape == (buf_depth, region1.n_l23_total)
 
-        # Run and verify S2 gets a signal of the right length
+        # Run and verify T2 gets a signal of the right length
         run_circuit(cortex, tokens)
         assert region2.active_columns.sum() >= 0  # ran without error
 
@@ -266,15 +266,15 @@ class TestTemporalBuffer:
             seed=123,
         )
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23, region2.l4, ConnectionRole.FEEDFORWARD, buffer_depth=buf_depth
         )
 
         ff_conn = cortex._connections[0]
 
-        # Process one token through S1 manually
+        # Process one token through T1 manually
         enc = encoder.encode("a")
         region1.process(enc)
 
@@ -304,8 +304,8 @@ class TestTemporalBuffer:
             (0, "a"),
         ]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23,
             region2.l4,
@@ -323,8 +323,8 @@ class TestTemporalBuffer:
     def test_buffer_input_dim_mismatch_raises(self, region1, region2, encoder):
         """Wrong input_dim caught at connect() time."""
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)  # region2 has input_dim = n_l23_total * 1
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)  # region2 has input_dim = n_l23_total * 1
         with pytest.raises(ValueError, match="input_dim"):
             cortex.connect(
                 region1.l23, region2.l4, ConnectionRole.FEEDFORWARD, buffer_depth=3
@@ -344,13 +344,13 @@ class TestBurstGating:
             seed=123,
         )
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23, region2.l4, ConnectionRole.FEEDFORWARD, burst_gate=True
         )
 
-        # Process a token so S1 has some state
+        # Process a token so T1 has some state
         enc = encoder.encode("a")
         region1.process(enc)
 
@@ -378,8 +378,8 @@ class TestBurstGating:
         )
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(10)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23,
             region2.l4,
@@ -410,7 +410,7 @@ class TestDeterminism:
             seed=42,
         )
         c1 = Circuit(encoder)
-        c1.add_region("S1", r1, entry=True)
+        c1.add_region("T1", r1, entry=True)
         result1 = run_circuit(c1, tokens, probes=[probe1])
 
         probe2 = LaminaProbe()
@@ -424,11 +424,11 @@ class TestDeterminism:
             seed=42,
         )
         c2 = Circuit(encoder)
-        c2.add_region("S1", r2, entry=True)
+        c2.add_region("T1", r2, entry=True)
         result2 = run_circuit(c2, tokens, probes=[probe2])
 
-        snap1 = result1.probe_snapshots["lamina"]["S1"]
-        snap2 = result2.probe_snapshots["lamina"]["S1"]
+        snap1 = result1.probe_snapshots["lamina"]["T1"]
+        snap2 = result2.probe_snapshots["lamina"]["T1"]
         assert abs(snap1.input.recall - snap2.input.recall) < 1e-10
 
 
@@ -467,8 +467,8 @@ class TestThalamicGateIntegration:
         """Hierarchy with thalamic gate runs and populates thalamic_readiness."""
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(30)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23,
             region2.l4,
@@ -481,8 +481,8 @@ class TestThalamicGateIntegration:
         mod_probe = ModulatorProbe()
         result = run_circuit(cortex, tokens, probes=[mod_probe])
         mod_snap = result.probe_snapshots["modulators"]
-        assert "S2->S1" in mod_snap.thalamic
-        assert len(mod_snap.thalamic["S2->S1"]) > 0
+        assert "T2->T1" in mod_snap.thalamic
+        assert len(mod_snap.thalamic["T2->T1"]) > 0
 
     def test_story_boundary_resets_gate(self, region1, region2, encoder):
         """Gate resets at story boundary (readiness drops back toward 0)."""
@@ -493,8 +493,8 @@ class TestThalamicGateIntegration:
         )
         gate = ThalamicGate()
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23,
             region2.l4,
@@ -513,8 +513,8 @@ class TestThalamicGateIntegration:
         """Apical without gate works and thalamic_readiness is empty."""
         tokens = [(i % 3, chr(ord("a") + i % 3)) for i in range(20)]
         cortex = Circuit(encoder)
-        cortex.add_region("S1", region1, entry=True)
-        cortex.add_region("S2", region2)
+        cortex.add_region("T1", region1, entry=True)
+        cortex.add_region("T2", region2)
         cortex.connect(
             region1.l23,
             region2.l4,

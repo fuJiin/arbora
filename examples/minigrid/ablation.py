@@ -10,9 +10,9 @@ pattern set).
 
 Topology (post-ARB-123)
 -----------------------
-Both arms share `S1 → M1` and `S1 → BG → M1 (mod)`. The HC arm adds:
+Both arms share `T1 → M1` and `T1 → BG → M1 (mod)`. The HC arm adds:
 
-    S1 → HC → BG
+    T1 → HC → BG
 
 HC projects into BG (ventral-striatum-analog) rather than M1; the
 ablation tests whether memory-informed value signals to BG help on
@@ -151,11 +151,11 @@ class ArmResult:
     events: list[EpisodeEvent] = field(default_factory=list)
     # Mechanistic diagnostics.
     # hc_summary / final_retention are HC-arm-only (None/empty on baseline).
-    # s1_stability is populated on *both* arms — S1 is shared, and drift
+    # t1_stability is populated on *both* arms — T1 is shared, and drift
     # there is the primary diagnostic for HC retention failures.
     hc_summary: dict = field(default_factory=dict)
     final_retention: list[float] | None = None
-    s1_stability: list[float] | None = None
+    t1_stability: list[float] | None = None
 
     @property
     def success_rate(self) -> float:
@@ -198,11 +198,11 @@ class ArmResult:
         return statistics.mean(self.final_retention)
 
     @property
-    def mean_s1_stability(self) -> float | None:
-        """Mean S1 L2/3 stability across reference encodings at run end."""
-        if not self.s1_stability:
+    def mean_t1_stability(self) -> float | None:
+        """Mean T1 L2/3 stability across reference encodings at run end."""
+        if not self.t1_stability:
             return None
-        return statistics.mean(self.s1_stability)
+        return statistics.mean(self.t1_stability)
 
 
 def _find_hippocampal_region(circuit: Circuit) -> HippocampalRegion | None:
@@ -214,8 +214,8 @@ def _find_hippocampal_region(circuit: Circuit) -> HippocampalRegion | None:
     return None
 
 
-def _find_sensory_region(circuit: Circuit, name: str = "S1") -> SensoryRegion | None:
-    """Locate the named SensoryRegion (default S1) in the circuit."""
+def _find_sensory_region(circuit: Circuit, name: str = "T1") -> SensoryRegion | None:
+    """Locate the named SensoryRegion (default T1) in the circuit."""
     state = circuit._regions.get(name)
     if state is None:
         return None
@@ -232,7 +232,7 @@ def _reference_encodings(
     """Collect N encoded initial observations from fresh envs.
 
     These are real MiniGrid encodings (984-dim), used as reference
-    inputs for the S1 stability tracker. Deliberately disjoint from
+    inputs for the T1 stability tracker. Deliberately disjoint from
     the training env: each encoding comes from a fresh env at a
     distinct seed.
     """
@@ -253,12 +253,12 @@ def _synthetic_probe_patterns(
 ) -> list[np.ndarray]:
     """Generate N sparse binary probe patterns at HC's input dim.
 
-    HC's `input_port` expects cortical-dim vectors (S1 L2/3 output),
-    not raw 984-dim encoder output. Rather than cloning S1 to generate
+    HC's `input_port` expects cortical-dim vectors (T1 L2/3 output),
+    not raw 984-dim encoder output. Rather than cloning T1 to generate
     realistic L2/3 patterns for probes, we use synthetic sparse
     binary vectors matching cortical sparsity (~6%). This keeps the
-    retention test decoupled from S1 — it measures HC's ability to
-    retain what it binds, not the combined S1+HC system.
+    retention test decoupled from T1 — it measures HC's ability to
+    retain what it binds, not the combined T1+HC system.
 
     Each probe pattern has a distinct active-unit set (same seed, different
     draws), so they're mutually near-orthogonal and bind to distinct
@@ -297,15 +297,15 @@ def run_arm(
     env = MiniGridEnv(env_id, max_episodes=episodes, seed=seed)
     agent = MiniGridAgent(encoder=encoder, circuit=circuit)
 
-    # S1 stability tracker — primes a deepcopy-based non-destructive
+    # T1 stability tracker — primes a deepcopy-based non-destructive
     # measurement with N real env encodings. Populates on both arms
-    # because S1 is shared; drift is the primary diagnostic for HC
+    # because T1 is shared; drift is the primary diagnostic for HC
     # retention failures under v1 defaults.
-    s1 = _find_sensory_region(circuit)
+    t1 = _find_sensory_region(circuit)
     stability = None
-    if s1 is not None:
+    if t1 is not None:
         ref_encodings = _reference_encodings(env_id, encoder, n=n_stability_refs)
-        stability = CortexStabilityTracker(s1, encodings=ref_encodings)
+        stability = CortexStabilityTracker(t1, encodings=ref_encodings)
 
     # Retention tracker on the HC arm only. HC's lateral weights
     # acquire these synthetic patterns at setup; `.measure()` at run
@@ -330,7 +330,7 @@ def run_arm(
 
     hc_summary = hc_probe.snapshot().get("summary", {})
     final_retention = retention.measure() if retention is not None else None
-    s1_stability = stability.measure() if stability is not None else None
+    t1_stability = stability.measure() if stability is not None else None
 
     return ArmResult(
         name=name,
@@ -338,7 +338,7 @@ def run_arm(
         events=episode_probe.events,
         hc_summary=dict(hc_summary),
         final_retention=final_retention,
-        s1_stability=s1_stability,
+        t1_stability=t1_stability,
     )
 
 
@@ -394,12 +394,12 @@ class AblationResult:
             )
         return summary or None
 
-    def _s1_stability_summary(
+    def _t1_stability_summary(
         self, results: list[ArmResult]
     ) -> dict[str, float] | None:
-        """Aggregate S1 stability across seeds for a single arm."""
+        """Aggregate T1 stability across seeds for a single arm."""
         stabilities = [
-            r.mean_s1_stability for r in results if r.mean_s1_stability is not None
+            r.mean_t1_stability for r in results if r.mean_t1_stability is not None
         ]
         if not stabilities:
             return None
@@ -431,17 +431,17 @@ class AblationResult:
                 f"{arm_name:<14} {sr:>18} {tr:>12} {ttfs:>8} {s['mean_steps']:>12.1f}"
             )
 
-        # S1 stability — populated on both arms (S1 is shared).
-        lines += ["", "S1 representational stability (higher = less drift):"]
+        # T1 stability — populated on both arms (T1 is shared).
+        lines += ["", "T1 representational stability (higher = less drift):"]
         for arm_name, results in (
             ("baseline", self.baseline),
             ("hippocampal", self.hippocampal),
         ):
-            stab = self._s1_stability_summary(results)
+            stab = self._t1_stability_summary(results)
             if stab is None:
                 continue
             lines.append(
-                f"  {arm_name:<14} S1 L2/3 stability: "
+                f"  {arm_name:<14} T1 L2/3 stability: "
                 f"{stab['mean']:.3f}±{stab['stdev']:.3f}"
             )
 
