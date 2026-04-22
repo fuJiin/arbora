@@ -19,5 +19,5 @@ experiments/figures/
 *.gif
 .claude/
 .agents
-data/
+/data/
 environment_files/
