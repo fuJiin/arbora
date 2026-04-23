@@ -30,6 +30,8 @@ from examples.text_exploration.sparse_vs_dense.data import (
 )
 from examples.text_exploration.sparse_vs_dense.evaluation import (
     evaluate_analogy,
+    evaluate_capacity,
+    evaluate_partial_cue,
     evaluate_simlex,
 )
 from examples.text_exploration.sparse_vs_dense.t1_word import train_t1_word
@@ -73,9 +75,11 @@ def run_one(
         )
         s = evaluate_simlex(emb_w2v, simlex)
         a = evaluate_analogy(emb_w2v, analogy)
+        cap = evaluate_capacity(emb_w2v, seed=seed)
         rows.append(
             {
                 "model": "word2vec",
+                "seed": seed,
                 "n_tokens": n_tokens,
                 "vocab_size": vocab_size,
                 "simlex_spearman": s["spearman"],
@@ -83,6 +87,10 @@ def run_one(
                 "simlex_n": s["n_pairs"],
                 "analogy_top1": a["top1"],
                 "analogy_n": a["n_entries"],
+                "cap_mean_sim": cap["mean_pairwise_sim"],
+                "cap_collision_frac": cap["high_collision_frac"],
+                "cap_eff_dim": cap["eff_dim"],
+                "cap_n_words": cap["n_words"],
                 "elapsed_s": stats["elapsed_s"],
                 "wall_s": time.monotonic() - t0,
             }
@@ -90,6 +98,8 @@ def run_one(
         print(
             f"  word2vec: simlex={s['spearman']:.3f} (n={s['n_pairs']}) "
             f"analogy={a['top1']:.3f} (n={a['n_entries']}) "
+            f"| cap: mean_sim={cap['mean_pairwise_sim']:.3f} "
+            f"coll={cap['high_collision_frac']:.2f} ed={cap['eff_dim']:.1f} "
             f"({stats['elapsed_s']:.1f}s)"
         )
 
@@ -106,9 +116,12 @@ def run_one(
         )
         s = evaluate_simlex(emb_t1, simlex)
         a = evaluate_analogy(emb_t1, analogy)
+        cap = evaluate_capacity(emb_t1, seed=seed)
+        pc = evaluate_partial_cue(emb_t1, simlex, seed=seed)
         rows.append(
             {
                 "model": "t1_sparse",
+                "seed": seed,
                 "n_tokens": n_tokens,
                 "vocab_size": vocab_size,
                 "simlex_spearman": s["spearman"],
@@ -116,6 +129,12 @@ def run_one(
                 "simlex_n": s["n_pairs"],
                 "analogy_top1": a["top1"],
                 "analogy_n": a["n_entries"],
+                "cap_mean_sim": cap["mean_pairwise_sim"],
+                "cap_collision_frac": cap["high_collision_frac"],
+                "cap_eff_dim": cap["eff_dim"],
+                "cap_n_words": cap["n_words"],
+                "partial_cue_retention": pc["retention"],
+                "partial_cue_n": pc["n"],
                 "active_per_word_mean": stats["active_per_word_mean"],
                 "n_l23_total": stats["n_l23_total"],
                 "elapsed_s": stats["elapsed_s"],
@@ -125,6 +144,9 @@ def run_one(
         print(
             f"  t1_sparse: simlex={s['spearman']:.3f} (n={s['n_pairs']}) "
             f"analogy={a['top1']:.3f} (n={a['n_entries']}) "
+            f"| cap: mean_sim={cap['mean_pairwise_sim']:.3f} "
+            f"coll={cap['high_collision_frac']:.2f} ed={cap['eff_dim']:.1f} "
+            f"| pc_retention={pc['retention']:.3f} "
             f"l23_active={stats['active_per_word_mean']:.1f}/{stats['n_l23_total']} "
             f"({stats['elapsed_s']:.1f}s)"
         )

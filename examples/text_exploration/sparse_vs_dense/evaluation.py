@@ -104,6 +104,143 @@ def evaluate_simlex(
 
 
 # ---------------------------------------------------------------------------
+# Sparse-native metrics: capacity + pattern separation
+# ---------------------------------------------------------------------------
+
+
+def evaluate_capacity(emb: Embeddings, *, sample: int = 500, seed: int = 0) -> dict:
+    """Sparse-native capacity / collision metrics.
+
+    For binary SDRs: how well does the embedding use its representational
+    capacity? Three signals:
+
+    - `mean_pairwise_sim` — average similarity across all distinct pairs.
+      Should be low (around 0.05-0.20 for well-separated codes). High →
+      codes collapsing toward each other.
+    - `high_collision_frac` — fraction of pairs with similarity > 0.8.
+      Proxy for capacity exhaustion / pattern collapse.
+    - `eff_dim` — participation ratio of the vocab-SDR matrix.
+      Larger = the embedding population spans more independent
+      directions = less collapsed.
+
+    Dense embeddings also get these (with cosine instead of Jaccard),
+    so the same metrics report across both architectures. That gives us
+    a common readout for whether representations are stable or drifting.
+    """
+    vocab = emb.vocab()
+    rng = np.random.default_rng(seed)
+    if len(vocab) > sample:
+        idx = rng.choice(len(vocab), size=sample, replace=False)
+        vocab = [vocab[i] for i in idx]
+    vecs: list[np.ndarray] = []
+    for w in vocab:
+        v = emb.get(w)
+        if v is not None:
+            vecs.append(v)
+    if len(vecs) < 2:
+        return {
+            "n_words": len(vecs),
+            "mean_pairwise_sim": 0.0,
+            "std_pairwise_sim": 0.0,
+            "high_collision_frac": 0.0,
+            "eff_dim": 0.0,
+        }
+
+    sparse = emb.is_sparse()
+    if sparse:
+        X = np.stack(vecs).astype(bool)
+        inter = (X[:, None, :] & X[None, :, :]).sum(axis=-1)
+        union = (X[:, None, :] | X[None, :, :]).sum(axis=-1)
+        sim = np.where(union > 0, inter / np.maximum(union, 1), 0.0)
+    else:
+        X = np.stack(vecs)
+        norms = np.linalg.norm(X, axis=1, keepdims=True)
+        Xn = X / np.where(norms > 0, norms, 1)
+        sim = Xn @ Xn.T
+
+    n = sim.shape[0]
+    tri = np.triu_indices(n, k=1)
+    offdiag = sim[tri]
+
+    X_float = X.astype(np.float64) if sparse else X
+    X_centered = X_float - X_float.mean(axis=0)
+    _, s, _ = np.linalg.svd(X_centered, full_matrices=False)
+    lambdas = s**2 / max(X_centered.shape[0] - 1, 1)
+    sum_l = float(lambdas.sum())
+    sum_l2 = float((lambdas**2).sum())
+    eff_dim = sum_l**2 / sum_l2 if sum_l2 > 1e-12 else 0.0
+
+    return {
+        "n_words": n,
+        "mean_pairwise_sim": float(offdiag.mean()),
+        "std_pairwise_sim": float(offdiag.std()),
+        "high_collision_frac": float((offdiag > 0.8).mean()),
+        "eff_dim": float(eff_dim),
+    }
+
+
+def evaluate_partial_cue(
+    emb: Embeddings,
+    pairs: list[tuple[str, str, float]],
+    *,
+    corruption: float = 0.3,
+    seed: int = 0,
+) -> dict:
+    """Sparse-native: partial-cue retention on SimLex pairs.
+
+    For each high-similarity SimLex pair (human score >= 6):
+    corrupt `a`'s SDR by flipping `corruption` fraction of active bits
+    (and an equal number of inactive bits, to preserve sparsity). Then
+    measure whether the similarity to `b` is retained.
+
+    Returns Pearson correlation between clean and corrupted similarities
+    — the "retention" of the similarity signal under corruption. Closer
+    to 1.0 = sparse substrate's content-addressable retrieval is robust.
+
+    Only meaningful for sparse; skips dense.
+    """
+    if not emb.is_sparse():
+        return {"n": 0, "retention": 0.0, "note": "dense emb skipped"}
+
+    rng = np.random.default_rng(seed)
+    high_pairs = [(a, b) for a, b, s in pairs if s >= 6.0]
+    clean_sims: list[float] = []
+    corrupted_sims: list[float] = []
+    for a, b in high_pairs:
+        va, vb = emb.get(a), emb.get(b)
+        if va is None or vb is None:
+            continue
+        clean_sims.append(jaccard_similarity(va, vb))
+
+        active = np.flatnonzero(va)
+        inactive = np.flatnonzero(~va)
+        n_flip = max(1, int(len(active) * corruption))
+        if n_flip > len(active) or n_flip > len(inactive):
+            continue
+        flipped_off = rng.choice(active, size=n_flip, replace=False)
+        flipped_on = rng.choice(inactive, size=n_flip, replace=False)
+        va_corrupt = va.copy()
+        va_corrupt[flipped_off] = False
+        va_corrupt[flipped_on] = True
+        corrupted_sims.append(jaccard_similarity(va_corrupt, vb))
+
+    if len(clean_sims) < 2:
+        return {"n": len(clean_sims), "retention": 0.0}
+    clean_arr = np.array(clean_sims)
+    corrupt_arr = np.array(corrupted_sims)
+    if clean_arr.std() == 0:
+        retention = 0.0
+    else:
+        retention = float(np.corrcoef(clean_arr, corrupt_arr)[0, 1])
+    return {
+        "n": len(clean_sims),
+        "retention": retention,
+        "mean_clean_sim": float(clean_arr.mean()),
+        "mean_corrupt_sim": float(corrupt_arr.mean()),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Google analogy evaluation
 # ---------------------------------------------------------------------------
 
