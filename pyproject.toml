@@ -16,6 +16,11 @@ dependencies = [
 viz = ["matplotlib", "plotly"]
 minigrid = ["minigrid>=3.0", "gymnasium>=1.0"]
 arc = ["arc-agi>=0.9.6"]
+embeddings = [
+    "gensim>=4.3",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.11",
+]
 
 [dependency-groups]
 dev = [
