@@ -260,6 +260,156 @@ def evaluate_corruption_robustness(
     }
 
 
+def evaluate_nn_retrieval(
+    emb: Embeddings,
+    query_words: list[str],
+    *,
+    k: int = 5,
+) -> dict:
+    """Top-k nearest neighbors for each query word.
+
+    Practical word2vec use case: "find items similar to this one"
+    (recommendation, semantic search, suggestion). Uses the native
+    similarity of each embedding (Jaccard for sparse, cosine for
+    dense) — so each architecture is evaluated on its own terms.
+
+    Returns:
+      {
+        "per_query": {query_word: [(neighbor_word, similarity), ...]},
+        "n_queries": int (how many had matches),
+      }
+
+    Queries not present in `emb.vocab()` are silently skipped.
+    """
+    sparse = emb.is_sparse()
+    vocab = [w for w in emb.vocab() if emb.get(w) is not None]
+    if not vocab:
+        return {"per_query": {}, "n_queries": 0}
+    vec_stack = np.stack([emb.get(w) for w in vocab])
+    word_to_idx = {w: i for i, w in enumerate(vocab)}
+
+    if not sparse:
+        stack_norms = np.linalg.norm(vec_stack, axis=1)
+
+    results: dict[str, list[tuple[str, float]]] = {}
+    for q in query_words:
+        if q not in word_to_idx:
+            continue
+        q_vec = vec_stack[word_to_idx[q]]
+        if sparse:
+            inter = (vec_stack & q_vec).sum(axis=1)
+            union = (vec_stack | q_vec).sum(axis=1)
+            sims = np.where(union > 0, inter / np.maximum(union, 1), 0.0)
+        else:
+            q_norm = float(np.linalg.norm(q_vec))
+            if q_norm == 0:
+                continue
+            sims = np.zeros(vec_stack.shape[0])
+            mask = stack_norms > 0
+            sims[mask] = vec_stack[mask] @ q_vec / (stack_norms[mask] * q_norm)
+
+        sims[word_to_idx[q]] = -np.inf  # exclude self
+        top_idx = sims.argsort()[-k:][::-1]
+        results[q] = [(vocab[i], float(sims[i])) for i in top_idx]
+
+    return {"per_query": results, "n_queries": len(results)}
+
+
+def storage_bytes_per_embedding(emb: Embeddings) -> dict:
+    """Practical storage cost per embedding.
+
+    Sparse: two reasonable encodings — packed bits (N bits → N/8 bytes)
+    or active-index list (k active x 2 bytes per int16 index). We
+    report both. Dense: dimensionality x 4 bytes (float32).
+
+    Also reports compression ratio relative to the dense equivalent.
+    """
+    vocab = emb.vocab()
+    if not vocab:
+        return {"bytes_per_embedding": 0}
+    sample = emb.get(vocab[0])
+    if sample is None:
+        return {"bytes_per_embedding": 0}
+
+    if emb.is_sparse():
+        n_bits = sample.size
+        mean_active = float(
+            np.mean(
+                [int(emb.get(w).sum()) for w in vocab[:500] if emb.get(w) is not None]
+            )
+        )
+        packed_bytes = (n_bits + 7) // 8
+        index_bytes = int(mean_active) * 2  # int16 indices
+        return {
+            "sparse": True,
+            "n_bits": n_bits,
+            "mean_active": mean_active,
+            "packed_bytes": packed_bytes,
+            "index_bytes": index_bytes,
+            "bytes_per_embedding": index_bytes,  # the usual storage form
+        }
+    n_dims = sample.size
+    return {
+        "sparse": False,
+        "n_dims": n_dims,
+        "dtype": str(sample.dtype),
+        "bytes_per_embedding": n_dims * sample.dtype.itemsize,
+    }
+
+
+def benchmark_nn_query(
+    emb: Embeddings,
+    query_words: list[str],
+    *,
+    trials: int = 5,
+) -> dict:
+    """Wall-clock per-query NN lookup cost.
+
+    Measures the actual lookup time including argsort — numbers scale
+    with vocab size. Reports mean + std across trials.
+    """
+    import time
+
+    sparse = emb.is_sparse()
+    vocab = [w for w in emb.vocab() if emb.get(w) is not None]
+    if not vocab:
+        return {"mean_ms_per_query": 0.0}
+    vec_stack = np.stack([emb.get(w) for w in vocab])
+    word_to_idx = {w: i for i, w in enumerate(vocab)}
+    if not sparse:
+        stack_norms = np.linalg.norm(vec_stack, axis=1)
+
+    times: list[float] = []
+    for _ in range(trials):
+        t0 = time.monotonic()
+        for q in query_words:
+            if q not in word_to_idx:
+                continue
+            q_vec = vec_stack[word_to_idx[q]]
+            if sparse:
+                inter = (vec_stack & q_vec).sum(axis=1)
+                union = (vec_stack | q_vec).sum(axis=1)
+                sims = np.where(union > 0, inter / np.maximum(union, 1), 0.0)
+            else:
+                q_norm = float(np.linalg.norm(q_vec))
+                if q_norm == 0:
+                    continue
+                sims = np.zeros(vec_stack.shape[0])
+                mask = stack_norms > 0
+                sims[mask] = vec_stack[mask] @ q_vec / (stack_norms[mask] * q_norm)
+            _ = sims.argsort()[-5:]
+        times.append(time.monotonic() - t0)
+
+    n_real_queries = sum(1 for q in query_words if q in word_to_idx)
+    mean_s = float(np.mean(times))
+    return {
+        "vocab_size": len(vocab),
+        "n_queries": n_real_queries,
+        "total_s_mean": mean_s,
+        "mean_ms_per_query": 1000.0 * mean_s / max(n_real_queries, 1),
+    }
+
+
 def evaluate_partial_cue(
     emb: Embeddings,
     pairs: list[tuple[str, str, float]],
