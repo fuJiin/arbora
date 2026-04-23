@@ -26,6 +26,8 @@ import time
 from itertools import product
 from pathlib import Path
 
+import numpy as np
+
 from arbora.config import _default_t1_config, make_sensory_region
 from arbora.cortex.circuit import Circuit
 from arbora.decoders.dendritic import DendriticDecoder
@@ -35,14 +37,37 @@ from arbora.probes.core import LaminaProbe
 from examples.text_exploration.data import (
     DEFAULT_ALPHABET,
     alphabet_filter,
+    load_natural_chunks,
     load_words,
-    train_test_split,
+    shuffle_chunks,
+    split_chunks,
+    wordlist_chunks,
 )
 from examples.text_exploration.diagnostics import (
     character_sdr_overlap,
     weight_distribution,
 )
 from examples.text_exploration.trainer import T1Trainer
+
+
+def _load_chunks(
+    dataset: str,
+    *,
+    max_chars: int = 50_000,
+    alphabet: str = DEFAULT_ALPHABET,
+) -> list[str]:
+    """Load a dataset as stream chunks.
+
+    `wordlist` → bundled common_words.txt, each chunk = "word " (trailing
+    space) so the continuous stream has natural word boundaries.
+    `tinystories` / `babylm` / `tinydialogues` / `personachat` → natural
+    text from HuggingFace via `examples.chat.data.prepare_tokens_charlevel`,
+    each chunk = one document.
+    """
+    if dataset == "wordlist":
+        words = alphabet_filter(load_words(), alphabet)
+        return wordlist_chunks(words, append_space=True)
+    return load_natural_chunks(dataset, max_chars=max_chars, alphabet=alphabet)
 
 
 def build_region(
@@ -98,8 +123,8 @@ def run_config(
     ltd_rate: float,
     synapse_decay: float,
     learning_rate: float,
-    train_words: list[str],
-    test_words: list[str],
+    train_chunks: list[str],
+    test_chunks: list[str],
     epochs: int = 2,
     n_columns: int | None = None,
     k_columns: int | None = None,
@@ -108,7 +133,7 @@ def run_config(
     perm_init: float | None = None,
     perm_increment: float | None = None,
     seg_activation_threshold: int | None = None,
-    reset_per_word: bool = True,
+    reset_per_chunk: bool = True,
     seed: int = 0,
 ) -> dict:
     encoder = OneHotCharEncoder(chars=DEFAULT_ALPHABET)
@@ -130,15 +155,21 @@ def run_config(
     bpc = BPCProbe()
     trainer = T1Trainer(region, encoder, decoder=decoder, bpc_probe=bpc)
 
-    # Training. With `reset_per_word=True` (ARB-131 default), trainer
-    # working memory is cleared at each word boundary. With False, chars
-    # flow as a continuous stream — tests whether the per-word reset is
-    # a self-imposed ceiling vs. a real architectural limit.
+    # Training. With `reset_per_chunk=True` (ARB-131 default), trainer
+    # working memory is cleared at each chunk boundary (word for the
+    # synthetic wordlist, document for natural text). With False, chars
+    # flow as a continuous stream.
+    #
+    # Per-epoch shuffle: chunks are reshuffled each epoch so we don't
+    # replay the exact same super-sequence — previous versions iterated
+    # fixed order and effectively memorized one long sentence.
+    train_rng = np.random.default_rng(seed)
     for _ in range(epochs):
-        for w in train_words:
-            if reset_per_word:
+        epoch_chunks = shuffle_chunks(train_chunks, rng=train_rng)
+        for chunk in epoch_chunks:
+            if reset_per_chunk:
                 trainer.reset()
-            for c in w:
+            for c in chunk:
                 trainer.step(c, train=True)
 
     # Eval on held-out. Fresh LaminaProbe so recall/precision reflect
@@ -152,10 +183,10 @@ def run_config(
     bpc.reset()
     n_correct = 0
     n_chars = 0
-    for w in test_words:
-        if reset_per_word:
+    for chunk in test_chunks:
+        if reset_per_chunk:
             trainer.reset()
-        for c in w:
+        for c in chunk:
             r = trainer.step(c, train=False)
             n_chars += 1
             if r.top1_correct:
@@ -185,7 +216,7 @@ def run_config(
         "perm_increment": region.perm_increment,
         "seg_activation_threshold": region.seg_activation_threshold,
         "epochs": epochs,
-        "reset_per_word": reset_per_word,
+        "reset_per_chunk": reset_per_chunk,
         # Region-intrinsic surprise / prediction quality. L4 and L2/3.
         "l4_recall": snap.input.recall,
         "l4_precision": snap.input.precision,
@@ -216,7 +247,7 @@ def run_config(
 
 
 def format_row(r: dict) -> str:
-    reset = "yes" if r["reset_per_word"] else "NO"
+    reset = "yes" if r["reset_per_chunk"] else "NO"
     return (
         f"cols={r['n_columns']:>4d} k={r['k_columns']:>2d} "
         f"l23/l4={r['n_l23']}/{r['n_l4']} l23segs={r['n_l23_segments']:>2d} "
@@ -299,18 +330,39 @@ def main() -> None:
         ),
     )
     p.add_argument(
-        "--no-word-reset",
+        "--no-reset",
+        dest="no_reset",
         action="store_true",
         help=(
-            "Disable the reset between words — chars flow as a "
-            "continuous stream. Tests whether ARB-131's per-word "
-            "memory-reset design is self-limiting."
+            "Disable the reset between chunks — chars flow as a "
+            "continuous stream. Tests whether per-chunk memory reset "
+            "(word boundary for wordlist, document boundary for "
+            "natural text) is self-limiting."
         ),
+    )
+    p.add_argument(
+        "--dataset",
+        type=str,
+        default="wordlist",
+        choices=["wordlist", "tinystories", "babylm", "tinydialogues", "personachat"],
+        help=(
+            "Data source. `wordlist` = bundled common_words.txt with "
+            "space-suffixed chunks. Others load from HuggingFace via "
+            "examples.chat.data (char-level, per-document chunks)."
+        ),
+    )
+    p.add_argument(
+        "--max-chars",
+        type=int,
+        default=50_000,
+        help="Cap on chars loaded from natural datasets (ignored for wordlist).",
     )
     args = p.parse_args()
 
-    words = alphabet_filter(load_words(), DEFAULT_ALPHABET)
-    train_words, test_words = train_test_split(words, test_frac=0.2, seed=args.seed)
+    chunks = _load_chunks(args.dataset, max_chars=args.max_chars)
+    train_chunks, test_chunks = split_chunks(chunks, test_frac=0.2, seed=args.seed)
+    n_train_chars = sum(len(c) for c in train_chunks)
+    n_test_chars = sum(len(c) for c in test_chunks)
     configs = list(
         product(
             args.ltd,
@@ -326,8 +378,9 @@ def main() -> None:
         )
     )
     print(
-        f"{len(configs)} configs "
-        f"({len(train_words)} train / {len(test_words)} test words)"
+        f"{len(configs)} configs on dataset={args.dataset} "
+        f"({len(train_chunks)} train chunks / {len(test_chunks)} test, "
+        f"{n_train_chars}+{n_test_chars} chars)"
     )
 
     # Base L2/3 per-cell cell count (4 per _default_t1_config). Used by
@@ -360,8 +413,8 @@ def main() -> None:
             ltd_rate=ltd,
             synapse_decay=decay,
             learning_rate=lr,
-            train_words=train_words,
-            test_words=test_words,
+            train_chunks=train_chunks,
+            test_chunks=test_chunks,
             epochs=epochs,
             n_columns=cols,
             k_columns=k,
@@ -370,7 +423,7 @@ def main() -> None:
             perm_init=pi,
             perm_increment=pinc,
             seg_activation_threshold=sat,
-            reset_per_word=not args.no_word_reset,
+            reset_per_chunk=not args.no_reset,
             seed=args.seed,
         )
         rows.append(r)

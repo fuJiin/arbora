@@ -153,7 +153,9 @@ class TestEncoderCompat:
         """CharbitEncoder returns (length, width); trainer must flatten."""
         from arbora.encoders.charbit import CharbitEncoder
 
-        encoder = CharbitEncoder(length=1, width=27, chars=DEFAULT_ALPHABET)
+        encoder = CharbitEncoder(
+            length=1, width=len(DEFAULT_ALPHABET) + 1, chars=DEFAULT_ALPHABET
+        )
         cfg = _default_t1_config()
         cfg.n_columns = 32
         cfg.k_columns = 4

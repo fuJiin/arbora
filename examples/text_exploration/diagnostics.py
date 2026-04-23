@@ -24,11 +24,15 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from examples.text_exploration.data import DEFAULT_ALPHABET
 from examples.text_exploration.trainer import T1Trainer
 
+# Phonetic-partition analysis alphabet: only a-z, no space. Space
+# isn't phonetic, so it doesn't belong in the vowel/consonant split.
+# `character_sdr_overlap` uses this by default; callers can pass any
+# alphabet string they want.
+PHONETIC_ALPHABET = "abcdefghijklmnopqrstuvwxyz"
 VOWELS = "aeiou"
-CONSONANTS = "".join(c for c in DEFAULT_ALPHABET if c not in VOWELS)
+CONSONANTS = "".join(c for c in PHONETIC_ALPHABET if c not in VOWELS)
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +129,7 @@ def _partition_pairs(
 
 def character_sdr_overlap(
     trainer: T1Trainer,
-    chars: str = DEFAULT_ALPHABET,
+    chars: str = PHONETIC_ALPHABET,
 ) -> SDROverlapResult:
     """Jaccard between L4 and L2/3 SDRs for each char.
 
