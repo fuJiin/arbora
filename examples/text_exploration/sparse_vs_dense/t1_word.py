@@ -29,16 +29,26 @@ from arbora.config import _default_t1_config, make_sensory_region
 
 
 class _OneHotIDEncoder:
-    """One-hot encoder over an integer ID space. Duck-typed for `T1Trainer`."""
+    """One-hot encoder over an integer ID space. Duck-typed for `T1Trainer`.
+
+    Caches encoded vectors to avoid reallocating one bool array per
+    step. The region's fast path uses `np.flatnonzero` on the bool
+    array, which is fine to share across calls (the array is read,
+    not mutated).
+    """
 
     def __init__(self, vocab_size: int) -> None:
         self.vocab_size = vocab_size
         self.input_dim = vocab_size
         self.encoding_width = 0  # no positional sub-structure
+        self._cache: dict[int, np.ndarray] = {}
 
     def encode(self, word_id: int) -> np.ndarray:
-        v = np.zeros(self.vocab_size, dtype=np.bool_)
-        v[word_id] = True
+        v = self._cache.get(word_id)
+        if v is None:
+            v = np.zeros(self.vocab_size, dtype=np.bool_)
+            v[word_id] = True
+            self._cache[word_id] = v
         return v
 
 

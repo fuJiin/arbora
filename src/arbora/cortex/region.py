@@ -312,9 +312,25 @@ class CorticalRegion:
             forced_columns: If provided, skip k-WTA and use these columns.
                 Used for motor exploration (random column forcing).
         """
-        flat = encoding.flatten().astype(np.float64)
-
-        neuron_drive = flat @ self.ff_weights
+        # Sparse-input fast path: if `encoding` is bool, the matmul
+        # `flat @ ff_weights` is equivalent to summing rows of
+        # ff_weights at the active positions. For one-hot inputs
+        # (vocab_size=N, K=1) this is N× faster; for arbitrary sparse
+        # binary it scales as N/K. Same answer either way — pure
+        # speedup, no semantic change.
+        flat_orig = encoding.flatten()
+        if flat_orig.dtype == np.bool_:
+            active_idx = np.flatnonzero(flat_orig)
+            if active_idx.size > 0:
+                neuron_drive = self.ff_weights[active_idx].sum(axis=0)
+            else:
+                neuron_drive = np.zeros(
+                    self.ff_weights.shape[1], dtype=np.float64
+                )
+            flat = flat_orig.astype(np.float64)
+        else:
+            flat = flat_orig.astype(np.float64)
+            neuron_drive = flat @ self.ff_weights
 
         # Efference copy: suppress expected sensory consequence
         if self._efference_copy is not None:
@@ -501,8 +517,16 @@ class CorticalRegion:
             # Read winner weight slice once
             w = ff_weights[:, winner_indices]
 
-            # LTP: strengthen synapses from recently-active inputs → winners
-            w += ltp_rate * ltp_signal[:, np.newaxis]
+            # LTP: strengthen synapses from recently-active inputs → winners.
+            # Sparse fast path: ltp_signal is k-WTA-sparse (or one-hot when
+            # pre_trace_decay is small). Updating only active positions is
+            # equivalent to the full broadcast since inactive positions
+            # would add 0. Big win for one-hot / small-trace inputs.
+            active_ltp_idx = np.flatnonzero(ltp_signal > 0)
+            if active_ltp_idx.size > 0:
+                w[active_ltp_idx] += (
+                    ltp_rate * ltp_signal[active_ltp_idx, np.newaxis]
+                )
 
             # LTD: weaken synapses from NOT-recently-active inputs → winners
             # Uses flat_input (not trace) for LTD — only current step's
