@@ -53,16 +53,22 @@ def build_region(
     learning_rate: float,
     n_columns: int | None = None,
     k_columns: int | None = None,
+    n_l23: int | None = None,
+    n_l23_segments: int | None = None,
     perm_init: float | None = None,
     perm_increment: float | None = None,
     seg_activation_threshold: int | None = None,
     seed: int = 0,
 ):
-    """T1 with overridden saturation- and segment-relevant knobs.
+    """T1 with overridden saturation-, capacity-, and segment-relevant knobs.
 
     L5 disabled (not used). `n_columns` / `k_columns` override the T1
     defaults when set (k scales with cols so activation fraction stays
-    near 6.25%). `perm_init` / `perm_increment` / `seg_activation_threshold`
+    near 6.25%). `n_l23` overrides L2/3 neurons per column — lets us
+    sweep the L4→L2/3 expansion ratio (ARB-128 hypothesis) directly.
+    `n_l23_segments` overrides segments per L2/3 cell (default 4); use
+    to compensate for per-cell firing-rate dilution when expanding
+    `n_l23`. `perm_init` / `perm_increment` / `seg_activation_threshold`
     control segment growth dynamics.
     """
     cfg = _default_t1_config()
@@ -74,6 +80,10 @@ def build_region(
         cfg.n_columns = n_columns
     if k_columns is not None:
         cfg.k_columns = k_columns
+    if n_l23 is not None:
+        cfg.n_l23 = n_l23
+    if n_l23_segments is not None:
+        cfg.n_l23_segments = n_l23_segments
     if perm_init is not None:
         cfg.perm_init = perm_init
     if perm_increment is not None:
@@ -93,9 +103,12 @@ def run_config(
     epochs: int = 2,
     n_columns: int | None = None,
     k_columns: int | None = None,
+    n_l23: int | None = None,
+    n_l23_segments: int | None = None,
     perm_init: float | None = None,
     perm_increment: float | None = None,
     seg_activation_threshold: int | None = None,
+    reset_per_word: bool = True,
     seed: int = 0,
 ) -> dict:
     encoder = OneHotCharEncoder(chars=DEFAULT_ALPHABET)
@@ -106,6 +119,8 @@ def run_config(
         learning_rate=learning_rate,
         n_columns=n_columns,
         k_columns=k_columns,
+        n_l23=n_l23,
+        n_l23_segments=n_l23_segments,
         perm_init=perm_init,
         perm_increment=perm_increment,
         seg_activation_threshold=seg_activation_threshold,
@@ -115,9 +130,16 @@ def run_config(
     bpc = BPCProbe()
     trainer = T1Trainer(region, encoder, decoder=decoder, bpc_probe=bpc)
 
+    # Training. With `reset_per_word=True` (ARB-131 default), trainer
+    # working memory is cleared at each word boundary. With False, chars
+    # flow as a continuous stream — tests whether the per-word reset is
+    # a self-imposed ceiling vs. a real architectural limit.
     for _ in range(epochs):
         for w in train_words:
-            trainer.train_word(w, train=True)
+            if reset_per_word:
+                trainer.reset()
+            for c in w:
+                trainer.step(c, train=True)
 
     # Eval on held-out. Fresh LaminaProbe so recall/precision reflect
     # the trained state only (not noisy training dynamics). Wrap the
@@ -131,7 +153,8 @@ def run_config(
     n_correct = 0
     n_chars = 0
     for w in test_words:
-        trainer.reset()
+        if reset_per_word:
+            trainer.reset()
         for c in w:
             r = trainer.step(c, train=False)
             n_chars += 1
@@ -154,10 +177,15 @@ def run_config(
         "learning_rate": learning_rate,
         "n_columns": region.n_columns,
         "k_columns": region.k_columns,
+        "n_l4": region.n_l4,
+        "n_l23": region.n_l23,
+        "n_l23_segments": region.n_l23_segments,
+        "expansion_ratio": region.n_l23 / region.n_l4,
         "perm_init": region.perm_init,
         "perm_increment": region.perm_increment,
         "seg_activation_threshold": region.seg_activation_threshold,
         "epochs": epochs,
+        "reset_per_word": reset_per_word,
         # Region-intrinsic surprise / prediction quality. L4 and L2/3.
         "l4_recall": snap.input.recall,
         "l4_precision": snap.input.precision,
@@ -188,15 +216,18 @@ def run_config(
 
 
 def format_row(r: dict) -> str:
+    reset = "yes" if r["reset_per_word"] else "NO"
     return (
-        f"cols={r['n_columns']:>4d} k={r['k_columns']:>2d} ep={r['epochs']} "
-        f"pi={r['perm_init']:.2f} pinc={r['perm_increment']:.2f} "
-        f"sat={r['seg_activation_threshold']} | "
-        f"L4(rec={r['l4_recall']:.2f} pre={r['l4_precision']:.2f}) "
-        f"L23(rec={r['l23_recall']:.2f} pre={r['l23_precision']:.2f} "
-        f"ed={r['l23_eff_dim']:.1f}) | "
-        f"segs(l4m={r['l4_seg_mean']:.2f} l23m={r['l23_seg_mean']:.2f}) | "
-        f"l4_vv={r['l4_within_vowel']:.2f} acc={r['test_acc']:.3f}"
+        f"cols={r['n_columns']:>4d} k={r['k_columns']:>2d} "
+        f"l23/l4={r['n_l23']}/{r['n_l4']} l23segs={r['n_l23_segments']:>2d} "
+        f"ep={r['epochs']:>2d} sat={r['seg_activation_threshold']} "
+        f"reset={reset} | "
+        f"L4(r={r['l4_recall']:.2f} p={r['l4_precision']:.2f} "
+        f"sp={r['l4_sparseness']:.2f}) "
+        f"L23(r={r['l23_recall']:.2f} p={r['l23_precision']:.2f} "
+        f"sp={r['l23_sparseness']:.2f} ed={r['l23_eff_dim']:>4.1f}) | "
+        f"l4m={r['l4_seg_mean']:.2f} l23m={r['l23_seg_mean']:.2f} | "
+        f"vv={r['l4_within_vowel']:.2f} acc={r['test_acc']:.3f}"
     )
 
 
@@ -238,6 +269,44 @@ def main() -> None:
         default=[None],
         help="Segment activation threshold (None = default 2).",
     )
+    p.add_argument(
+        "--n-l23",
+        type=int,
+        nargs="+",
+        default=[None],
+        help=(
+            "L2/3 neurons per column (None = default 4 = 1:1 with L4). "
+            "Sweep higher values (8, 16, 40) to test the ARB-128 "
+            "expansion-ratio hypothesis."
+        ),
+    )
+    p.add_argument(
+        "--n-l23-segments",
+        type=int,
+        nargs="+",
+        default=[None],
+        help="Segments per L2/3 cell (None = default 4).",
+    )
+    p.add_argument(
+        "--scale-segments",
+        action="store_true",
+        help=(
+            "Auto-scale n_l23_segments proportional to n_l23 "
+            "(n_l23_segments = 4 * n_l23 / 4 = n_l23). Overrides "
+            "--n-l23-segments for configs where --n-l23 is set. "
+            "Compensates for per-cell firing-rate dilution under "
+            "L2/3 expansion."
+        ),
+    )
+    p.add_argument(
+        "--no-word-reset",
+        action="store_true",
+        help=(
+            "Disable the reset between words — chars flow as a "
+            "continuous stream. Tests whether ARB-131's per-word "
+            "memory-reset design is self-limiting."
+        ),
+    )
     args = p.parse_args()
 
     words = alphabet_filter(load_words(), DEFAULT_ALPHABET)
@@ -252,6 +321,8 @@ def main() -> None:
             args.perm_init,
             args.perm_increment,
             args.seg_threshold,
+            args.n_l23,
+            args.n_l23_segments,
         )
     )
     print(
@@ -259,12 +330,32 @@ def main() -> None:
         f"({len(train_words)} train / {len(test_words)} test words)"
     )
 
+    # Base L2/3 per-cell cell count (4 per _default_t1_config). Used by
+    # --scale-segments to compute the segment-per-cell multiplier.
+    BASE_N_L23 = 4
+    BASE_N_L23_SEGMENTS = 4
+
     rows: list[dict] = []
     t_start = time.monotonic()
-    for i, (ltd, decay, lr, cols, epochs, pi, pinc, sat) in enumerate(configs):
+    for i, (
+        ltd,
+        decay,
+        lr,
+        cols,
+        epochs,
+        pi,
+        pinc,
+        sat,
+        n_l23,
+        n_l23_segments,
+    ) in enumerate(configs):
         t0 = time.monotonic()
         # k scales with cols to keep activation fraction ~6.25% (T1 default).
         k = None if cols is None else max(1, cols // 16)
+        # Auto-scale n_l23_segments with n_l23 when requested, unless an
+        # explicit --n-l23-segments override is already set for this config.
+        if args.scale_segments and n_l23 is not None and n_l23_segments is None:
+            n_l23_segments = BASE_N_L23_SEGMENTS * n_l23 // BASE_N_L23
         r = run_config(
             ltd_rate=ltd,
             synapse_decay=decay,
@@ -274,9 +365,12 @@ def main() -> None:
             epochs=epochs,
             n_columns=cols,
             k_columns=k,
+            n_l23=n_l23,
+            n_l23_segments=n_l23_segments,
             perm_init=pi,
             perm_increment=pinc,
             seg_activation_threshold=sat,
+            reset_per_word=not args.no_word_reset,
             seed=args.seed,
         )
         rows.append(r)
