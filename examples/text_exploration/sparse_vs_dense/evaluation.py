@@ -179,6 +179,87 @@ def evaluate_capacity(emb: Embeddings, *, sample: int = 500, seed: int = 0) -> d
     }
 
 
+def _corrupt_sparse(v: np.ndarray, corruption: float, rng) -> np.ndarray:
+    """Flip `corruption` fraction of active bits off + same number of
+    inactive bits on, preserving sparsity."""
+    active = np.flatnonzero(v)
+    inactive = np.flatnonzero(~v)
+    n_flip = max(1, int(len(active) * corruption))
+    if n_flip > len(active) or n_flip > len(inactive):
+        return v.copy()
+    flipped_off = rng.choice(active, size=n_flip, replace=False)
+    flipped_on = rng.choice(inactive, size=n_flip, replace=False)
+    out = v.copy()
+    out[flipped_off] = False
+    out[flipped_on] = True
+    return out
+
+
+def _corrupt_dense(v: np.ndarray, corruption: float, rng) -> np.ndarray:
+    """Add Gaussian noise proportional to vector std.
+
+    Parametrized so `corruption=0.3` means noise sigma is 30% of the vector's
+    own std. Direct analog of "30% of active bits flipped" for dense
+    vectors.
+    """
+    sigma = corruption * float(v.std()) if v.std() > 0 else corruption
+    return v + rng.normal(0.0, sigma, size=v.shape).astype(v.dtype)
+
+
+def evaluate_corruption_robustness(
+    emb: Embeddings,
+    pairs: list[tuple[str, str, float]],
+    *,
+    corruption_levels: tuple[float, ...] = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5),
+    seed: int = 0,
+    min_score: float = 6.0,
+) -> dict:
+    """Corruption robustness curve on high-similarity SimLex pairs.
+
+    Works for both sparse and dense:
+    - Sparse: flip `level` fraction of active bits off and same number
+      of inactive bits on (preserves sparsity).
+    - Dense: add Gaussian noise with sigma = level * vector.std().
+
+    For each level, computes mean similarity between corrupted `a`
+    and clean `b` across high-rated pairs. Reports raw means and
+    "retention" (corrupted_mean / clean_mean) — closer to 1 = robust.
+
+    Returns {corruption_levels, mean_sims, retentions, n_pairs}.
+    """
+    sparse = emb.is_sparse()
+    rng = np.random.default_rng(seed)
+    high_pairs = [(a, b) for a, b, s in pairs if s >= min_score]
+
+    pair_vecs: list[tuple[np.ndarray, np.ndarray]] = []
+    for a, b in high_pairs:
+        va, vb = emb.get(a), emb.get(b)
+        if va is not None and vb is not None:
+            pair_vecs.append((va, vb))
+
+    levels = list(corruption_levels)
+    mean_sims: list[float] = []
+    for level in levels:
+        sims: list[float] = []
+        for va, vb in pair_vecs:
+            va_corrupt = (
+                _corrupt_sparse(va, level, rng)
+                if sparse
+                else _corrupt_dense(va, level, rng)
+            )
+            sims.append(similarity(va_corrupt, vb, sparse=sparse))
+        mean_sims.append(float(np.mean(sims)) if sims else 0.0)
+
+    clean_mean = mean_sims[0] if mean_sims else 0.0
+    retentions = [(m / clean_mean) if clean_mean > 0 else 0.0 for m in mean_sims]
+    return {
+        "corruption_levels": levels,
+        "mean_sims": mean_sims,
+        "retentions": retentions,
+        "n_pairs": len(pair_vecs),
+    }
+
+
 def evaluate_partial_cue(
     emb: Embeddings,
     pairs: list[tuple[str, str, float]],
@@ -186,18 +267,9 @@ def evaluate_partial_cue(
     corruption: float = 0.3,
     seed: int = 0,
 ) -> dict:
-    """Sparse-native: partial-cue retention on SimLex pairs.
-
-    For each high-similarity SimLex pair (human score >= 6):
-    corrupt `a`'s SDR by flipping `corruption` fraction of active bits
-    (and an equal number of inactive bits, to preserve sparsity). Then
-    measure whether the similarity to `b` is retained.
-
-    Returns Pearson correlation between clean and corrupted similarities
-    — the "retention" of the similarity signal under corruption. Closer
-    to 1.0 = sparse substrate's content-addressable retrieval is robust.
-
-    Only meaningful for sparse; skips dense.
+    """Sparse-only: scalar partial-cue retention at a single corruption
+    level. Kept for the existing single-number metric in `compare.py`;
+    see `evaluate_corruption_robustness` for the full curve.
     """
     if not emb.is_sparse():
         return {"n": 0, "retention": 0.0, "note": "dense emb skipped"}
@@ -211,17 +283,7 @@ def evaluate_partial_cue(
         if va is None or vb is None:
             continue
         clean_sims.append(jaccard_similarity(va, vb))
-
-        active = np.flatnonzero(va)
-        inactive = np.flatnonzero(~va)
-        n_flip = max(1, int(len(active) * corruption))
-        if n_flip > len(active) or n_flip > len(inactive):
-            continue
-        flipped_off = rng.choice(active, size=n_flip, replace=False)
-        flipped_on = rng.choice(inactive, size=n_flip, replace=False)
-        va_corrupt = va.copy()
-        va_corrupt[flipped_off] = False
-        va_corrupt[flipped_on] = True
+        va_corrupt = _corrupt_sparse(va, corruption, rng)
         corrupted_sims.append(jaccard_similarity(va_corrupt, vb))
 
     if len(clean_sims) < 2:

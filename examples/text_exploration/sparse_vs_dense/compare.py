@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import pickle
 import time
 from pathlib import Path
 
@@ -47,6 +48,7 @@ def run_one(
     w2v_epochs: int,
     t1_epochs: int,
     t1_kwargs: dict | None = None,
+    dump_dir: Path | None = None,
 ) -> list[dict]:
     """Train + eval both architectures on a slice of text8. Returns rows."""
     print(f"\n=== Run: n_tokens={n_tokens} vocab={vocab_size} seed={seed} ===")
@@ -102,6 +104,10 @@ def run_one(
             f"coll={cap['high_collision_frac']:.2f} ed={cap['eff_dim']:.1f} "
             f"({stats['elapsed_s']:.1f}s)"
         )
+        if dump_dir is not None:
+            _dump_embeddings(
+                dump_dir, emb_w2v, "word2vec", n_tokens=n_tokens, seed=seed
+            )
 
     if "t1" not in skip:
         t0 = time.monotonic()
@@ -150,8 +156,39 @@ def run_one(
             f"l23_active={stats['active_per_word_mean']:.1f}/{stats['n_l23_total']} "
             f"({stats['elapsed_s']:.1f}s)"
         )
+        if dump_dir is not None:
+            _dump_embeddings(
+                dump_dir, emb_t1, "t1_sparse", n_tokens=n_tokens, seed=seed
+            )
 
     return rows
+
+
+def _dump_embeddings(
+    dump_dir: Path,
+    emb,
+    model_name: str,
+    *,
+    n_tokens: int,
+    seed: int,
+) -> None:
+    """Pickle a dict[word, vector] for post-hoc viz.
+
+    For sparse: pickle the boolean SDRs dict directly. For dense
+    (word2vec): materialize a dict from the KeyedVectors so the
+    pickle doesn't carry gensim-specific types.
+    """
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    name = f"{model_name}_n{n_tokens}_s{seed}.pkl"
+    path = dump_dir / name
+    if model_name == "t1_sparse":
+        payload = {w: emb.get(w) for w in emb.vocab()}
+    else:
+        # word2vec: convert to plain dict of np arrays
+        payload = {w: emb.get(w).copy() for w in emb.vocab()}
+    with path.open("wb") as f:
+        pickle.dump(payload, f)
+    print(f"    dumped → {path}")
 
 
 def main() -> None:
@@ -182,10 +219,20 @@ def main() -> None:
         help="T1 n_columns. Default 256 — bigger than char-level due to vocab size.",
     )
     p.add_argument("--t1-k", type=int, default=16, help="T1 k_columns.")
+    p.add_argument(
+        "--dump-dir",
+        type=str,
+        default=None,
+        help=(
+            "If set, pickle per-(model, n_tokens, seed) embedding dicts "
+            "into this directory for downstream viz."
+        ),
+    )
     args = p.parse_args()
 
     t1_kwargs = {"n_columns": args.t1_cols, "k_columns": args.t1_k}
 
+    dump_dir = Path(args.dump_dir) if args.dump_dir else None
     all_rows: list[dict] = []
     for n in args.max_tokens:
         all_rows.extend(
@@ -197,6 +244,7 @@ def main() -> None:
                 w2v_epochs=args.w2v_epochs,
                 t1_epochs=args.t1_epochs,
                 t1_kwargs=t1_kwargs,
+                dump_dir=dump_dir,
             )
         )
 
