@@ -80,6 +80,8 @@ def build_region(
     k_columns: int | None = None,
     n_l23: int | None = None,
     n_l23_segments: int | None = None,
+    n_l4_lat_segments: int | None = None,
+    pre_trace_decay: float | None = None,
     perm_init: float | None = None,
     perm_increment: float | None = None,
     seg_activation_threshold: int | None = None,
@@ -109,6 +111,10 @@ def build_region(
         cfg.n_l23 = n_l23
     if n_l23_segments is not None:
         cfg.n_l23_segments = n_l23_segments
+    if n_l4_lat_segments is not None:
+        cfg.n_l4_lat_segments = n_l4_lat_segments
+    if pre_trace_decay is not None:
+        cfg.pre_trace_decay = pre_trace_decay
     if perm_init is not None:
         cfg.perm_init = perm_init
     if perm_increment is not None:
@@ -130,6 +136,8 @@ def run_config(
     k_columns: int | None = None,
     n_l23: int | None = None,
     n_l23_segments: int | None = None,
+    n_l4_lat_segments: int | None = None,
+    pre_trace_decay: float | None = None,
     perm_init: float | None = None,
     perm_increment: float | None = None,
     seg_activation_threshold: int | None = None,
@@ -146,6 +154,8 @@ def run_config(
         k_columns=k_columns,
         n_l23=n_l23,
         n_l23_segments=n_l23_segments,
+        n_l4_lat_segments=n_l4_lat_segments,
+        pre_trace_decay=pre_trace_decay,
         perm_init=perm_init,
         perm_increment=perm_increment,
         seg_activation_threshold=seg_activation_threshold,
@@ -211,6 +221,8 @@ def run_config(
         "n_l4": region.n_l4,
         "n_l23": region.n_l23,
         "n_l23_segments": region.n_l23_segments,
+        "n_l4_lat_segments": region.n_l4_lat_segments,
+        "pre_trace_decay": region._pre_trace_decay,
         "expansion_ratio": region.n_l23 / region.n_l4,
         "perm_init": region.perm_init,
         "perm_increment": region.perm_increment,
@@ -251,6 +263,8 @@ def format_row(r: dict) -> str:
     return (
         f"cols={r['n_columns']:>4d} k={r['k_columns']:>2d} "
         f"l23/l4={r['n_l23']}/{r['n_l4']} l23segs={r['n_l23_segments']:>2d} "
+        f"l4segs={r['n_l4_lat_segments']:>2d} "
+        f"ptd={r['pre_trace_decay']:.2f} "
         f"ep={r['epochs']:>2d} sat={r['seg_activation_threshold']} "
         f"reset={reset} | "
         f"L4(r={r['l4_recall']:.2f} p={r['l4_precision']:.2f} "
@@ -258,7 +272,7 @@ def format_row(r: dict) -> str:
         f"L23(r={r['l23_recall']:.2f} p={r['l23_precision']:.2f} "
         f"sp={r['l23_sparseness']:.2f} ed={r['l23_eff_dim']:>4.1f}) | "
         f"l4m={r['l4_seg_mean']:.2f} l23m={r['l23_seg_mean']:.2f} | "
-        f"vv={r['l4_within_vowel']:.2f} acc={r['test_acc']:.3f}"
+        f"acc={r['test_acc']:.3f}"
     )
 
 
@@ -319,6 +333,24 @@ def main() -> None:
         help="Segments per L2/3 cell (None = default 4).",
     )
     p.add_argument(
+        "--n-l4-lat-segments",
+        type=int,
+        nargs="+",
+        default=[None],
+        help="L4 lateral segments per cell (None = default 4).",
+    )
+    p.add_argument(
+        "--pre-trace-decay",
+        type=float,
+        nargs="+",
+        default=[None],
+        help=(
+            "STDP-like presynaptic trace decay (None = default 0.8). "
+            "Higher = longer memory in segment learning (0.95 ~20 steps, "
+            "0.99 ~100)."
+        ),
+    )
+    p.add_argument(
         "--scale-segments",
         action="store_true",
         help=(
@@ -375,6 +407,8 @@ def main() -> None:
             args.seg_threshold,
             args.n_l23,
             args.n_l23_segments,
+            args.n_l4_lat_segments,
+            args.pre_trace_decay,
         )
     )
     print(
@@ -401,6 +435,8 @@ def main() -> None:
         sat,
         n_l23,
         n_l23_segments,
+        n_l4_lat_segs,
+        ptd,
     ) in enumerate(configs):
         t0 = time.monotonic()
         # k scales with cols to keep activation fraction ~6.25% (T1 default).
@@ -420,6 +456,8 @@ def main() -> None:
             k_columns=k,
             n_l23=n_l23,
             n_l23_segments=n_l23_segments,
+            n_l4_lat_segments=n_l4_lat_segs,
+            pre_trace_decay=ptd,
             perm_init=pi,
             perm_increment=pinc,
             seg_activation_threshold=sat,
