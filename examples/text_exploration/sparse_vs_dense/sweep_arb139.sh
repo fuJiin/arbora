@@ -66,18 +66,27 @@ else
 fi
 
 # Phase 2: T1 alone, capped at 1M tokens (~3.5 hours wall).
-run_phase "t1_seed0" \
-    --max-tokens 100000 500000 1000000 \
-    --seed 0 \
-    --skip word2vec random_indexing brown_cluster \
-    --csv "$OUT_DIR/t1_seed0.csv" || echo "[warn] phase t1_seed0 had failures, continuing"
+if [ -s "$OUT_DIR/t1_seed0.csv" ] && [ "$(wc -l < "$OUT_DIR/t1_seed0.csv")" -ge 4 ]; then
+    echo "=== [$(date -u +%Y-%m-%dT%H:%M:%SZ)] phase=t1_seed0 skipped (CSV complete) ==="
+else
+    run_phase "t1_seed0" \
+        --max-tokens 100000 500000 1000000 \
+        --seed 0 \
+        --skip word2vec random_indexing brown_cluster \
+        --csv "$OUT_DIR/t1_seed0.csv" || echo "[warn] phase t1_seed0 had failures, continuing"
+fi
 
 # Phase 3: variance at 500k tokens, seeds 1 and 2, all models.
 for seed in 1 2; do
+    csv_path="$OUT_DIR/variance_seed${seed}.csv"
+    if [ -s "$csv_path" ] && [ "$(wc -l < "$csv_path")" -ge 5 ]; then
+        echo "=== [$(date -u +%Y-%m-%dT%H:%M:%SZ)] phase=variance_seed${seed} skipped (CSV complete) ==="
+        continue
+    fi
     run_phase "variance_seed${seed}" \
         --max-tokens 500000 \
         --seed "$seed" \
-        --csv "$OUT_DIR/variance_seed${seed}.csv" \
+        --csv "$csv_path" \
         || echo "[warn] phase variance_seed${seed} had failures, continuing"
 done
 
