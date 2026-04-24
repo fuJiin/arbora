@@ -90,7 +90,13 @@ def fmt_cell(stat: tuple[float, float, int], decimals: int = 3) -> str:
 
 
 def print_table(agg: dict) -> None:
-    models_order = ["word2vec", "random_indexing", "brown_cluster", "t1_sparse"]
+    models_order = [
+        "word2vec",
+        "random_indexing",
+        "brown_cluster",
+        "sparse_skipgram_hebbian",
+        "t1_sparse",
+    ]
     token_counts = sorted({k[1] for k in agg.keys()})
     models_present = [m for m in models_order if any(k[0] == m for k in agg.keys())]
 
