@@ -343,21 +343,36 @@ def main() -> None:
     ri_kwargs = {"n_dims": args.ri_dims, "k_active": args.ri_k}
 
     dump_dir = Path(args.dump_dir) if args.dump_dir else None
+    csv_path = Path(args.csv) if args.csv else None
+    if csv_path is not None:
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+
     all_rows: list[dict] = []
     for n in args.max_tokens:
-        all_rows.extend(
-            run_one(
-                n_tokens=n,
-                vocab_size=args.vocab_size,
-                seed=args.seed,
-                skip=args.skip,
-                w2v_epochs=args.w2v_epochs,
-                t1_epochs=args.t1_epochs,
-                t1_kwargs=t1_kwargs,
-                ri_kwargs=ri_kwargs,
-                dump_dir=dump_dir,
-            )
+        new_rows = run_one(
+            n_tokens=n,
+            vocab_size=args.vocab_size,
+            seed=args.seed,
+            skip=args.skip,
+            w2v_epochs=args.w2v_epochs,
+            t1_epochs=args.t1_epochs,
+            t1_kwargs=t1_kwargs,
+            ri_kwargs=ri_kwargs,
+            dump_dir=dump_dir,
         )
+        all_rows.extend(new_rows)
+        # Persist CSV after every token-count batch so a kill mid-sweep
+        # doesn't lose completed rows. Re-emits header each time using
+        # the current union of keys so a row added later doesn't drop
+        # earlier rows' columns.
+        if csv_path is not None and all_rows:
+            keys = sorted({k for r in all_rows for k in r})
+            with csv_path.open("w") as f:
+                w = csv.DictWriter(f, fieldnames=keys)
+                w.writeheader()
+                for r in all_rows:
+                    w.writerow(r)
+            print(f"  [partial] wrote {csv_path} ({len(all_rows)} rows)")
 
     print("\n=== Summary ===")
     for r in all_rows:
@@ -368,17 +383,8 @@ def main() -> None:
             f"{r['elapsed_s']:.1f}s"
         )
 
-    if args.csv:
-        out = Path(args.csv)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        # Union of all keys across rows.
-        keys = sorted({k for r in all_rows for k in r})
-        with out.open("w") as f:
-            w = csv.DictWriter(f, fieldnames=keys)
-            w.writeheader()
-            for r in all_rows:
-                w.writerow(r)
-        print(f"\nWrote {out}")
+    if csv_path is not None:
+        print(f"\nWrote {csv_path}")
 
 
 if __name__ == "__main__":

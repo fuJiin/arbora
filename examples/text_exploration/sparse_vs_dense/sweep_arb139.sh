@@ -4,11 +4,12 @@
 # Phases (all writing CSVs + pickle dumps to data/runs/arb139/):
 #   1. Light models (word2vec, RI, Brown) at {100k, 500k, 1M, 2M, 5M, 10M}
 #      tokens, seed=0. T1 skipped — too slow at 5M+.
-#   2. T1 alone at {100k, 500k, 1M, 2M} tokens, seed=0. Caps T1 at the
-#      largest size that comfortably fits the budget (~30min/1M token at
-#      vocab=5000, n_columns=256).
-#   3. Variance — all four models at 1M tokens for seeds {1, 2}, so we
-#      have 3-seed stats at the headline size for each model.
+#   2. T1 alone at {100k, 500k, 1M} tokens, seed=0. Caps T1 at 1M
+#      because production T1 measured at ~14 min/100k tokens at
+#      vocab=5000, n_columns=256 (so 1M ≈ 2.3 h, 2M would add 4.7 h).
+#   3. Variance — all four models at 500k tokens for seeds {1, 2}.
+#      500k chosen so T1's two replicates fit (~70 min × 2 = ~2.3 h)
+#      while still giving variance bands at a meaningful corpus size.
 #
 # Each phase logs to its own file under data/runs/arb139/logs/ so a failure
 # in one phase doesn't lose progress from the others. Total wall-clock
@@ -53,23 +54,28 @@ run_phase() {
 }
 
 # Phase 1: light models across the full token-count sweep.
-run_phase "light_seed0" \
-    --max-tokens 100000 500000 1000000 2000000 5000000 10000000 \
-    --seed 0 \
-    --skip t1 \
-    --csv "$OUT_DIR/light_seed0.csv" || echo "[warn] phase light_seed0 had failures, continuing"
+# Skip if CSV already exists (idempotent — lets us resume after a kill).
+if [ -s "$OUT_DIR/light_seed0.csv" ]; then
+    echo "=== [$(date -u +%Y-%m-%dT%H:%M:%SZ)] phase=light_seed0 skipped (CSV present) ==="
+else
+    run_phase "light_seed0" \
+        --max-tokens 100000 500000 1000000 2000000 5000000 10000000 \
+        --seed 0 \
+        --skip t1 \
+        --csv "$OUT_DIR/light_seed0.csv" || echo "[warn] phase light_seed0 had failures, continuing"
+fi
 
-# Phase 2: T1 alone, capped at 2M tokens (~60 min wall).
+# Phase 2: T1 alone, capped at 1M tokens (~3.5 hours wall).
 run_phase "t1_seed0" \
-    --max-tokens 100000 500000 1000000 2000000 \
+    --max-tokens 100000 500000 1000000 \
     --seed 0 \
     --skip word2vec random_indexing brown_cluster \
     --csv "$OUT_DIR/t1_seed0.csv" || echo "[warn] phase t1_seed0 had failures, continuing"
 
-# Phase 3: variance at 1M tokens, seeds 1 and 2, all models.
+# Phase 3: variance at 500k tokens, seeds 1 and 2, all models.
 for seed in 1 2; do
     run_phase "variance_seed${seed}" \
-        --max-tokens 1000000 \
+        --max-tokens 500000 \
         --seed "$seed" \
         --csv "$OUT_DIR/variance_seed${seed}.csv" \
         || echo "[warn] phase variance_seed${seed} had failures, continuing"
