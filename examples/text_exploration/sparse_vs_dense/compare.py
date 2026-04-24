@@ -42,6 +42,9 @@ from examples.text_exploration.sparse_vs_dense.evaluation import (
 from examples.text_exploration.sparse_vs_dense.random_indexing_baseline import (
     train_random_indexing,
 )
+from examples.text_exploration.sparse_vs_dense.sparse_skipgram_hebbian_baseline import (
+    train_sparse_skipgram_hebbian,
+)
 from examples.text_exploration.sparse_vs_dense.t1_word import train_t1_word
 from examples.text_exploration.sparse_vs_dense.word2vec_baseline import train_word2vec
 
@@ -117,6 +120,7 @@ def run_one(
     t1_epochs: int,
     t1_kwargs: dict | None = None,
     ri_kwargs: dict | None = None,
+    ssh_kwargs: dict | None = None,
     dump_dir: Path | None = None,
 ) -> list[dict]:
     """Train + eval all enabled architectures on a slice of text8."""
@@ -229,6 +233,41 @@ def run_one(
                 dump_dir, emb, "brown_cluster", n_tokens=n_tokens, seed=seed
             )
 
+    if "sparse_skipgram_hebbian" not in skip:
+        t0 = time.monotonic()
+        emb, stats = train_sparse_skipgram_hebbian(
+            token_ids(),
+            id_to_token=id_to_token,
+            seed=seed,
+            **(ssh_kwargs or {}),
+        )
+        rows.append(
+            _eval_and_row(
+                emb,
+                model="sparse_skipgram_hebbian",
+                n_tokens=n_tokens,
+                vocab_size=vocab_size,
+                seed=seed,
+                simlex=simlex,
+                analogy=analogy,
+                stats=stats,
+                wall_s=time.monotonic() - t0,
+                extra={
+                    "active_per_word_mean": stats["active_per_word_mean"],
+                    "n_dims": stats["n_dims"],
+                    "k_active": stats["k_active"],
+                },
+            )
+        )
+        if dump_dir is not None:
+            _dump_embeddings(
+                dump_dir,
+                emb,
+                "sparse_skipgram_hebbian",
+                n_tokens=n_tokens,
+                seed=seed,
+            )
+
     if "t1" not in skip:
         t0 = time.monotonic()
         emb, stats = train_t1_word(
@@ -305,8 +344,38 @@ def main() -> None:
         "--skip",
         nargs="+",
         default=[],
-        choices=["word2vec", "random_indexing", "brown_cluster", "t1"],
+        choices=[
+            "word2vec",
+            "random_indexing",
+            "brown_cluster",
+            "sparse_skipgram_hebbian",
+            "t1",
+        ],
         help="Skip these models.",
+    )
+    p.add_argument(
+        "--ssh-dims",
+        type=int,
+        default=1024,
+        help="Sparse-skipgram-Hebbian n_dims.",
+    )
+    p.add_argument(
+        "--ssh-k",
+        type=int,
+        default=40,
+        help="Sparse-skipgram-Hebbian k_active.",
+    )
+    p.add_argument(
+        "--ssh-lr-pos",
+        type=float,
+        default=0.05,
+        help="Sparse-skipgram-Hebbian positive-pair learning rate.",
+    )
+    p.add_argument(
+        "--ssh-lr-neg",
+        type=float,
+        default=0.02,
+        help="Sparse-skipgram-Hebbian anti-Hebbian (negative) rate.",
     )
     p.add_argument(
         "--ri-dims",
@@ -341,6 +410,12 @@ def main() -> None:
 
     t1_kwargs = {"n_columns": args.t1_cols, "k_columns": args.t1_k}
     ri_kwargs = {"n_dims": args.ri_dims, "k_active": args.ri_k}
+    ssh_kwargs = {
+        "n_dims": args.ssh_dims,
+        "k_active": args.ssh_k,
+        "lr_pos": args.ssh_lr_pos,
+        "lr_neg": args.ssh_lr_neg,
+    }
 
     dump_dir = Path(args.dump_dir) if args.dump_dir else None
     csv_path = Path(args.csv) if args.csv else None
@@ -358,6 +433,7 @@ def main() -> None:
             t1_epochs=args.t1_epochs,
             t1_kwargs=t1_kwargs,
             ri_kwargs=ri_kwargs,
+            ssh_kwargs=ssh_kwargs,
             dump_dir=dump_dir,
         )
         all_rows.extend(new_rows)
