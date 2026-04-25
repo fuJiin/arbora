@@ -292,6 +292,7 @@ def train_sparse_skipgram_hebbian_modulated(
     lr_neg: float = 0.05,
     modulate: bool = True,
     decay: float = 0.0,
+    single_table: bool = False,
     init_scale: float = 0.01,
     neg_power: float = 0.75,
     seed: int = 0,
@@ -314,6 +315,11 @@ def train_sparse_skipgram_hebbian_modulated(
             negative update by (overlap/k). If False, recovers vanilla SSH.
         decay: If > 0, apply uniform Oja-like decay to the touched rows after
             each pair: `A *= (1 - decay)`. 0 means no decay.
+        single_table: If True, use a single accumulator table for both center
+            and context roles (A_center and A_context aliased to same array).
+            Halves memory and tests whether word2vec's two-table asymmetry
+            buys SSH anything — likely not, since bit-overlap scoring is
+            symmetric. If False, separate tables (default, matches word2vec).
         init_scale: Stdev of Gaussian init for accumulators.
         neg_power: Exponent on unigram counts for negative sampling.
         seed: RNG seed.
@@ -329,7 +335,12 @@ def train_sparse_skipgram_hebbian_modulated(
     t0 = time.monotonic()
 
     A_center = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
-    A_context = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
+    if single_table:
+        # Alias: every update path writes through this view; effectively
+        # there is one table indexed by word, regardless of role.
+        A_context = A_center
+    else:
+        A_context = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
 
     cdf = _build_unigram_cdf(tids, V, neg_power)
 
@@ -377,6 +388,7 @@ def train_sparse_skipgram_hebbian_modulated(
         "lr_neg": lr_neg,
         "modulate": modulate,
         "decay": decay,
+        "single_table": single_table,
         "n_train_tokens": N,
         "n_negs_used": int(n_negs_used),
         "active_per_word_mean": mean_active,
