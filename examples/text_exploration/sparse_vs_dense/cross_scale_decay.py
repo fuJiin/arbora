@@ -114,8 +114,22 @@ def main() -> None:
     csv_path = Path(args.csv)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
 
-    all_rows: list[dict] = []
+    # Load any existing rows so we can resume after a kill.
+    existing: list[dict] = []
+    done_keys: set[tuple[float, int]] = set()
+    if csv_path.exists():
+        with csv_path.open() as f:
+            for row in csv.DictReader(f):
+                existing.append(row)
+                done_keys.add((float(row["decay"]), int(row["n_tokens"])))
+
+    all_rows: list[dict] = list(existing)
     for decay, n_tokens in plan:
+        if (decay, n_tokens) in done_keys:
+            print(
+                f"--- skipping: decay={decay:g} n_tokens={n_tokens:,} (already in CSV) ---"
+            )
+            continue
         row = run_one(
             decay,
             n_tokens=n_tokens,

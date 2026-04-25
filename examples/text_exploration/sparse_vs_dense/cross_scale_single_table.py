@@ -111,8 +111,20 @@ def main() -> None:
     csv_path = Path(args.csv)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
 
-    all_rows: list[dict] = []
+    # Resume: load any existing rows and skip already-completed sizes.
+    existing: list[dict] = []
+    done_sizes: set[int] = set()
+    if csv_path.exists():
+        with csv_path.open() as f:
+            for row in csv.DictReader(f):
+                existing.append(row)
+                done_sizes.add(int(row["n_tokens"]))
+
+    all_rows: list[dict] = list(existing)
     for n in args.n_tokens:
+        if n in done_sizes:
+            print(f"--- skipping: n_tokens={n:,} (already in CSV) ---")
+            continue
         row = run_one(n_tokens=n, vocab_size=args.vocab_size, seed=args.seed)
         all_rows.append(row)
         keys = sorted({k for r in all_rows for k in r})
