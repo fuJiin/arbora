@@ -128,6 +128,8 @@ def _make_train_loop():
     def _train(
         A_center,
         A_context,
+        A_ema_center,
+        A_ema_context,
         tids,
         cdf,
         negs_buf,
@@ -142,14 +144,21 @@ def _make_train_loop():
         lr_neg,
         decay,
         modulate,
+        ema_alpha,
+        subtract_mean,
     ):
         N = tids.shape[0]
         neg_pos = 0  # pointer into negs_buf
         n_negs_total = negs_buf.shape[0]
         for i in range(N):
             center = tids[i]
-            # Cache E_center for this token position.
-            _top_k_into(A_center[center], k_active, e_center_buf)
+            # Cache E_center for this token position. Read from EMA when
+            # ema_alpha > 0 — that's the stabilized readout. Otherwise from
+            # live A.
+            if ema_alpha > 0.0:
+                _top_k_into(A_ema_center[center], k_active, e_center_buf)
+            else:
+                _top_k_into(A_center[center], k_active, e_center_buf)
 
             lo = i - window
             if lo < 0:
@@ -162,7 +171,10 @@ def _make_train_loop():
                 if j == i:
                     continue
                 context = tids[j]
-                _top_k_into(A_context[context], k_active, e_context_buf)
+                if ema_alpha > 0.0:
+                    _top_k_into(A_ema_context[context], k_active, e_context_buf)
+                else:
+                    _top_k_into(A_context[context], k_active, e_context_buf)
 
                 # Surprise modulator for positive pair.
                 if modulate:
@@ -174,8 +186,35 @@ def _make_train_loop():
                 # Hebbian (positive): both directions.
                 step_pos = lr_pos * mod_pos
                 for bi in range(k_active):
-                    A_center[center, e_context_buf[bi]] += step_pos
-                    A_context[context, e_center_buf[bi]] += step_pos
+                    bit = e_context_buf[bi]
+                    A_center[center, bit] += step_pos
+                    if ema_alpha > 0.0:
+                        A_ema_center[center, bit] += ema_alpha * (
+                            A_center[center, bit] - A_ema_center[center, bit]
+                        )
+                    bit2 = e_center_buf[bi]
+                    A_context[context, bit2] += step_pos
+                    if ema_alpha > 0.0:
+                        A_ema_context[context, bit2] += ema_alpha * (
+                            A_context[context, bit2] - A_ema_context[context, bit2]
+                        )
+
+                # Optional subtractive normalization on the touched rows.
+                # Forces zero-sum competition: pushing some bits up implicitly
+                # demotes others. Stabilizes the top-k boundary.
+                if subtract_mean:
+                    mean_c = 0.0
+                    for d in range(n_dims):
+                        mean_c += A_center[center, d]
+                    mean_c /= n_dims
+                    for d in range(n_dims):
+                        A_center[center, d] -= mean_c
+                    mean_x = 0.0
+                    for d in range(n_dims):
+                        mean_x += A_context[context, d]
+                    mean_x /= n_dims
+                    for d in range(n_dims):
+                        A_context[context, d] -= mean_x
 
                 # Optional uniform decay applied only to the rows we just touched.
                 if decay > 0.0:
@@ -183,25 +222,30 @@ def _make_train_loop():
                     for d in range(n_dims):
                         A_center[center, d] *= one_minus
                         A_context[context, d] *= one_minus
-                    # E_center is now stale in absolute magnitude but the top-k
-                    # set is preserved by uniform scaling, so no recompute needed.
 
                 # Anti-Hebbian on n_neg negatives.
                 for _ in range(n_neg):
                     neg_id = negs_buf[neg_pos]
                     neg_pos += 1
                     if neg_pos >= n_negs_total:
-                        # Out of pre-sampled negatives; signal to caller by stopping.
                         return neg_pos
-                    _top_k_into(A_context[neg_id], k_active, e_neg_buf)
+                    if ema_alpha > 0.0:
+                        _top_k_into(A_ema_context[neg_id], k_active, e_neg_buf)
+                    else:
+                        _top_k_into(A_context[neg_id], k_active, e_neg_buf)
                     if modulate:
                         overlap_neg = _overlap(e_center_buf, e_neg_buf, k_active)
-                        mod_neg = overlap_neg / k_active  # bigger when wrongly aligned
+                        mod_neg = overlap_neg / k_active
                     else:
                         mod_neg = 1.0
                     step_neg = lr_neg * mod_neg
                     for bi in range(k_active):
-                        A_center[center, e_neg_buf[bi]] -= step_neg
+                        bit = e_neg_buf[bi]
+                        A_center[center, bit] -= step_neg
+                        if ema_alpha > 0.0:
+                            A_ema_center[center, bit] += ema_alpha * (
+                                A_center[center, bit] - A_ema_center[center, bit]
+                            )
         return neg_pos
 
     if HAS_NUMBA:
@@ -215,17 +259,24 @@ def _make_train_loop():
 
         @numba.njit(cache=True, fastmath=True)
         def _train_jit(
-            A_center, A_context, tids, cdf,
+            A_center, A_context,
+            A_ema_center, A_ema_context,
+            tids, cdf,
             negs_buf, e_center_buf, e_context_buf, e_neg_buf,
             n_dims, k_active, window, n_neg,
             lr_pos, lr_neg, decay, modulate,
+            ema_alpha, subtract_mean,
         ):
             N = tids.shape[0]
             neg_pos = 0
             n_negs_total = negs_buf.shape[0]
+            ema_on = ema_alpha > 0.0
             for i in range(N):
                 center = tids[i]
-                _top_k_jit(A_center[center], k_active, e_center_buf)
+                if ema_on:
+                    _top_k_jit(A_ema_center[center], k_active, e_center_buf)
+                else:
+                    _top_k_jit(A_center[center], k_active, e_center_buf)
 
                 lo = i - window
                 if lo < 0:
@@ -238,7 +289,10 @@ def _make_train_loop():
                     if j == i:
                         continue
                     context = tids[j]
-                    _top_k_jit(A_context[context], k_active, e_context_buf)
+                    if ema_on:
+                        _top_k_jit(A_ema_context[context], k_active, e_context_buf)
+                    else:
+                        _top_k_jit(A_context[context], k_active, e_context_buf)
 
                     if modulate:
                         overlap_pos = _overlap_jit(e_center_buf, e_context_buf, k_active)
@@ -248,8 +302,32 @@ def _make_train_loop():
 
                     step_pos = lr_pos * mod_pos
                     for bi in range(k_active):
-                        A_center[center, e_context_buf[bi]] += step_pos
-                        A_context[context, e_center_buf[bi]] += step_pos
+                        bit = e_context_buf[bi]
+                        A_center[center, bit] += step_pos
+                        if ema_on:
+                            A_ema_center[center, bit] += ema_alpha * (
+                                A_center[center, bit] - A_ema_center[center, bit]
+                            )
+                        bit2 = e_center_buf[bi]
+                        A_context[context, bit2] += step_pos
+                        if ema_on:
+                            A_ema_context[context, bit2] += ema_alpha * (
+                                A_context[context, bit2] - A_ema_context[context, bit2]
+                            )
+
+                    if subtract_mean:
+                        mean_c = 0.0
+                        for d in range(n_dims):
+                            mean_c += A_center[center, d]
+                        mean_c /= n_dims
+                        for d in range(n_dims):
+                            A_center[center, d] -= mean_c
+                        mean_x = 0.0
+                        for d in range(n_dims):
+                            mean_x += A_context[context, d]
+                        mean_x /= n_dims
+                        for d in range(n_dims):
+                            A_context[context, d] -= mean_x
 
                     if decay > 0.0:
                         one_minus = 1.0 - decay
@@ -262,7 +340,10 @@ def _make_train_loop():
                             return neg_pos
                         neg_id = negs_buf[neg_pos]
                         neg_pos += 1
-                        _top_k_jit(A_context[neg_id], k_active, e_neg_buf)
+                        if ema_on:
+                            _top_k_jit(A_ema_context[neg_id], k_active, e_neg_buf)
+                        else:
+                            _top_k_jit(A_context[neg_id], k_active, e_neg_buf)
                         if modulate:
                             overlap_neg = _overlap_jit(e_center_buf, e_neg_buf, k_active)
                             mod_neg = overlap_neg / k_active
@@ -270,7 +351,12 @@ def _make_train_loop():
                             mod_neg = 1.0
                         step_neg = lr_neg * mod_neg
                         for bi in range(k_active):
-                            A_center[center, e_neg_buf[bi]] -= step_neg
+                            bit = e_neg_buf[bi]
+                            A_center[center, bit] -= step_neg
+                            if ema_on:
+                                A_ema_center[center, bit] += ema_alpha * (
+                                    A_center[center, bit] - A_ema_center[center, bit]
+                                )
             return neg_pos
         return _train_jit, True
     else:
@@ -293,6 +379,8 @@ def train_sparse_skipgram_hebbian_modulated(
     modulate: bool = True,
     decay: float = 0.0,
     single_table: bool = False,
+    ema_alpha: float = 0.0,
+    subtract_mean: bool = False,
     init_scale: float = 0.01,
     neg_power: float = 0.75,
     seed: int = 0,
@@ -342,6 +430,15 @@ def train_sparse_skipgram_hebbian_modulated(
     else:
         A_context = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
 
+    # EMA tables — start identical to live A so initial top_k is consistent.
+    # Always allocate (numba-jitted loop expects array args even if ema_alpha=0;
+    # cheap when single_table aliases).
+    A_ema_center = A_center.copy()
+    if single_table:
+        A_ema_context = A_ema_center
+    else:
+        A_ema_context = A_context.copy()
+
     cdf = _build_unigram_cdf(tids, V, neg_power)
 
     # Pre-sample all negatives upfront so the inner loop can be numba-friendly.
@@ -357,20 +454,24 @@ def train_sparse_skipgram_hebbian_modulated(
     e_neg_buf = np.empty(k_active, dtype=np.int64)
 
     n_negs_used = _TRAIN_FN(
-        A_center, A_context, tids, cdf,
+        A_center, A_context,
+        A_ema_center, A_ema_context,
+        tids, cdf,
         negs_buf, e_center_buf, e_context_buf, e_neg_buf,
         n_dims, k_active, window, n_neg,
         float(lr_pos), float(lr_neg), float(decay), bool(modulate),
+        float(ema_alpha), bool(subtract_mean),
     )
 
     elapsed_train = time.monotonic() - t0
 
-    # Extract: top-k of A_center for each word.
+    # Extract: top-k of A_ema_center if EMA enabled, else A_center.
+    # The EMA is the stable readout — what makes the representation
+    # robust to short-term fluctuations.
     sdrs: dict[str, np.ndarray] = {}
-    out_buf = np.empty(k_active, dtype=np.int64)
+    extract_table = A_ema_center if ema_alpha > 0.0 else A_center
     for w in range(V):
-        # Reuse the same top-k routine for consistency.
-        top_k_idx = np.argpartition(-A_center[w], k_active)[:k_active]
+        top_k_idx = np.argpartition(-extract_table[w], k_active)[:k_active]
         code = np.zeros(n_dims, dtype=np.bool_)
         code[top_k_idx] = True
         sdrs[id_to_token[w]] = code
@@ -389,6 +490,8 @@ def train_sparse_skipgram_hebbian_modulated(
         "modulate": modulate,
         "decay": decay,
         "single_table": single_table,
+        "ema_alpha": ema_alpha,
+        "subtract_mean": subtract_mean,
         "n_train_tokens": N,
         "n_negs_used": int(n_negs_used),
         "active_per_word_mean": mean_active,
