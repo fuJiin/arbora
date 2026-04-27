@@ -410,6 +410,136 @@ def benchmark_nn_query(
     }
 
 
+def evaluate_bundling_capacity(
+    emb: Embeddings,
+    *,
+    k_values: tuple[int, ...] = (2, 4, 8, 16, 32, 64, 128),
+    n_trials: int = 50,
+    n_nonmembers: int = 20,
+    seed: int = 0,
+) -> dict:
+    """VSA-style bundling capacity: how many items survive superposition?
+
+    The superposition test that *most cleanly separates sparse-binary
+    from dense-continuous* representations:
+
+    1. Sample k distinct words, bundle them (sparse: bit-OR;
+       dense: mean of unit vectors).
+    2. For each member word, measure sim(bundle, member). The bundle
+       should look *more* like its members than like random non-members.
+    3. For `n_nonmembers` random non-members, measure sim(bundle,
+       non_member).
+    4. The **bundling margin** = mean(member_sims) - mean(nonmember_sims).
+       When the margin approaches zero the bundle has saturated and
+       can't distinguish its constituents from noise.
+
+    Reported per `k`:
+      - `member_sim_mean`, `member_sim_std`
+      - `nonmember_sim_mean`, `nonmember_sim_std`
+      - `margin` = member_mean - nonmember_mean
+      - `member_rank_mean` = mean rank of members in the vocab when
+        sorted by similarity to the bundle (lower = better; 0 = perfect)
+      - `recall_at_k` = fraction of bundle members that appear in
+        top-k most similar vocab words
+
+    Also reports `capacity_estimate` = the largest k where margin >=
+    `margin_threshold` (default 0.05). This is the single-number readout
+    for the headline capacity comparison.
+    """
+    vocab = [w for w in emb.vocab() if emb.get(w) is not None]
+    V = len(vocab)
+    if V < max(k_values) + n_nonmembers:
+        return {"n_words": V, "per_k": [], "capacity_estimate": 0}
+
+    sparse = emb.is_sparse()
+    vec_stack = np.stack([emb.get(w) for w in vocab])
+    rng = np.random.default_rng(seed)
+
+    if not sparse:
+        stack_norms = np.linalg.norm(vec_stack, axis=1, keepdims=True)
+        unit_stack = vec_stack / np.where(stack_norms > 0, stack_norms, 1.0)
+
+    per_k: list[dict] = []
+    margin_threshold = 0.05
+    capacity_estimate = 0
+
+    for k in k_values:
+        if k > V - n_nonmembers:
+            break
+        member_sims_all: list[float] = []
+        nonmember_sims_all: list[float] = []
+        ranks_all: list[float] = []
+        hits_all: list[float] = []
+
+        for _ in range(n_trials):
+            idx = rng.choice(V, size=k + n_nonmembers, replace=False)
+            member_idx = idx[:k]
+            nonmember_idx = idx[k:]
+
+            if sparse:
+                # Bit-OR bundle.
+                bundle = np.zeros_like(vec_stack[0])
+                for mi in member_idx:
+                    bundle |= vec_stack[mi]
+                inter = (vec_stack & bundle).sum(axis=1)
+                union = (vec_stack | bundle).sum(axis=1)
+                sims = np.where(union > 0, inter / np.maximum(union, 1), 0.0)
+            else:
+                # Mean-of-unit-vectors bundle, normalized.
+                bundle = unit_stack[member_idx].mean(axis=0)
+                bn = float(np.linalg.norm(bundle))
+                if bn == 0:
+                    continue
+                bundle_unit = bundle / bn
+                sims = unit_stack @ bundle_unit
+
+            member_sims_all.extend(sims[member_idx].tolist())
+            nonmember_sims_all.extend(sims[nonmember_idx].tolist())
+
+            # Rank of each member in the full vocab, sorted by sim desc.
+            order = np.argsort(-sims)
+            rank_of = np.empty(V, dtype=np.int64)
+            rank_of[order] = np.arange(V)
+            ranks_all.extend(rank_of[member_idx].tolist())
+            top_k_set = set(order[:k].tolist())
+            hits_all.append(
+                sum(1 for mi in member_idx if mi in top_k_set) / float(k)
+            )
+
+        member_mean = float(np.mean(member_sims_all)) if member_sims_all else 0.0
+        nonmember_mean = (
+            float(np.mean(nonmember_sims_all)) if nonmember_sims_all else 0.0
+        )
+        margin = member_mean - nonmember_mean
+        per_k.append(
+            {
+                "k": k,
+                "member_sim_mean": member_mean,
+                "member_sim_std": (
+                    float(np.std(member_sims_all)) if member_sims_all else 0.0
+                ),
+                "nonmember_sim_mean": nonmember_mean,
+                "nonmember_sim_std": (
+                    float(np.std(nonmember_sims_all)) if nonmember_sims_all else 0.0
+                ),
+                "margin": margin,
+                "member_rank_mean": (
+                    float(np.mean(ranks_all)) if ranks_all else float(V)
+                ),
+                "recall_at_k": float(np.mean(hits_all)) if hits_all else 0.0,
+            }
+        )
+        if margin >= margin_threshold:
+            capacity_estimate = k
+
+    return {
+        "n_words": V,
+        "per_k": per_k,
+        "capacity_estimate": capacity_estimate,
+        "margin_threshold": margin_threshold,
+    }
+
+
 def evaluate_partial_cue(
     emb: Embeddings,
     pairs: list[tuple[str, str, float]],
