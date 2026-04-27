@@ -40,12 +40,23 @@ except ImportError:
 
 
 class ModulatedSSHEmbeddings:
-    """`Embeddings`-compatible wrapper for modulated SSH SDRs."""
+    """`Embeddings`-compatible wrapper for modulated SSH SDRs.
+
+    Optionally also exposes the underlying continuous accumulator state
+    via `.continuous` (a `ContinuousSSHEmbeddings`) — useful for the
+    "what's the underlying representation if we don't sparsify" diagnostic
+    eval (cosine over A_w instead of Jaccard over top_k(A_w)).
+    """
 
     name = "ssh_modulated"
 
-    def __init__(self, sdrs: dict[str, np.ndarray]) -> None:
+    def __init__(
+        self,
+        sdrs: dict[str, np.ndarray],
+        continuous: "ContinuousSSHEmbeddings | None" = None,
+    ) -> None:
         self._sdrs = sdrs
+        self.continuous = continuous
 
     def vocab(self) -> list[str]:
         return list(self._sdrs.keys())
@@ -55,6 +66,35 @@ class ModulatedSSHEmbeddings:
 
     def is_sparse(self) -> bool:
         return True
+
+
+class ContinuousSSHEmbeddings:
+    """Dense view of SSH's underlying real-valued accumulator state.
+
+    Returns `A_center[w]` (or `A_ema_center[w]` if EMA was active during
+    training) directly — without applying top-k. Use cosine similarity
+    for evaluation; matches the `Embeddings` protocol with `is_sparse=False`.
+
+    Motivation: SSH trains a continuous accumulator and discretizes via
+    top-k for the SDR readout. Evaluating the *underlying continuous
+    state* tells us whether the algorithm has learned semantic structure
+    independent of the discrete readout — diagnostic for "is the eval
+    pipeline (Jaccard over binary) the bottleneck, or the algorithm?"
+    """
+
+    name = "ssh_continuous"
+
+    def __init__(self, vectors: dict[str, np.ndarray]) -> None:
+        self._vectors = vectors
+
+    def vocab(self) -> list[str]:
+        return list(self._vectors.keys())
+
+    def get(self, word: str) -> np.ndarray | None:
+        return self._vectors.get(word)
+
+    def is_sparse(self) -> bool:
+        return False
 
 
 def _build_unigram_cdf(
@@ -512,8 +552,15 @@ def train_sparse_skipgram_hebbian_modulated(
         code[top_k_idx] = True
         sdrs[id_to_token[w]] = code
 
+    # Continuous view: raw accumulator vectors (no top-k applied) for
+    # diagnostic cosine evaluation. Always populated — cheap (V × D float32).
+    continuous_vectors: dict[str, np.ndarray] = {
+        id_to_token[w]: extract_table[w].copy() for w in range(V)
+    }
+    cont_emb = ContinuousSSHEmbeddings(continuous_vectors)
+
     mean_active = float(np.mean([int(v.sum()) for v in sdrs.values()]))
-    return ModulatedSSHEmbeddings(sdrs), {
+    return ModulatedSSHEmbeddings(sdrs, continuous=cont_emb), {
         "elapsed_s": time.monotonic() - t0,
         "elapsed_train_s": elapsed_train,
         "vocab_size": V,
