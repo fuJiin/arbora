@@ -72,6 +72,16 @@ def main() -> None:
         help="Apply sigmoid weighting to updates (saturating LTP/LTD).",
     )
     p.add_argument(
+        "--shuffle",
+        action="store_true",
+        help="Shuffle tokens before training (one-pass shuffled order).",
+    )
+    p.add_argument(
+        "--save-sdrs",
+        action="store_true",
+        help="Save SDRs at each checkpoint to compute within-run drift.",
+    )
+    p.add_argument(
         "--csv",
         type=str,
         default="data/runs/arb139/within_run_simlex.csv",
@@ -91,6 +101,10 @@ def main() -> None:
     N = len(token_ids)
 
     rng = np.random.default_rng(args.seed)
+
+    if args.shuffle:
+        token_ids = rng.permutation(token_ids).astype(np.int64)
+        print("Tokens shuffled (single-pass shuffled order).")
 
     # Allocate state once (single-table mode for simplicity).
     A_center = (rng.standard_normal((V, args.n_dims)) * 0.01).astype(np.float32)
@@ -115,6 +129,7 @@ def main() -> None:
 
     extract_table = A_ema_center if args.ema_alpha > 0 else A_center
     t_total = time.monotonic()
+    prev_sdrs: dict[str, np.ndarray] | None = None
 
     for ck_i, chunk_start in enumerate(chunk_starts):
         chunk_end = min(chunk_start + args.checkpoint_stride, N)
@@ -160,6 +175,28 @@ def main() -> None:
         emb = ModulatedSSHEmbeddings(sdrs)
         s = evaluate_simlex(emb, simlex)
         cap = evaluate_capacity(emb, seed=args.seed, sample=300)
+
+        # Within-run drift: Jaccard between this checkpoint's SDRs and the
+        # previous checkpoint's. Tells us how much the representation
+        # reshuffled in the last `checkpoint_stride` tokens.
+        drift_jaccard_mean = float("nan")
+        drift_jaccard_p10 = float("nan")
+        drift_frac_low = float("nan")
+        if prev_sdrs is not None:
+            sims = []
+            for word, code in sdrs.items():
+                prev = prev_sdrs.get(word)
+                if prev is None:
+                    continue
+                inter = int((code & prev).sum())
+                union = int((code | prev).sum())
+                sims.append(inter / union if union > 0 else 0.0)
+            if sims:
+                arr = np.asarray(sims)
+                drift_jaccard_mean = float(arr.mean())
+                drift_jaccard_p10 = float(np.percentile(arr, 10))
+                drift_frac_low = float((arr < 0.5).mean())
+        prev_sdrs = sdrs
         eval_dt = time.monotonic() - t_eval
 
         n_so_far = chunk_end
@@ -171,6 +208,9 @@ def main() -> None:
             "cap_mean_sim": cap["mean_pairwise_sim"],
             "cap_collision_frac": cap["high_collision_frac"],
             "cap_eff_dim": cap["eff_dim"],
+            "drift_jaccard_mean": drift_jaccard_mean,
+            "drift_jaccard_p10": drift_jaccard_p10,
+            "drift_frac_low": drift_frac_low,
             "train_dt_s": train_dt,
             "eval_dt_s": eval_dt,
         }
