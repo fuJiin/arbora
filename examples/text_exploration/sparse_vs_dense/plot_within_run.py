@@ -30,12 +30,14 @@ def load_curve(csv_path: Path) -> list[tuple[int, float]]:
     return out
 
 
-def parse_alpha_from_name(name: str) -> str:
-    """e.g. 'within_run_alpha_0_001.csv' -> '0.001'; 'within_run_simlex.csv' -> '0.01' (default)"""
+def parse_label_from_name(name: str) -> str:
+    """Build a human-readable label from the CSV filename."""
     m = re.match(r"within_run_alpha_(.+)\.csv", name)
     if m:
-        return m.group(1).replace("_", ".")
-    return "0.01"  # the original within_run_simlex.csv was at α=0.01
+        return f"α={m.group(1).replace('_', '.')}"
+    if name == "within_run_sigmoid.csv":
+        return "sigmoid-bounded (no EMA)"
+    return "α=0.01"  # the original within_run_simlex.csv
 
 
 def main() -> None:
@@ -46,15 +48,18 @@ def main() -> None:
 
     fig, ax = plt.subplots(figsize=(11, 6))
     for p in csvs:
-        alpha = parse_alpha_from_name(p.name)
+        label = parse_label_from_name(p.name)
         curve = load_curve(p)
         if not curve:
             continue
         xs = [n for n, _ in curve]
         ys = [s for _, s in curve]
+        # Highlight the sigmoid-bounded curve with a thicker line.
+        is_sigmoid = "sigmoid" in label
         ax.plot(
-            xs, ys, marker="o", lw=2, alpha=0.85,
-            label=f"α = {alpha}  (n={len(curve)} ckpts)",
+            xs, ys, marker="o", lw=3 if is_sigmoid else 1.5,
+            alpha=0.95 if is_sigmoid else 0.7,
+            label=f"{label}  (n={len(curve)} ckpts)",
         )
 
     ax.axhline(0, color="black", lw=0.5)
