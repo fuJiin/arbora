@@ -145,6 +145,7 @@ def main() -> None:
             True,  # modulate
             float(args.ema_alpha),
             False,  # subtract_mean
+            False,  # sigmoid_bounded
         )
         train_dt = time.monotonic() - t_train
 

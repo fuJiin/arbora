@@ -27,6 +27,7 @@ extraction time we read top-k(A_center) per word, matching word2vec's
 
 from __future__ import annotations
 
+import math
 import time
 
 import numpy as np
@@ -146,6 +147,7 @@ def _make_train_loop():
         modulate,
         ema_alpha,
         subtract_mean,
+        sigmoid_bounded,
     ):
         N = tids.shape[0]
         neg_pos = 0  # pointer into negs_buf
@@ -183,17 +185,30 @@ def _make_train_loop():
                 else:
                     mod_pos = 1.0
 
-                # Hebbian (positive): both directions.
+                # Hebbian (positive): both directions. Sigmoid-bounded
+                # variant scales each update by (1 - sigma(A)) so that bits
+                # already saturated above the threshold receive vanishing
+                # updates — analogous to word2vec's sigmoid-gradient.
                 step_pos = lr_pos * mod_pos
                 for bi in range(k_active):
                     bit = e_context_buf[bi]
-                    A_center[center, bit] += step_pos
+                    if sigmoid_bounded:
+                        v = A_center[center, bit]
+                        sig = 1.0 / (1.0 + math.exp(-v))
+                        A_center[center, bit] += step_pos * (1.0 - sig)
+                    else:
+                        A_center[center, bit] += step_pos
                     if ema_alpha > 0.0:
                         A_ema_center[center, bit] += ema_alpha * (
                             A_center[center, bit] - A_ema_center[center, bit]
                         )
                     bit2 = e_center_buf[bi]
-                    A_context[context, bit2] += step_pos
+                    if sigmoid_bounded:
+                        v2 = A_context[context, bit2]
+                        sig2 = 1.0 / (1.0 + math.exp(-v2))
+                        A_context[context, bit2] += step_pos * (1.0 - sig2)
+                    else:
+                        A_context[context, bit2] += step_pos
                     if ema_alpha > 0.0:
                         A_ema_context[context, bit2] += ema_alpha * (
                             A_context[context, bit2] - A_ema_context[context, bit2]
@@ -241,7 +256,12 @@ def _make_train_loop():
                     step_neg = lr_neg * mod_neg
                     for bi in range(k_active):
                         bit = e_neg_buf[bi]
-                        A_center[center, bit] -= step_neg
+                        if sigmoid_bounded:
+                            v = A_center[center, bit]
+                            sig = 1.0 / (1.0 + math.exp(-v))
+                            A_center[center, bit] -= step_neg * sig
+                        else:
+                            A_center[center, bit] -= step_neg
                         if ema_alpha > 0.0:
                             A_ema_center[center, bit] += ema_alpha * (
                                 A_center[center, bit] - A_ema_center[center, bit]
@@ -265,7 +285,7 @@ def _make_train_loop():
             negs_buf, e_center_buf, e_context_buf, e_neg_buf,
             n_dims, k_active, window, n_neg,
             lr_pos, lr_neg, decay, modulate,
-            ema_alpha, subtract_mean,
+            ema_alpha, subtract_mean, sigmoid_bounded,
         ):
             N = tids.shape[0]
             neg_pos = 0
@@ -303,13 +323,23 @@ def _make_train_loop():
                     step_pos = lr_pos * mod_pos
                     for bi in range(k_active):
                         bit = e_context_buf[bi]
-                        A_center[center, bit] += step_pos
+                        if sigmoid_bounded:
+                            v = A_center[center, bit]
+                            sig = 1.0 / (1.0 + math.exp(-v))
+                            A_center[center, bit] += step_pos * (1.0 - sig)
+                        else:
+                            A_center[center, bit] += step_pos
                         if ema_on:
                             A_ema_center[center, bit] += ema_alpha * (
                                 A_center[center, bit] - A_ema_center[center, bit]
                             )
                         bit2 = e_center_buf[bi]
-                        A_context[context, bit2] += step_pos
+                        if sigmoid_bounded:
+                            v2 = A_context[context, bit2]
+                            sig2 = 1.0 / (1.0 + math.exp(-v2))
+                            A_context[context, bit2] += step_pos * (1.0 - sig2)
+                        else:
+                            A_context[context, bit2] += step_pos
                         if ema_on:
                             A_ema_context[context, bit2] += ema_alpha * (
                                 A_context[context, bit2] - A_ema_context[context, bit2]
@@ -352,7 +382,12 @@ def _make_train_loop():
                         step_neg = lr_neg * mod_neg
                         for bi in range(k_active):
                             bit = e_neg_buf[bi]
-                            A_center[center, bit] -= step_neg
+                            if sigmoid_bounded:
+                                v = A_center[center, bit]
+                                sig = 1.0 / (1.0 + math.exp(-v))
+                                A_center[center, bit] -= step_neg * sig
+                            else:
+                                A_center[center, bit] -= step_neg
                             if ema_on:
                                 A_ema_center[center, bit] += ema_alpha * (
                                     A_center[center, bit] - A_ema_center[center, bit]
@@ -381,6 +416,7 @@ def train_sparse_skipgram_hebbian_modulated(
     single_table: bool = False,
     ema_alpha: float = 0.0,
     subtract_mean: bool = False,
+    sigmoid_bounded: bool = False,
     init_scale: float = 0.01,
     neg_power: float = 0.75,
     seed: int = 0,
@@ -460,7 +496,7 @@ def train_sparse_skipgram_hebbian_modulated(
         negs_buf, e_center_buf, e_context_buf, e_neg_buf,
         n_dims, k_active, window, n_neg,
         float(lr_pos), float(lr_neg), float(decay), bool(modulate),
-        float(ema_alpha), bool(subtract_mean),
+        float(ema_alpha), bool(subtract_mean), bool(sigmoid_bounded),
     )
 
     elapsed_train = time.monotonic() - t0
@@ -492,6 +528,7 @@ def train_sparse_skipgram_hebbian_modulated(
         "single_table": single_table,
         "ema_alpha": ema_alpha,
         "subtract_mean": subtract_mean,
+        "sigmoid_bounded": sigmoid_bounded,
         "n_train_tokens": N,
         "n_negs_used": int(n_negs_used),
         "active_per_word_mean": mean_active,

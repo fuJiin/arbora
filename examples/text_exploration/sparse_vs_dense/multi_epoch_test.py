@@ -98,7 +98,7 @@ def train_multi_epoch(
             negs_buf, e_center_buf, e_context_buf, e_neg_buf,
             n_dims, k_active, window, n_neg,
             float(lr_pos), float(lr_neg), 0.0, True,
-            float(ema_alpha), False,
+            float(ema_alpha), False, False,
         )
         n_total_pairs_processed += n_pairs
 
