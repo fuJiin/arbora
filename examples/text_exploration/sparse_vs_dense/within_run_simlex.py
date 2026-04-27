@@ -67,6 +67,11 @@ def main() -> None:
     p.add_argument("--lr-neg", type=float, default=0.05)
     p.add_argument("--ema-alpha", type=float, default=0.01)
     p.add_argument(
+        "--sigmoid-bounded",
+        action="store_true",
+        help="Apply sigmoid weighting to updates (saturating LTP/LTD).",
+    )
+    p.add_argument(
         "--csv",
         type=str,
         default="data/runs/arb139/within_run_simlex.csv",
@@ -145,7 +150,7 @@ def main() -> None:
             True,  # modulate
             float(args.ema_alpha),
             False,  # subtract_mean
-            False,  # sigmoid_bounded
+            bool(args.sigmoid_bounded),
         )
         train_dt = time.monotonic() - t_train
 
