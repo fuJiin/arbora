@@ -144,7 +144,7 @@ def train_w2v_continual(
     print("  word2vec phase 2: continuing on B ...")
     t0 = time.monotonic()
     model.train(
-        sentences=chunks_b,
+        corpus_iterable=chunks_b,
         total_examples=len(chunks_b),
         epochs=1,
     )
