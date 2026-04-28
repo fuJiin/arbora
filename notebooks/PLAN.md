@@ -144,6 +144,10 @@ Plan:
 | Modulated SSH ablation | apr 25 | Modulation alone prevents 1M dip (vanilla -0.020 → modulated +0.073) |
 | Decay rate sweep at 1M | apr 25 | Bimodal — decay=0 (0.073) and decay=3e-4 (0.098) both good, in-between hurts |
 | Cross-scale decay test | apr 25 | decay=3e-4 is scale-dependent — hurts at 100k, helps from 500k onward |
+| k_eval sweep at 1M | apr 27 | top-k aperture matters: best SimLex at k_eval≈160 (k_train=40); decoupled from training-time k |
+| Continual v2: cross-domain (text8→Gutenberg) | apr 28 | At 5M each phase, SSH forgets MORE than w2v on shared/cross — capacity-ceiling effect |
+| Continual sweep: small-update size | apr 28 | Crossover at ~500k–1M Gutenberg: SSH preserves better below, w2v scales better above |
+| Continual sweep: D=2048 vs D=1024 at 1M | apr 28 | Doubling D does NOT reduce SSH forgetting; bottleneck is k aperture, not raw dimensionality |
 
 ## Open experimental questions
 
@@ -151,13 +155,21 @@ Plan:
    `decay = const / sqrt(N)` to keep total shrinkage constant?
 2. **Multi-seed at headline points**: confirm the +0.159 SimLex at 500k
    mod+decay is robust across seeds
-3. **Continual learning** with new vocabulary: does SBR + local Hebbian
-   preserve old word embeddings while integrating novel ones, where
-   word2vec catastrophically forgets?
+3. ~~**Continual learning** with new vocabulary~~ — answered apr 28:
+   SSH preserves better than w2v at small B (≤500k tokens), worse at
+   large B (≥1M). Crossover at update size 500k–1M. The story isn't
+   "SBR wins continual learning" — it's "SBR is more update-stable
+   per token, but its k-bit aperture caps how much new information
+   can be absorbed without overwriting old." More dimensions don't help.
 4. **Performance**: lazy decay (quick win), batched-by-word update (bigger
    refactor)
 5. **Theoretical analysis**: can we derive a closed-form fixed point for
    modulated SSH analogous to Oja's theorem?
+6. **Capacity translation** (open): bits framing
+   `D_dense · b_eff ≈ k · log₂(D_sparse · e / k)` predicts
+   D_dense=100·float32 ≈ SDR(1024, 80–160), matching the empirical
+   k_eval optimum. Needs a controlled experiment matching information
+   budgets explicitly to test the equivalence.
 
 ## Reading list (anchored to discussions in the conversation)
 
