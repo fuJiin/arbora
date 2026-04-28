@@ -177,22 +177,41 @@ def train_ssh_continual(
     seed: int,
     n_dims: int = 1024,
     k_active: int = 40,
+    k_eval: int | None = None,
     cache_phase1_path: Path | None = None,
 ):
     """Phase 1 train on A, phase 2 continue with same accumulator on B.
 
+    Args:
+        k_active: top-k size used during training (k-WTA in the inner loop).
+        k_eval: top-k used to BUILD the snapshot SDRs (defaults to k_active).
+            Decoupling lets us train cheap (k=40) but read out at a wider
+            aperture (k=160) where our k_eval sweep showed best SimLex.
+
     If `cache_phase1_path` is provided and exists, load the phase-1 accumulator
-    from it (skipping phase-1 training). If the path doesn't exist, train
-    phase 1 then save the accumulator for reuse.
+    from it (skipping phase-1 training). The cache stores the *accumulator*,
+    so `k_eval` can be re-applied at SDR build time without re-training.
     """
+    k_for_sdr = k_eval if k_eval is not None else k_active
+
+    def _build_sdr(a: np.ndarray) -> np.ndarray:
+        idx = np.argpartition(-a, k_for_sdr)[:k_for_sdr]
+        out = np.zeros(a.size, dtype=np.bool_)
+        out[idx] = True
+        return out
+
     if cache_phase1_path is not None and cache_phase1_path.exists():
         print(f"\n  SSH phase 1: loading cached state from {cache_phase1_path}")
         with cache_phase1_path.open("rb") as f:
             cache = pickle.load(f)
         A_phase1 = cache["A_center"]
-        snap1 = cache["snap1"]
+        # Rebuild snap1 with current k_eval (cached snap1 may have used different k).
+        snap1 = {w: _build_sdr(A_phase1[i]) for i, w in enumerate(id_to_token)}
         elapsed_a = 0.0
-        print(f"    cache hit: A shape={A_phase1.shape}, snap1 size={len(snap1)}")
+        print(
+            f"    cache hit: A shape={A_phase1.shape}, snap1 (k_eval={k_for_sdr}) "
+            f"size={len(snap1)}"
+        )
     else:
         print("\n  SSH phase 1: training on A ...")
         t0 = time.monotonic()
@@ -213,14 +232,16 @@ def train_ssh_continual(
         elapsed_a = time.monotonic() - t0
         print(f"    phase 1 trained in {elapsed_a:.1f}s")
 
-        snap1 = {w: emb1.get(w).copy() for w in emb1.vocab() if emb1.get(w) is not None}
         A_phase1 = emb1.A_center
+        snap1 = {w: _build_sdr(A_phase1[i]) for i, w in enumerate(id_to_token)}
 
         if cache_phase1_path is not None:
             cache_phase1_path.parent.mkdir(parents=True, exist_ok=True)
             with cache_phase1_path.open("wb") as f:
-                pickle.dump({"A_center": A_phase1, "snap1": snap1}, f)
-            print(f"    cached phase-1 state to {cache_phase1_path}")
+                # Don't bother caching snap1 — it depends on k_eval and we
+                # rebuild from A on load anyway.
+                pickle.dump({"A_center": A_phase1}, f)
+            print(f"    cached phase-1 accumulator to {cache_phase1_path}")
 
     print(f"  SSH phase 2: continuing on B ({len(token_ids_b):,} tokens) ...")
     t0 = time.monotonic()
@@ -242,7 +263,7 @@ def train_ssh_continual(
     elapsed_b = time.monotonic() - t0
     print(f"    phase 2 trained in {elapsed_b:.1f}s")
 
-    snap2 = {w: emb2.get(w).copy() for w in emb2.vocab() if emb2.get(w) is not None}
+    snap2 = {w: _build_sdr(emb2.A_center[i]) for i, w in enumerate(id_to_token)}
     return snap1, snap2, {"phase1_s": elapsed_a, "phase2_s": elapsed_b}
 
 
@@ -274,6 +295,11 @@ def main() -> None:
                    help="If set, override the phase-2 corpus size (defaults to n-per-phase).")
     p.add_argument("--ssh-n-dims", type=int, default=1024)
     p.add_argument("--ssh-k-active", type=int, default=40)
+    p.add_argument("--ssh-k-eval", type=int, default=None,
+                   help="Top-k used to BUILD the snapshot SDRs (defaults to "
+                        "--ssh-k-active). Decoupling lets us train cheap (k=40) "
+                        "but read out at the wider aperture (k=160) where our "
+                        "k_eval sweep showed best SimLex.")
     p.add_argument("--ssh-cache-phase1", type=str, default=None,
                    help="Path to load/save SSH phase-1 accumulator state.")
     p.add_argument("--vocab-size-hint", type=int, default=10_000)
@@ -378,6 +404,7 @@ def main() -> None:
                 args.seed,
                 n_dims=args.ssh_n_dims,
                 k_active=args.ssh_k_active,
+                k_eval=args.ssh_k_eval,
                 cache_phase1_path=cache_path,
             )
             is_sparse = True

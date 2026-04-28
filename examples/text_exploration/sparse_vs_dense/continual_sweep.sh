@@ -24,6 +24,12 @@ mkdir -p "$SWEEP_DIR" "$LOG_DIR"
 # Cache the phase 1 SSH state (D=1024) once and reuse for small-update sweep.
 SSH_CACHE_5M_D1024="$SWEEP_DIR/ssh_phase1_5M_d1024.pkl"
 
+# SSH eval aperture: train at k=40 (cheap), read out at k=160 (the optimum
+# from our earlier k_eval sweep). Decoupling avoids retraining the inner loop
+# with a 4x-larger top-k while still reading out the SDR that matches w2v's
+# best-effort similarity.
+SSH_K_EVAL=160
+
 # Experiment 1: small-update sweep
 for B_TOKENS in 100000 500000 1000000 5000000; do
     OUT_DIR="$SWEEP_DIR/small_update_b${B_TOKENS}"
@@ -38,6 +44,7 @@ for B_TOKENS in 100000 500000 1000000 5000000; do
         --n-tokens-b "$B_TOKENS" \
         --split cross_domain \
         --out-dir "$OUT_DIR" \
+        --ssh-k-eval "$SSH_K_EVAL" \
         --ssh-cache-phase1 "$SSH_CACHE_5M_D1024" \
         2>&1 | tee "$LOG"
 done
@@ -53,6 +60,7 @@ else
         --n-per-phase 1000000 \
         --split cross_domain \
         --ssh-n-dims 2048 \
+        --ssh-k-eval "$SSH_K_EVAL" \
         --out-dir "$OUT_DIR" \
         2>&1 | tee "$LOG"
 fi
