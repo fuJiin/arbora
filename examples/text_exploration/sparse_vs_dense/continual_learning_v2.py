@@ -39,6 +39,9 @@ from examples.text_exploration.sparse_vs_dense.data import (
     load_simlex,
     load_text8,
 )
+from examples.text_exploration.sparse_vs_dense.gutenberg_loader import (
+    load_gutenberg_corpus,
+)
 from examples.text_exploration.sparse_vs_dense.evaluation import (
     cosine_similarity,
     evaluate_simlex,
@@ -54,9 +57,21 @@ from examples.text_exploration.sparse_vs_dense.sparse_skipgram_hebbian_modulated
 
 
 def split_text8(n_per_phase: int) -> tuple[list[str], list[str]]:
-    """Load text8 and split into phase-A and phase-B token lists."""
+    """Same-domain split: text8 first half (A) vs second half (B). Mild test."""
     tokens = load_text8(max_tokens=2 * n_per_phase)
     return tokens[:n_per_phase], tokens[n_per_phase:]
+
+
+def load_cross_domain(n_per_phase: int) -> tuple[list[str], list[str]]:
+    """Cross-domain split: text8 (A, encyclopedic Wikipedia) vs Gutenberg (B, fiction).
+
+    Different vocab distribution, sentence structures, idioms — a real
+    domain shift. Words like "thee", "shall", "beneath" appear in B but not A;
+    "wikipedia", "infobox", "encyclopedia" in A but not B.
+    """
+    tokens_a = load_text8(max_tokens=n_per_phase)
+    tokens_b = load_gutenberg_corpus(max_tokens=n_per_phase)
+    return tokens_a, tokens_b
 
 
 def words_in_corpus(tokens: list[str], vocab_set: set[str]) -> set[str]:
@@ -234,6 +249,13 @@ def main() -> None:
     p.add_argument("--vocab-size-hint", type=int, default=10_000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
+        "--split",
+        type=str,
+        default="cross_domain",
+        choices=["same_domain", "cross_domain"],
+        help="same_domain = text8 halves; cross_domain = text8 → Gutenberg.",
+    )
+    p.add_argument(
         "--out-dir",
         type=str,
         default="data/runs/arb139/continual",
@@ -243,9 +265,16 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"=== continual learning at {args.n_per_phase:,} tokens per phase ===")
-    print(f"Loading text8 and splitting ...")
-    tokens_a_raw, tokens_b_raw = split_text8(args.n_per_phase)
+    print(
+        f"=== continual learning at {args.n_per_phase:,} tokens per phase, "
+        f"split={args.split} ==="
+    )
+    if args.split == "same_domain":
+        print("Loading text8 and splitting ...")
+        tokens_a_raw, tokens_b_raw = split_text8(args.n_per_phase)
+    else:
+        print("Loading text8 (A) + Gutenberg (B) for cross-domain split ...")
+        tokens_a_raw, tokens_b_raw = load_cross_domain(args.n_per_phase)
 
     # Apply matched preprocessing to BOTH halves.
     print("Applying matched preprocessing (chunking + subsampling) ...")
