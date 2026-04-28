@@ -462,6 +462,8 @@ def train_sparse_skipgram_hebbian_modulated(
     seed: int = 0,
     initial_A_center: np.ndarray | None = None,
     initial_A_context: np.ndarray | None = None,
+    consolidation_mask: np.ndarray | None = None,
+    consolidation_bonus: float = 0.0,
 ) -> tuple[ModulatedSSHEmbeddings, dict]:
     """Train modulated SSH on `token_ids`.
 
@@ -489,6 +491,15 @@ def train_sparse_skipgram_hebbian_modulated(
         init_scale: Stdev of Gaussian init for accumulators.
         neg_power: Exponent on unigram counts for negative sampling.
         seed: RNG seed.
+        consolidation_mask: V×D bool array of "phase-1 winning bits" — set to
+            top_k(A_phase1) at end of phase 1. If provided alongside
+            `consolidation_bonus > 0`, those bits receive an extra additive
+            bonus on the initial accumulator. Acts as a meta-plasticity
+            mechanism: BCM-style protection of consolidated bits during
+            continued training. Phase-2 evidence can still displace them
+            but must accumulate enough to overcome the bonus.
+        consolidation_bonus: Magnitude of the per-bit bonus applied to bits
+            marked True in `consolidation_mask`. 0 disables.
 
     Returns:
         (ModulatedSSHEmbeddings, stats dict).
@@ -516,6 +527,17 @@ def train_sparse_skipgram_hebbian_modulated(
             A_context = A_center
         else:
             A_context = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
+
+    # Consolidation bonus: BCM-style meta-plasticity. Add a fixed bonus to the
+    # accumulator entries marked as "phase-1 winners" — they start with extra
+    # ranking weight, so phase-2 evidence must accumulate enough to overcome
+    # the bonus before displacing them from the top-k. Applied after init/load
+    # so the bonus persists into both A_center and (when single_table) A_context.
+    if consolidation_mask is not None and consolidation_bonus > 0.0:
+        bonus = np.float32(consolidation_bonus)
+        A_center += bonus * consolidation_mask.astype(np.float32)
+        if not single_table and A_context is not A_center:
+            A_context += bonus * consolidation_mask.astype(np.float32)
 
     # EMA tables — start identical to live A so initial top_k is consistent.
     # Always allocate (numba-jitted loop expects array args even if ema_alpha=0;
@@ -592,6 +614,7 @@ def train_sparse_skipgram_hebbian_modulated(
         "ema_alpha": ema_alpha,
         "subtract_mean": subtract_mean,
         "sigmoid_bounded": sigmoid_bounded,
+        "consolidation_bonus": float(consolidation_bonus),
         "n_train_tokens": N,
         "n_negs_used": int(n_negs_used),
         "active_per_word_mean": mean_active,

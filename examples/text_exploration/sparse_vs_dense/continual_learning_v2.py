@@ -179,6 +179,7 @@ def train_ssh_continual(
     k_active: int = 40,
     k_eval: int | None = None,
     cache_phase1_path: Path | None = None,
+    consolidation_bonus: float = 0.0,
 ):
     """Phase 1 train on A, phase 2 continue with same accumulator on B.
 
@@ -187,6 +188,11 @@ def train_ssh_continual(
         k_eval: top-k used to BUILD the snapshot SDRs (defaults to k_active).
             Decoupling lets us train cheap (k=40) but read out at a wider
             aperture (k=160) where our k_eval sweep showed best SimLex.
+        consolidation_bonus: BCM-style meta-plasticity. If > 0, bits in
+            top_k(A_phase1, k=k_active) receive an additive bonus on the
+            initial accumulator at the start of phase 2. Phase-2 evidence
+            must accumulate enough to overcome the bonus before displacing
+            a consolidated bit from top-k.
 
     If `cache_phase1_path` is provided and exists, load the phase-1 accumulator
     from it (skipping phase-1 training). The cache stores the *accumulator*,
@@ -199,6 +205,15 @@ def train_ssh_continual(
         out = np.zeros(a.size, dtype=np.bool_)
         out[idx] = True
         return out
+
+    def _build_consolidation_mask(A: np.ndarray, k: int) -> np.ndarray:
+        """V×D bool mask of 'phase-1 winning bits' (top-k per word)."""
+        V_, D_ = A.shape
+        mask = np.zeros((V_, D_), dtype=np.bool_)
+        for w in range(V_):
+            idx = np.argpartition(-A[w], k)[:k]
+            mask[w, idx] = True
+        return mask
 
     if cache_phase1_path is not None and cache_phase1_path.exists():
         print(f"\n  SSH phase 1: loading cached state from {cache_phase1_path}")
@@ -243,6 +258,14 @@ def train_ssh_continual(
                 pickle.dump({"A_center": A_phase1}, f)
             print(f"    cached phase-1 accumulator to {cache_phase1_path}")
 
+    consolidation_mask = None
+    if consolidation_bonus > 0.0:
+        consolidation_mask = _build_consolidation_mask(A_phase1, k_active)
+        print(
+            f"  consolidation: bonus={consolidation_bonus} on top_k={k_active} "
+            f"phase-1 bits per word"
+        )
+
     print(f"  SSH phase 2: continuing on B ({len(token_ids_b):,} tokens) ...")
     t0 = time.monotonic()
     emb2, stats2 = train_sparse_skipgram_hebbian_modulated(
@@ -259,6 +282,8 @@ def train_ssh_continual(
         sigmoid_bounded=True,
         seed=seed + 1,
         initial_A_center=A_phase1,
+        consolidation_mask=consolidation_mask,
+        consolidation_bonus=consolidation_bonus,
     )
     elapsed_b = time.monotonic() - t0
     print(f"    phase 2 trained in {elapsed_b:.1f}s")
@@ -302,6 +327,11 @@ def main() -> None:
                         "k_eval sweep showed best SimLex.")
     p.add_argument("--ssh-cache-phase1", type=str, default=None,
                    help="Path to load/save SSH phase-1 accumulator state.")
+    p.add_argument("--ssh-consolidation-bonus", type=float, default=0.0,
+                   help="BCM-style meta-plasticity. If > 0, bits in "
+                        "top_k(A_phase1, k=k_active) receive an additive bonus "
+                        "on the initial phase-2 accumulator. Protects phase-1 "
+                        "structure during phase-2 training.")
     p.add_argument("--vocab-size-hint", type=int, default=10_000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -406,6 +436,7 @@ def main() -> None:
                 k_active=args.ssh_k_active,
                 k_eval=args.ssh_k_eval,
                 cache_phase1_path=cache_path,
+                consolidation_bonus=args.ssh_consolidation_bonus,
             )
             is_sparse = True
 
