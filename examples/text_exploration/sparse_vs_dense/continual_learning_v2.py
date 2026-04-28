@@ -175,36 +175,60 @@ def train_ssh_continual(
     token_ids_b: list[int],
     id_to_token: list[str],
     seed: int,
+    n_dims: int = 1024,
+    k_active: int = 40,
+    cache_phase1_path: Path | None = None,
 ):
-    """Phase 1 train on A, phase 2 continue with same accumulator on B."""
-    print("\n  SSH phase 1: training on A ...")
-    t0 = time.monotonic()
-    emb1, stats1 = train_sparse_skipgram_hebbian_modulated(
-        token_ids_a,
-        id_to_token=id_to_token,
-        n_dims=1024,
-        k_active=40,
-        window=5,
-        n_neg=5,
-        lr_pos=0.05,
-        lr_neg=0.05,
-        modulate=True,
-        single_table=True,
-        sigmoid_bounded=True,
-        seed=seed,
-    )
-    elapsed_a = time.monotonic() - t0
-    print(f"    phase 1 trained in {elapsed_a:.1f}s")
+    """Phase 1 train on A, phase 2 continue with same accumulator on B.
 
-    snap1 = {w: emb1.get(w).copy() for w in emb1.vocab() if emb1.get(w) is not None}
+    If `cache_phase1_path` is provided and exists, load the phase-1 accumulator
+    from it (skipping phase-1 training). If the path doesn't exist, train
+    phase 1 then save the accumulator for reuse.
+    """
+    if cache_phase1_path is not None and cache_phase1_path.exists():
+        print(f"\n  SSH phase 1: loading cached state from {cache_phase1_path}")
+        with cache_phase1_path.open("rb") as f:
+            cache = pickle.load(f)
+        A_phase1 = cache["A_center"]
+        snap1 = cache["snap1"]
+        elapsed_a = 0.0
+        print(f"    cache hit: A shape={A_phase1.shape}, snap1 size={len(snap1)}")
+    else:
+        print("\n  SSH phase 1: training on A ...")
+        t0 = time.monotonic()
+        emb1, stats1 = train_sparse_skipgram_hebbian_modulated(
+            token_ids_a,
+            id_to_token=id_to_token,
+            n_dims=n_dims,
+            k_active=k_active,
+            window=5,
+            n_neg=5,
+            lr_pos=0.05,
+            lr_neg=0.05,
+            modulate=True,
+            single_table=True,
+            sigmoid_bounded=True,
+            seed=seed,
+        )
+        elapsed_a = time.monotonic() - t0
+        print(f"    phase 1 trained in {elapsed_a:.1f}s")
 
-    print("  SSH phase 2: continuing on B ...")
+        snap1 = {w: emb1.get(w).copy() for w in emb1.vocab() if emb1.get(w) is not None}
+        A_phase1 = emb1.A_center
+
+        if cache_phase1_path is not None:
+            cache_phase1_path.parent.mkdir(parents=True, exist_ok=True)
+            with cache_phase1_path.open("wb") as f:
+                pickle.dump({"A_center": A_phase1, "snap1": snap1}, f)
+            print(f"    cached phase-1 state to {cache_phase1_path}")
+
+    print(f"  SSH phase 2: continuing on B ({len(token_ids_b):,} tokens) ...")
     t0 = time.monotonic()
     emb2, stats2 = train_sparse_skipgram_hebbian_modulated(
         token_ids_b,
         id_to_token=id_to_token,
-        n_dims=1024,
-        k_active=40,
+        n_dims=n_dims,
+        k_active=k_active,
         window=5,
         n_neg=5,
         lr_pos=0.05,
@@ -212,8 +236,8 @@ def train_ssh_continual(
         modulate=True,
         single_table=True,
         sigmoid_bounded=True,
-        seed=seed + 1,  # different seed for negative-sample randomness in phase 2
-        initial_A_center=emb1.A_center,
+        seed=seed + 1,
+        initial_A_center=A_phase1,
     )
     elapsed_b = time.monotonic() - t0
     print(f"    phase 2 trained in {elapsed_b:.1f}s")
@@ -246,6 +270,12 @@ def evaluate_simlex_partition(
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--n-per-phase", type=int, default=5_000_000)
+    p.add_argument("--n-tokens-b", type=int, default=None,
+                   help="If set, override the phase-2 corpus size (defaults to n-per-phase).")
+    p.add_argument("--ssh-n-dims", type=int, default=1024)
+    p.add_argument("--ssh-k-active", type=int, default=40)
+    p.add_argument("--ssh-cache-phase1", type=str, default=None,
+                   help="Path to load/save SSH phase-1 accumulator state.")
     p.add_argument("--vocab-size-hint", type=int, default=10_000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -269,12 +299,17 @@ def main() -> None:
         f"=== continual learning at {args.n_per_phase:,} tokens per phase, "
         f"split={args.split} ==="
     )
+    n_b = args.n_tokens_b if args.n_tokens_b is not None else args.n_per_phase
     if args.split == "same_domain":
-        print("Loading text8 and splitting ...")
-        tokens_a_raw, tokens_b_raw = split_text8(args.n_per_phase)
+        print(f"Loading text8 and splitting (A={args.n_per_phase:,}, B={n_b:,}) ...")
+        tokens_a_raw = load_text8(max_tokens=args.n_per_phase)
+        # Phase B from text8 second half — load enough to skip A then take n_b
+        tokens_full = load_text8(max_tokens=args.n_per_phase + n_b)
+        tokens_b_raw = tokens_full[args.n_per_phase:]
     else:
-        print("Loading text8 (A) + Gutenberg (B) for cross-domain split ...")
-        tokens_a_raw, tokens_b_raw = load_cross_domain(args.n_per_phase)
+        print(f"Loading text8 (A={args.n_per_phase:,}) + Gutenberg (B={n_b:,}) ...")
+        tokens_a_raw = load_text8(max_tokens=args.n_per_phase)
+        tokens_b_raw = load_gutenberg_corpus(max_tokens=n_b)
 
     # Apply matched preprocessing to BOTH halves.
     print("Applying matched preprocessing (chunking + subsampling) ...")
@@ -333,8 +368,17 @@ def main() -> None:
             )
             is_sparse = False
         else:
+            cache_path = (
+                Path(args.ssh_cache_phase1) if args.ssh_cache_phase1 else None
+            )
             snap1, snap2, timings = train_ssh_continual(
-                tids_a, tids_b, id_to_token, args.seed,
+                tids_a,
+                tids_b,
+                id_to_token,
+                args.seed,
+                n_dims=args.ssh_n_dims,
+                k_active=args.ssh_k_active,
+                cache_phase1_path=cache_path,
             )
             is_sparse = True
 
