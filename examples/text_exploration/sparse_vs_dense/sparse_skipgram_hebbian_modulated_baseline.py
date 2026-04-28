@@ -460,6 +460,8 @@ def train_sparse_skipgram_hebbian_modulated(
     init_scale: float = 0.01,
     neg_power: float = 0.75,
     seed: int = 0,
+    initial_A_center: np.ndarray | None = None,
+    initial_A_context: np.ndarray | None = None,
 ) -> tuple[ModulatedSSHEmbeddings, dict]:
     """Train modulated SSH on `token_ids`.
 
@@ -498,13 +500,22 @@ def train_sparse_skipgram_hebbian_modulated(
 
     t0 = time.monotonic()
 
-    A_center = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
-    if single_table:
-        # Alias: every update path writes through this view; effectively
-        # there is one table indexed by word, regardless of role.
-        A_context = A_center
+    if initial_A_center is not None:
+        # Continual training mode: pick up from a saved accumulator state.
+        # Caller is responsible for matching shape and single_table convention.
+        A_center = initial_A_center.copy().astype(np.float32)
+        if single_table:
+            A_context = A_center
+        elif initial_A_context is not None:
+            A_context = initial_A_context.copy().astype(np.float32)
+        else:
+            A_context = A_center.copy()
     else:
-        A_context = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
+        A_center = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
+        if single_table:
+            A_context = A_center
+        else:
+            A_context = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
 
     # EMA tables — start identical to live A so initial top_k is consistent.
     # Always allocate (numba-jitted loop expects array args even if ema_alpha=0;
@@ -560,7 +571,12 @@ def train_sparse_skipgram_hebbian_modulated(
     cont_emb = ContinuousSSHEmbeddings(continuous_vectors)
 
     mean_active = float(np.mean([int(v.sum()) for v in sdrs.values()]))
-    return ModulatedSSHEmbeddings(sdrs, continuous=cont_emb), {
+    out_emb = ModulatedSSHEmbeddings(sdrs, continuous=cont_emb)
+    # Expose trained accumulator state for continual-learning experiments
+    # (so a follow-up call can pass it via `initial_A_center`).
+    out_emb.A_center = A_center
+    out_emb.A_context = A_context
+    return out_emb, {
         "elapsed_s": time.monotonic() - t0,
         "elapsed_train_s": elapsed_train,
         "vocab_size": V,
