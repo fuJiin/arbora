@@ -149,6 +149,9 @@ Plan:
 | Continual sweep: small-update size | apr 28 | Crossover at ~500k–1M Gutenberg: SSH preserves better below, w2v scales better above |
 | Continual sweep: D=2048 vs D=1024 at 1M | apr 28 | Doubling D does NOT reduce SSH forgetting; bottleneck is k aperture, not raw dimensionality |
 | BCM-style consolidation bonus at 5M cross-domain | apr 28 | Non-monotonic in λ; sweet spot at λ=0.5 cuts cross drift from -0.119 to -0.014 (~90% reduction) with mild shared cost; λ=1.0 over-freezes (cross drift -0.278) because sigmoid bound makes phase-2 updates vanish |
+| W2v 50-epoch sweep at 5M text8 | apr 28 | Peak SimLex 0.265 at ep8; plateau ~0.245 through ep25; slow overfit drift to 0.210 by ep50 (-21% from peak). Matches Schnabel 2015 / Salle 2016 reports of intrinsic-eval peak-then-decline on small corpora. Implication: our 1-epoch continual-learning experiments leave both methods at ~0.188, well below convergence; the "w2v rebound at b=5M" finding is partially "w2v finishes the training that didn't fit in phase 1." |
+| Best historical SSH peak (1 epoch) | apr 24-28 | SimLex 0.204 at 5M with sigmoid+single_table+modulated, k_eval=40. Extrapolated to k_eval=160: ~0.30 (estimate based on the apr 27 k_eval sweep showing ~50% lift). Multi-epoch SSH at 5M with k_eval=160 not yet measured — the experiment that closes the convergence-comparison loop. |
+| Hogwild!-parallel SSH infrastructure | apr 28 | Added `n_workers` to modulated SSH baseline; numba.prange splits token stream into contiguous slices, lock-free shared updates to A_center/A_context (Niu et al. 2011 Hogwild). 4 workers gives 2× speedup with ΔSimLex ≤ 0.005 (within seed-noise). 8 workers gives 3.2× but with measurable race noise (ΔSimLex 0.04). 2× ceiling at 4 workers is cache-line contention on the 40MB A-table working set (doesn't fit in L3). Same memory-pressure ceiling gensim hits at production scale. |
 
 ## Open experimental questions
 
@@ -185,6 +188,84 @@ Plan:
    in phase 2; (c) protect top-160 (matches eval aperture) instead
    of top-40; (d) sliding threshold per-bit activity counter (true
    BCM rather than one-shot snapshot).
+8. **Multi-epoch SSH convergence**: does SSH show the same
+   peak-then-decline curve as w2v over many epochs on the same corpus?
+   Sequential at 5M is ~32 hours for 50 epochs (intractable);
+   Hogwild parallel at 4 workers brings it to ~16 hours (overnight).
+   Two outcomes are possible: (1) SSH peaks higher than w2v's 0.265
+   when given convergence-time training (with k_eval=160, extrapolation
+   suggests ~0.30+) — headline finding; (2) SSH peaks at the same
+   place w2v does and declines similarly — equivalence finding. Either
+   informative.
+9. **Top-k vs dropout**: dropout-augmented SSH as a different fix
+   for continual learning. BCM consolidation = "remember the specific
+   subset that won at phase 1." Dropout-during-training = "make many
+   subsets equally valid so phase-2 perturbation isn't catastrophic."
+   One-line change: multiply A_w by a Bernoulli mask before computing
+   top-k during training. Tests whether implicit-ensemble training
+   makes SSH naturally robust to phase-2 reorganization.
+
+## Session insights (apr 28)
+
+### The local-learning ↔ gradient-descent equivalence is exact for shallow models
+
+For skip-gram with negative sampling, the loss `-log σ(v_w · v_c)`
+factorizes such that `∂L/∂v_w[i] = -σ(-score) · v_c[i]`. The
+gradient is **already zero** wherever `v_c[i] = 0`. So when v_c is a
+sparse top-k binary code, "gradient descent with bottom (D-k) zeroed
+out" is the same operation as "local Hebbian update on the support of
+E_c." The two framings differ only in the modulator shape:
+
+  - Word2vec / STE: m = σ(-score)  (sigmoid)
+  - Modulated SSH:  m = (1 - overlap/k)  (linear)
+
+Both saturate to 0 when fully aligned and 1 when fully misaligned. The
+linear modulator avoids the σ(0)=0.5 bootstrap problem at init, which
+explains the empirical gap we measured between `gradient_ste_baseline`
+and `sparse_skipgram_hebbian_modulated_baseline` — same algorithm,
+different schedule.
+
+This dichotomy ("local learning" vs "gradient descent") only becomes
+real in *deep* networks, where backprop introduces non-local
+gradient signals through hidden layers. Shallow embedding methods like
+word2vec and SSH are the same algorithm in different vocabularies.
+arbora's Part-2 unifying equation captures this:
+
+  Δw = η · m(·) · [f_pre · f_post − s(w, θ)]
+
+with classical rules as different (m, f_pre, f_post, s) tuples.
+
+### Top-k vs dropout: related, not dual
+
+Both produce sparse activation patterns by zeroing some dimensions.
+Difference:
+
+  - Top-k = "this dimension *deserves* to be active" (value-based, deterministic)
+  - Dropout = "this dimension *happens* to be active" (random, stochastic)
+
+Top-k is for *the representation*; dropout is for *regularization*.
+Dropout-trained models reconstruct a dense representation at inference
+(via averaging across draws) — they do not give SDRs by themselves.
+
+But there's a useful synthesis: **dropout-during-training plus top-k-at-readout**.
+The implicit-ensemble interpretation of dropout (Srivastava 2014) says
+the model learns redundant encodings — many subsets of bits all carry
+usable information. For SSH continual learning, this would make the
+phase-1 representation robust to *which* bits end up winning the top-k
+post-phase-2 reorganization. Different mechanism from BCM consolidation
+(which protects a specific subset); see open question #9.
+
+### Memory bandwidth ceiling on Hogwild parallel SSH
+
+4-worker speedup capped at ~2× because the 40 MB A-table working set
+exceeds L3 cache. False sharing on overlapping rows ping-pongs cache
+lines between cores. Gensim doesn't have a magic fix — its typical
+D=100 keeps the working set at ~4 MB (fits in L3), so it scales to
+~3× at 4 workers. At our D=1024 (or gensim's production V=1M, D=300
+where syn0 is 1.2 GB), both hit the same wall. Fixes that work:
+word-partitioned ownership (no shared writes), worker-local A +
+periodic sync (Federated-style), or dimensionality reduction to
+D=256–512.
 
 ## Reading list (anchored to discussions in the conversation)
 
