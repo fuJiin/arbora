@@ -449,6 +449,10 @@ def main() -> None:
         choices=["same_domain", "cross_domain"],
         help="same_domain = text8 halves; cross_domain = text8 → Gutenberg.",
     )
+    p.add_argument("--methods", type=str, default="both",
+                   choices=["both", "word2vec", "ssh"],
+                   help="Which method(s) to run. 'both' runs w2v + SSH "
+                        "(default). 'ssh' or 'word2vec' restricts to one.")
     p.add_argument(
         "--out-dir",
         type=str,
@@ -524,7 +528,10 @@ def main() -> None:
     rows: list[dict] = []
     drift_rows: list[dict] = []
 
-    for method_name in ["word2vec", "ssh"]:
+    methods_to_run = (
+        ["word2vec", "ssh"] if args.methods == "both" else [args.methods]
+    )
+    for method_name in methods_to_run:
         print(f"\n--- {method_name} ---")
         if method_name == "word2vec":
             snap1, snap2, timings = train_w2v_continual(
