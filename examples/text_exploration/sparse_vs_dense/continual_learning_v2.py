@@ -131,18 +131,20 @@ def train_w2v_continual(
     chunks_a: list[list[str]],
     chunks_b: list[list[str]],
     seed: int,
+    n_epochs_phase1: int = 1,
+    n_epochs_phase2: int = 1,
 ):
     """Phase 1 train on A's chunks; build joint vocab from A∪B; phase 2 continue on B."""
     from gensim.models import Word2Vec
 
-    print("\n  word2vec phase 1: training on A ...")
+    print(f"\n  word2vec phase 1: training on A ({n_epochs_phase1} epochs) ...")
     t0 = time.monotonic()
     model = Word2Vec(
         sentences=chunks_a,
         vector_size=100,
         window=5,
         min_count=1,  # vocab is pre-determined; don't drop
-        epochs=1,
+        epochs=n_epochs_phase1,
         workers=4,
         sg=1,
         seed=seed,
@@ -156,12 +158,12 @@ def train_w2v_continual(
 
     snap1 = {w: model.wv[w].copy() for w in model.wv.key_to_index}
 
-    print("  word2vec phase 2: continuing on B ...")
+    print(f"  word2vec phase 2: continuing on B ({n_epochs_phase2} epochs) ...")
     t0 = time.monotonic()
     model.train(
         corpus_iterable=chunks_b,
         total_examples=len(chunks_b),
-        epochs=1,
+        epochs=n_epochs_phase2,
     )
     elapsed_b = time.monotonic() - t0
     print(f"    phase 2 trained in {elapsed_b:.1f}s")
@@ -180,6 +182,9 @@ def train_ssh_continual(
     k_eval: int | None = None,
     cache_phase1_path: Path | None = None,
     consolidation_bonus: float = 0.0,
+    n_epochs_phase1: int = 1,
+    n_epochs_phase2: int = 1,
+    n_workers: int = 1,
 ):
     """Phase 1 train on A, phase 2 continue with same accumulator on B.
 
@@ -228,26 +233,38 @@ def train_ssh_continual(
             f"size={len(snap1)}"
         )
     else:
-        print("\n  SSH phase 1: training on A ...")
-        t0 = time.monotonic()
-        emb1, stats1 = train_sparse_skipgram_hebbian_modulated(
-            token_ids_a,
-            id_to_token=id_to_token,
-            n_dims=n_dims,
-            k_active=k_active,
-            window=5,
-            n_neg=5,
-            lr_pos=0.05,
-            lr_neg=0.05,
-            modulate=True,
-            single_table=True,
-            sigmoid_bounded=True,
-            seed=seed,
+        print(
+            f"\n  SSH phase 1: training on A "
+            f"({n_epochs_phase1} epoch{'s' if n_epochs_phase1 != 1 else ''}, "
+            f"n_workers={n_workers}) ..."
         )
+        t0 = time.monotonic()
+        A_phase1 = None
+        for ep in range(n_epochs_phase1):
+            emb1, stats1 = train_sparse_skipgram_hebbian_modulated(
+                token_ids_a,
+                id_to_token=id_to_token,
+                n_dims=n_dims,
+                k_active=k_active,
+                window=5,
+                n_neg=5,
+                lr_pos=0.05,
+                lr_neg=0.05,
+                modulate=True,
+                single_table=True,
+                sigmoid_bounded=True,
+                seed=seed + ep,
+                initial_A_center=A_phase1,
+                n_workers=n_workers,
+            )
+            A_phase1 = emb1.A_center
+            print(
+                f"    phase 1 epoch {ep + 1}/{n_epochs_phase1} done "
+                f"({stats1['elapsed_train_s']:.1f}s)"
+            )
         elapsed_a = time.monotonic() - t0
-        print(f"    phase 1 trained in {elapsed_a:.1f}s")
+        print(f"    phase 1 total trained in {elapsed_a:.1f}s")
 
-        A_phase1 = emb1.A_center
         snap1 = {w: _build_sdr(A_phase1[i]) for i, w in enumerate(id_to_token)}
 
         if cache_phase1_path is not None:
@@ -266,29 +283,45 @@ def train_ssh_continual(
             f"phase-1 bits per word"
         )
 
-    print(f"  SSH phase 2: continuing on B ({len(token_ids_b):,} tokens) ...")
-    t0 = time.monotonic()
-    emb2, stats2 = train_sparse_skipgram_hebbian_modulated(
-        token_ids_b,
-        id_to_token=id_to_token,
-        n_dims=n_dims,
-        k_active=k_active,
-        window=5,
-        n_neg=5,
-        lr_pos=0.05,
-        lr_neg=0.05,
-        modulate=True,
-        single_table=True,
-        sigmoid_bounded=True,
-        seed=seed + 1,
-        initial_A_center=A_phase1,
-        consolidation_mask=consolidation_mask,
-        consolidation_bonus=consolidation_bonus,
+    print(
+        f"  SSH phase 2: continuing on B ({len(token_ids_b):,} tokens, "
+        f"{n_epochs_phase2} epoch{'s' if n_epochs_phase2 != 1 else ''}, "
+        f"n_workers={n_workers}) ..."
     )
+    t0 = time.monotonic()
+    A_curr = A_phase1
+    for ep in range(n_epochs_phase2):
+        # Apply consolidation only on the first phase-2 epoch — subsequent
+        # epochs continue from the boosted state.
+        cm = consolidation_mask if ep == 0 else None
+        cb = consolidation_bonus if ep == 0 else 0.0
+        emb2, stats2 = train_sparse_skipgram_hebbian_modulated(
+            token_ids_b,
+            id_to_token=id_to_token,
+            n_dims=n_dims,
+            k_active=k_active,
+            window=5,
+            n_neg=5,
+            lr_pos=0.05,
+            lr_neg=0.05,
+            modulate=True,
+            single_table=True,
+            sigmoid_bounded=True,
+            seed=seed + n_epochs_phase1 + ep,
+            initial_A_center=A_curr,
+            consolidation_mask=cm,
+            consolidation_bonus=cb,
+            n_workers=n_workers,
+        )
+        A_curr = emb2.A_center
+        print(
+            f"    phase 2 epoch {ep + 1}/{n_epochs_phase2} done "
+            f"({stats2['elapsed_train_s']:.1f}s)"
+        )
     elapsed_b = time.monotonic() - t0
-    print(f"    phase 2 trained in {elapsed_b:.1f}s")
+    print(f"    phase 2 total trained in {elapsed_b:.1f}s")
 
-    snap2 = {w: _build_sdr(emb2.A_center[i]) for i, w in enumerate(id_to_token)}
+    snap2 = {w: _build_sdr(A_curr[i]) for i, w in enumerate(id_to_token)}
     return snap1, snap2, {"phase1_s": elapsed_a, "phase2_s": elapsed_b}
 
 
@@ -332,6 +365,14 @@ def main() -> None:
                         "top_k(A_phase1, k=k_active) receive an additive bonus "
                         "on the initial phase-2 accumulator. Protects phase-1 "
                         "structure during phase-2 training.")
+    p.add_argument("--ssh-n-workers", type=int, default=1,
+                   help="Hogwild! parallel workers for SSH inner loop. 4 is "
+                        "the sweet spot — 2x speedup with negligible race noise.")
+    p.add_argument("--n-epochs-phase1", type=int, default=1,
+                   help="Number of training passes over the phase-1 corpus "
+                        "for both methods. Default 1 matches prior behavior.")
+    p.add_argument("--n-epochs-phase2", type=int, default=1,
+                   help="Number of training passes over the phase-2 corpus.")
     p.add_argument("--vocab-size-hint", type=int, default=10_000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -421,6 +462,8 @@ def main() -> None:
         if method_name == "word2vec":
             snap1, snap2, timings = train_w2v_continual(
                 chunks_a, chunks_b, args.seed,
+                n_epochs_phase1=args.n_epochs_phase1,
+                n_epochs_phase2=args.n_epochs_phase2,
             )
             is_sparse = False
         else:
@@ -437,6 +480,9 @@ def main() -> None:
                 k_eval=args.ssh_k_eval,
                 cache_phase1_path=cache_path,
                 consolidation_bonus=args.ssh_consolidation_bonus,
+                n_epochs_phase1=args.n_epochs_phase1,
+                n_epochs_phase2=args.n_epochs_phase2,
+                n_workers=args.ssh_n_workers,
             )
             is_sparse = True
 
