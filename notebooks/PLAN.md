@@ -148,6 +148,7 @@ Plan:
 | Continual v2: cross-domain (text8→Gutenberg) | apr 28 | At 5M each phase, SSH forgets MORE than w2v on shared/cross — capacity-ceiling effect |
 | Continual sweep: small-update size | apr 28 | Crossover at ~500k–1M Gutenberg: SSH preserves better below, w2v scales better above |
 | Continual sweep: D=2048 vs D=1024 at 1M | apr 28 | Doubling D does NOT reduce SSH forgetting; bottleneck is k aperture, not raw dimensionality |
+| BCM-style consolidation bonus at 5M cross-domain | apr 28 | Non-monotonic in λ; sweet spot at λ=0.5 cuts cross drift from -0.119 to -0.014 (~90% reduction) with mild shared cost; λ=1.0 over-freezes (cross drift -0.278) because sigmoid bound makes phase-2 updates vanish |
 
 ## Open experimental questions
 
@@ -161,6 +162,14 @@ Plan:
    "SBR wins continual learning" — it's "SBR is more update-stable
    per token, but its k-bit aperture caps how much new information
    can be absorbed without overwriting old." More dimensions don't help.
+   **Update**: a one-shot BCM-like consolidation bonus (λ=0.5 added
+   to top-40 phase-1 bits at the phase-2 boundary) eliminates ~90%
+   of the cross-domain forgetting at 5M B-tokens. Confirms the
+   k-aperture bottleneck hypothesis: the issue isn't capacity, it's
+   *plasticity asymmetry* — phase-1 bits need explicit protection
+   to survive top-k competition. λ=1.0 is too strong; sigmoid bound
+   makes phase-2 updates vanish on protected bits and the system
+   can't form phase-2-aware representations.
 4. **Performance**: lazy decay (quick win), batched-by-word update (bigger
    refactor)
 5. **Theoretical analysis**: can we derive a closed-form fixed point for
@@ -170,6 +179,12 @@ Plan:
    D_dense=100·float32 ≈ SDR(1024, 80–160), matching the empirical
    k_eval optimum. Needs a controlled experiment matching information
    budgets explicitly to test the equivalence.
+7. **Consolidation follow-ups**: (a) does λ=0.5 generalize to b=1M
+   and b=500k or does it over-protect? (b) skip uninitialized words
+   (max(A_phase1[w]) < threshold) so B-only words are fully plastic
+   in phase 2; (c) protect top-160 (matches eval aperture) instead
+   of top-40; (d) sliding threshold per-bit activity counter (true
+   BCM rather than one-shot snapshot).
 
 ## Reading list (anchored to discussions in the conversation)
 
