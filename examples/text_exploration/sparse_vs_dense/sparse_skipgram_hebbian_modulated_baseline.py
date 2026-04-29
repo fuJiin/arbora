@@ -433,12 +433,147 @@ def _make_train_loop():
                                     A_center[center, bit] - A_ema_center[center, bit]
                                 )
             return neg_pos
-        return _train_jit, True
+
+        # ------------------------------------------------------------------
+        # Hogwild!-style parallel variant. Splits tids into n_workers contiguous
+        # slices, runs them in parallel via numba.prange, and lets the workers
+        # update the shared A_center / A_context tables without locks. Race
+        # conditions are accepted as standard Hogwild! noise (Niu et al. 2011) —
+        # same convention gensim Word2Vec uses with workers>1.
+        # ------------------------------------------------------------------
+        @numba.njit(cache=True, fastmath=True, parallel=True)
+        def _train_jit_parallel(
+            A_center, A_context,
+            A_ema_center, A_ema_context,
+            tids,
+            chunk_starts, chunk_ends,        # (n_workers,) int64
+            negs_bufs,                        # (n_workers, max_negs_per_worker)
+            e_center_bufs, e_context_bufs, e_neg_bufs,  # (n_workers, k_active)
+            n_dims, k_active, window, n_neg,
+            lr_pos, lr_neg, decay, modulate,
+            ema_alpha, subtract_mean, sigmoid_bounded,
+        ):
+            n_workers = chunk_starts.shape[0]
+            ema_on = ema_alpha > 0.0
+            N_total = tids.shape[0]
+            for w in numba.prange(n_workers):
+                e_center_buf = e_center_bufs[w]
+                e_context_buf = e_context_bufs[w]
+                e_neg_buf = e_neg_bufs[w]
+                negs_buf = negs_bufs[w]
+                neg_pos = 0
+                n_negs_total = negs_buf.shape[0]
+                start = chunk_starts[w]
+                end = chunk_ends[w]
+
+                for i in range(start, end):
+                    center = tids[i]
+                    if ema_on:
+                        _top_k_jit(A_ema_center[center], k_active, e_center_buf)
+                    else:
+                        _top_k_jit(A_center[center], k_active, e_center_buf)
+
+                    lo = i - window
+                    if lo < 0:
+                        lo = 0
+                    hi = i + window + 1
+                    if hi > N_total:
+                        hi = N_total
+
+                    for j in range(lo, hi):
+                        if j == i:
+                            continue
+                        context = tids[j]
+                        if ema_on:
+                            _top_k_jit(A_ema_context[context], k_active, e_context_buf)
+                        else:
+                            _top_k_jit(A_context[context], k_active, e_context_buf)
+
+                        if modulate:
+                            overlap_pos = _overlap_jit(e_center_buf, e_context_buf, k_active)
+                            mod_pos = 1.0 - overlap_pos / k_active
+                        else:
+                            mod_pos = 1.0
+
+                        step_pos = lr_pos * mod_pos
+                        for bi in range(k_active):
+                            bit = e_context_buf[bi]
+                            if sigmoid_bounded:
+                                v = A_center[center, bit]
+                                sig = 1.0 / (1.0 + math.exp(-v))
+                                A_center[center, bit] += step_pos * (1.0 - sig)
+                            else:
+                                A_center[center, bit] += step_pos
+                            if ema_on:
+                                A_ema_center[center, bit] += ema_alpha * (
+                                    A_center[center, bit] - A_ema_center[center, bit]
+                                )
+                            bit2 = e_center_buf[bi]
+                            if sigmoid_bounded:
+                                v2 = A_context[context, bit2]
+                                sig2 = 1.0 / (1.0 + math.exp(-v2))
+                                A_context[context, bit2] += step_pos * (1.0 - sig2)
+                            else:
+                                A_context[context, bit2] += step_pos
+                            if ema_on:
+                                A_ema_context[context, bit2] += ema_alpha * (
+                                    A_context[context, bit2] - A_ema_context[context, bit2]
+                                )
+
+                        if subtract_mean:
+                            mean_c = 0.0
+                            for d in range(n_dims):
+                                mean_c += A_center[center, d]
+                            mean_c /= n_dims
+                            for d in range(n_dims):
+                                A_center[center, d] -= mean_c
+                            mean_x = 0.0
+                            for d in range(n_dims):
+                                mean_x += A_context[context, d]
+                            mean_x /= n_dims
+                            for d in range(n_dims):
+                                A_context[context, d] -= mean_x
+
+                        if decay > 0.0:
+                            one_minus = 1.0 - decay
+                            for d in range(n_dims):
+                                A_center[center, d] *= one_minus
+                                A_context[context, d] *= one_minus
+
+                        for _ in range(n_neg):
+                            if neg_pos >= n_negs_total:
+                                break
+                            neg_id = negs_buf[neg_pos]
+                            neg_pos += 1
+                            if ema_on:
+                                _top_k_jit(A_ema_context[neg_id], k_active, e_neg_buf)
+                            else:
+                                _top_k_jit(A_context[neg_id], k_active, e_neg_buf)
+                            if modulate:
+                                overlap_neg = _overlap_jit(e_center_buf, e_neg_buf, k_active)
+                                mod_neg = overlap_neg / k_active
+                            else:
+                                mod_neg = 1.0
+                            step_neg = lr_neg * mod_neg
+                            for bi in range(k_active):
+                                bit = e_neg_buf[bi]
+                                if sigmoid_bounded:
+                                    v = A_center[center, bit]
+                                    sig = 1.0 / (1.0 + math.exp(-v))
+                                    A_center[center, bit] -= step_neg * sig
+                                else:
+                                    A_center[center, bit] -= step_neg
+                                if ema_on:
+                                    A_ema_center[center, bit] += ema_alpha * (
+                                        A_center[center, bit] - A_ema_center[center, bit]
+                                    )
+
+        return _train_jit, _train_jit_parallel, True
     else:
-        return _train, False
+        return _train, None, False
 
 
-_TRAIN_FN, _IS_JIT = _make_train_loop()
+_TRAIN_FN, _TRAIN_FN_PARALLEL, _IS_JIT = _make_train_loop()
 
 
 def train_sparse_skipgram_hebbian_modulated(
@@ -464,6 +599,7 @@ def train_sparse_skipgram_hebbian_modulated(
     initial_A_context: np.ndarray | None = None,
     consolidation_mask: np.ndarray | None = None,
     consolidation_bonus: float = 0.0,
+    n_workers: int = 1,
 ) -> tuple[ModulatedSSHEmbeddings, dict]:
     """Train modulated SSH on `token_ids`.
 
@@ -500,6 +636,15 @@ def train_sparse_skipgram_hebbian_modulated(
             but must accumulate enough to overcome the bonus.
         consolidation_bonus: Magnitude of the per-bit bonus applied to bits
             marked True in `consolidation_mask`. 0 disables.
+        n_workers: Hogwild!-style parallelism. 1 (default) → sequential JIT
+            loop, fully reproducible. >1 → splits the token stream into
+            n_workers contiguous slices and runs them in parallel via
+            numba.prange, sharing A_center/A_context lock-free. Race
+            conditions on the accumulator are accepted as standard Hogwild!
+            noise (Niu et al. 2011) — same convention gensim Word2Vec uses
+            with workers>1. Output is no longer bit-reproducible across
+            seeds but the SimLex-level statistics are equivalent. Requires
+            numba; falls back to sequential without it.
 
     Returns:
         (ModulatedSSHEmbeddings, stats dict).
@@ -550,27 +695,78 @@ def train_sparse_skipgram_hebbian_modulated(
 
     cdf = _build_unigram_cdf(tids, V, neg_power)
 
-    # Pre-sample all negatives upfront so the inner loop can be numba-friendly.
-    # Total negatives needed: N * (2 * window) * n_neg, with some slack.
-    expected_pairs = N * 2 * window
-    total_negs = expected_pairs * n_neg + 1024
-    neg_uniform = rng.random(total_negs)
-    negs_buf = np.searchsorted(cdf, neg_uniform).astype(np.int64)
+    use_parallel = n_workers > 1 and _IS_JIT and _TRAIN_FN_PARALLEL is not None
+    if n_workers > 1 and not use_parallel:
+        print(
+            "  warning: n_workers>1 requested but JIT/parallel not available; "
+            "falling back to sequential."
+        )
 
-    # Scratch buffers reused inside the loop.
-    e_center_buf = np.empty(k_active, dtype=np.int64)
-    e_context_buf = np.empty(k_active, dtype=np.int64)
-    e_neg_buf = np.empty(k_active, dtype=np.int64)
+    if use_parallel:
+        # Pre-split: each worker gets a contiguous slice of tids and its own
+        # negatives buffer. Per-worker scratch buffers are 2D arrays sliced
+        # inside the JIT loop.
+        chunk_size = (N + n_workers - 1) // n_workers
+        chunk_starts = np.array(
+            [w * chunk_size for w in range(n_workers)], dtype=np.int64
+        )
+        chunk_ends = np.array(
+            [min((w + 1) * chunk_size, N) for w in range(n_workers)],
+            dtype=np.int64,
+        )
 
-    n_negs_used = _TRAIN_FN(
-        A_center, A_context,
-        A_ema_center, A_ema_context,
-        tids, cdf,
-        negs_buf, e_center_buf, e_context_buf, e_neg_buf,
-        n_dims, k_active, window, n_neg,
-        float(lr_pos), float(lr_neg), float(decay), bool(modulate),
-        float(ema_alpha), bool(subtract_mean), bool(sigmoid_bounded),
-    )
+        # Negatives per worker: (max chunk len) * 2*window * n_neg + slack.
+        max_chunk_len = chunk_size
+        per_worker_negs = max_chunk_len * 2 * window * n_neg + 1024
+        total_negs = per_worker_negs * n_workers
+        neg_uniform = rng.random(total_negs)
+        negs_flat = np.searchsorted(cdf, neg_uniform).astype(np.int64)
+        negs_bufs = negs_flat.reshape(n_workers, per_worker_negs)
+
+        # Per-worker scratch buffers.
+        e_center_bufs = np.empty((n_workers, k_active), dtype=np.int64)
+        e_context_bufs = np.empty((n_workers, k_active), dtype=np.int64)
+        e_neg_bufs = np.empty((n_workers, k_active), dtype=np.int64)
+
+        # Tell numba how many threads to use for this prange.
+        try:
+            numba.set_num_threads(n_workers)
+        except Exception:  # noqa: BLE001
+            pass
+
+        _TRAIN_FN_PARALLEL(
+            A_center, A_context,
+            A_ema_center, A_ema_context,
+            tids,
+            chunk_starts, chunk_ends,
+            negs_bufs,
+            e_center_bufs, e_context_bufs, e_neg_bufs,
+            n_dims, k_active, window, n_neg,
+            float(lr_pos), float(lr_neg), float(decay), bool(modulate),
+            float(ema_alpha), bool(subtract_mean), bool(sigmoid_bounded),
+        )
+        n_negs_used = -1  # parallel path doesn't track a global counter
+    else:
+        # Sequential path. Total negatives needed: N * (2 * window) * n_neg,
+        # with some slack.
+        expected_pairs = N * 2 * window
+        total_negs = expected_pairs * n_neg + 1024
+        neg_uniform = rng.random(total_negs)
+        negs_buf = np.searchsorted(cdf, neg_uniform).astype(np.int64)
+
+        e_center_buf = np.empty(k_active, dtype=np.int64)
+        e_context_buf = np.empty(k_active, dtype=np.int64)
+        e_neg_buf = np.empty(k_active, dtype=np.int64)
+
+        n_negs_used = _TRAIN_FN(
+            A_center, A_context,
+            A_ema_center, A_ema_context,
+            tids, cdf,
+            negs_buf, e_center_buf, e_context_buf, e_neg_buf,
+            n_dims, k_active, window, n_neg,
+            float(lr_pos), float(lr_neg), float(decay), bool(modulate),
+            float(ema_alpha), bool(subtract_mean), bool(sigmoid_bounded),
+        )
 
     elapsed_train = time.monotonic() - t0
 
@@ -615,6 +811,8 @@ def train_sparse_skipgram_hebbian_modulated(
         "subtract_mean": subtract_mean,
         "sigmoid_bounded": sigmoid_bounded,
         "consolidation_bonus": float(consolidation_bonus),
+        "n_workers": int(n_workers),
+        "parallel_mode": "hogwild" if (n_workers > 1 and _IS_JIT) else "sequential",
         "n_train_tokens": N,
         "n_negs_used": int(n_negs_used),
         "active_per_word_mean": mean_active,
