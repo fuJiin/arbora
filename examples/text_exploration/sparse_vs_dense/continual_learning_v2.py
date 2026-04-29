@@ -185,6 +185,9 @@ def train_ssh_continual(
     n_epochs_phase1: int = 1,
     n_epochs_phase2: int = 1,
     n_workers: int = 1,
+    eval_pairs: list[tuple[str, str, float]] | None = None,
+    early_stop_patience: int = 0,
+    epoch_log_path: Path | None = None,
 ):
     """Phase 1 train on A, phase 2 continue with same accumulator on B.
 
@@ -240,6 +243,13 @@ def train_ssh_continual(
         )
         t0 = time.monotonic()
         A_phase1 = None
+        # Per-epoch SimLex eval + early-stop bookkeeping.
+        do_eval = eval_pairs is not None and len(eval_pairs) > 1
+        best_simlex = float("-inf")
+        best_epoch = 0
+        best_A: np.ndarray | None = None
+        epochs_since_best = 0
+        epoch_log: list[dict] = []
         for ep in range(n_epochs_phase1):
             emb1, stats1 = train_sparse_skipgram_hebbian_modulated(
                 token_ids_a,
@@ -258,12 +268,62 @@ def train_ssh_continual(
                 n_workers=n_workers,
             )
             A_phase1 = emb1.A_center
-            print(
+            ep_msg = (
                 f"    phase 1 epoch {ep + 1}/{n_epochs_phase1} done "
                 f"({stats1['elapsed_train_s']:.1f}s)"
             )
+            if do_eval:
+                snap_ep = {w: _build_sdr(A_phase1[i]) for i, w in enumerate(id_to_token)}
+                rho_ep, n_ep = evaluate_simlex_partition(
+                    snap_ep, eval_pairs, is_sparse=True
+                )
+                ep_msg += f"  simlex={rho_ep:+.4f} (n={n_ep})"
+                epoch_log.append({
+                    "epoch": ep + 1,
+                    "simlex_spearman": rho_ep,
+                    "n_pairs": n_ep,
+                    "elapsed_train_s": stats1["elapsed_train_s"],
+                })
+                if rho_ep > best_simlex:
+                    best_simlex = rho_ep
+                    best_epoch = ep + 1
+                    best_A = A_phase1.copy()
+                    epochs_since_best = 0
+                else:
+                    epochs_since_best += 1
+                if early_stop_patience > 0 and epochs_since_best >= early_stop_patience:
+                    print(ep_msg)
+                    print(
+                        f"    early stop: {epochs_since_best} epochs without "
+                        f"improvement (patience={early_stop_patience}); "
+                        f"reverting to best epoch={best_epoch} simlex={best_simlex:+.4f}"
+                    )
+                    A_phase1 = best_A
+                    break
+            print(ep_msg)
+        if do_eval and best_A is not None and best_epoch != n_epochs_phase1:
+            # We reached n_epochs_phase1 without early stop, but the peak
+            # was earlier. Revert to peak so phase 2 starts from the best
+            # phase-1 state, not a slightly-overfit one.
+            if best_epoch < ep + 1:
+                print(
+                    f"    final epoch SimLex {rho_ep:+.4f} below peak at "
+                    f"epoch={best_epoch} ({best_simlex:+.4f}); reverting to peak"
+                )
+                A_phase1 = best_A
         elapsed_a = time.monotonic() - t0
         print(f"    phase 1 total trained in {elapsed_a:.1f}s")
+
+        if epoch_log_path is not None and epoch_log:
+            import csv as _csv
+            epoch_log_path.parent.mkdir(parents=True, exist_ok=True)
+            keys = ["epoch", "simlex_spearman", "n_pairs", "elapsed_train_s"]
+            with epoch_log_path.open("w") as f:
+                writer = _csv.DictWriter(f, fieldnames=keys)
+                writer.writeheader()
+                for r in epoch_log:
+                    writer.writerow(r)
+            print(f"    wrote per-epoch SimLex log to {epoch_log_path}")
 
         snap1 = {w: _build_sdr(A_phase1[i]) for i, w in enumerate(id_to_token)}
 
@@ -369,10 +429,17 @@ def main() -> None:
                    help="Hogwild! parallel workers for SSH inner loop. 4 is "
                         "the sweet spot — 2x speedup with negligible race noise.")
     p.add_argument("--n-epochs-phase1", type=int, default=1,
-                   help="Number of training passes over the phase-1 corpus "
-                        "for both methods. Default 1 matches prior behavior.")
+                   help="Max number of training passes over the phase-1 corpus "
+                        "for both methods. Default 1 matches prior behavior. For "
+                        "SSH, used as the upper bound when --ssh-early-stop-patience "
+                        "is set: training stops earlier if SimLex peaks.")
     p.add_argument("--n-epochs-phase2", type=int, default=1,
                    help="Number of training passes over the phase-2 corpus.")
+    p.add_argument("--ssh-early-stop-patience", type=int, default=0,
+                   help="If >0, stop SSH phase-1 training when SimLex hasn't "
+                        "improved for this many epochs. Reverts the accumulator "
+                        "to the peak-SimLex epoch before phase 2 starts. Disabled "
+                        "(0) by default — runs all --n-epochs-phase1 epochs.")
     p.add_argument("--vocab-size-hint", type=int, default=10_000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -470,6 +537,10 @@ def main() -> None:
             cache_path = (
                 Path(args.ssh_cache_phase1) if args.ssh_cache_phase1 else None
             )
+            # Use the shared partition for SSH per-epoch eval — largest n,
+            # most reliable signal. Falls back to all in-vocab pairs if shared
+            # is empty (e.g., same-domain split).
+            ssh_eval_pairs = parts["shared"] if parts["shared"] else pairs
             snap1, snap2, timings = train_ssh_continual(
                 tids_a,
                 tids_b,
@@ -483,6 +554,9 @@ def main() -> None:
                 n_epochs_phase1=args.n_epochs_phase1,
                 n_epochs_phase2=args.n_epochs_phase2,
                 n_workers=args.ssh_n_workers,
+                eval_pairs=ssh_eval_pairs,
+                early_stop_patience=args.ssh_early_stop_patience,
+                epoch_log_path=out_dir / "ssh_phase1_epoch_simlex.csv",
             )
             is_sparse = True
 
