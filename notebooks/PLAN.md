@@ -152,6 +152,8 @@ Plan:
 | W2v 50-epoch sweep at 5M text8 | apr 28 | Peak SimLex 0.265 at ep8; plateau ~0.245 through ep25; slow overfit drift to 0.210 by ep50 (-21% from peak). Matches Schnabel 2015 / Salle 2016 reports of intrinsic-eval peak-then-decline on small corpora. Implication: our 1-epoch continual-learning experiments leave both methods at ~0.188, well below convergence; the "w2v rebound at b=5M" finding is partially "w2v finishes the training that didn't fit in phase 1." |
 | Best historical SSH peak (1 epoch) | apr 24-28 | SimLex 0.204 at 5M with sigmoid+single_table+modulated, k_eval=40. Extrapolated to k_eval=160: ~0.30 (estimate based on the apr 27 k_eval sweep showing ~50% lift). Multi-epoch SSH at 5M with k_eval=160 not yet measured — the experiment that closes the convergence-comparison loop. |
 | Hogwild!-parallel SSH infrastructure | apr 28 | Added `n_workers` to modulated SSH baseline; numba.prange splits token stream into contiguous slices, lock-free shared updates to A_center/A_context (Niu et al. 2011 Hogwild). 4 workers gives 2× speedup with ΔSimLex ≤ 0.005 (within seed-noise). 8 workers gives 3.2× but with measurable race noise (ΔSimLex 0.04). 2× ceiling at 4 workers is cache-line contention on the 40MB A-table working set (doesn't fit in L3). Same memory-pressure ceiling gensim hits at production scale. |
+| Matched 8-epoch continual at 5M cross-domain | apr 29 | First like-for-like comparison with both methods at ~converged phase 1 (k_eval=160 + bonus=0.5 for SSH). W2v shared 0.251→0.230 (drift -0.021, 92% retention). SSH shared 0.154→0.089 (drift -0.065, 58% retention). Earlier "extrapolated SSH ~0.30" projection was wrong — actual SSH peak with all best practices is 0.154 on shared. **W2v wins absolute by ~63% AND retains better proportionally.** Cross drift roughly tied (+0.21 each). |
+| Peak-detected SSH phase 1 + bonus=0.5 | apr 29 | Per-epoch SimLex eval + early-stop (patience=3); SSH peaked at ep4 (0.207 on shared), reverted from later epochs. **But phase-2 retention got WORSE**: ep4 model lost more in phase 2 (drift -0.143, 31% retention) than the noisier 8-epoch hardcoded model (drift -0.065, 58% retention). Plasticity-stability tradeoff: sharper phase-1 representations are more specialized to A's statistics → more disrupted by B's. Hogwild noise in the 8-epoch run acted as implicit regularization, producing a flatter, more transferable representation. |
 
 ## Open experimental questions
 
@@ -204,6 +206,20 @@ Plan:
    One-line change: multiply A_w by a Bernoulli mask before computing
    top-k during training. Tests whether implicit-ensemble training
    makes SSH naturally robust to phase-2 reorganization.
+10. **Proportional consolidation bonus**: the apr 29 plasticity-stability
+    finding suggests λ=0.5 (absolute) is calibrated wrong for a more-mature
+    accumulator. A `λ · A[w, i]` (proportional) bonus would scale with
+    each bit's actual learned magnitude — well-trained bits get
+    proportionally larger protection, untrained bits stay near zero.
+    Could plausibly close the SSH-vs-w2v retention gap at peak-detected
+    phase 1.
+11. **Multi-epoch phase 2 with per-epoch eval**: currently both methods
+    use 1-epoch phase 2. Methodologically incomplete but unlikely to
+    change the qualitative finding (w2v's shared SimLex peaks at ep0
+    of phase 2 since phase 1 was already optimal; SSH's might have
+    a brief uptick before declining). Worth running for completeness
+    (~1.5 hrs SSH + ~3 min w2v with cached phase-1 accumulator) but
+    not load-bearing for the main story.
 
 ## Session insights (apr 28)
 
@@ -266,6 +282,44 @@ where syn0 is 1.2 GB), both hit the same wall. Fixes that work:
 word-partitioned ownership (no shared writes), worker-local A +
 periodic sync (Federated-style), or dimensionality reduction to
 D=256–512.
+
+### Plasticity-stability tradeoff in SSH continual learning (apr 29)
+
+Surprising result from the peak-detection run: the SSH phase-1 model
+with HIGHER absolute SimLex (peak-detected ep4 at 0.207) had WORSE
+phase-2 retention (drift -0.143, 31% retained) than the same setup
+with a noisier 8-epoch hardcoded phase-1 (SimLex 0.154 but drift
+-0.065, 58% retained). More phase-1 training → sharper, more
+specialized representation → more disrupted by phase-2 evidence.
+
+Three readings:
+
+1. **Specialization-driven forgetting**: well-tuned phase-1
+   representations encode more A-specific structure, which is exactly
+   what phase 2 disrupts. Less-tuned representations are more
+   "generic" and less attached to A's statistics.
+
+2. **Hogwild noise as implicit regularization**: the 8-epoch run
+   accumulated race-condition noise across passes, producing a
+   flatter accumulator that's robust to phase-2 perturbation. The
+   peak-detected ep4 captured a sharper local maximum that's less
+   stable.
+
+3. **Consolidation bonus calibration depends on phase-1 maturity**:
+   λ=0.5 was sweet-spotted on the under-trained 1-epoch phase 1 where
+   accumulator values are still small. For a more-mature accumulator,
+   the proportional protection is weaker — the *relative* gap
+   between protected and unprotected bits shrinks. A scaled
+   consolidation bonus (λ proportional to per-bit A magnitude) is
+   the natural fix.
+
+This is a known phenomenon in continual learning literature
+("plasticity-stability dilemma" — Mermillod et al. 2013, Parisi et al.
+2019) but we observed it here in a setup where the same SSH
+algorithm and same consolidation mechanism produced opposite
+continual-learning behavior depending on phase-1 training depth. Tells
+us that "more phase-1 training is better" is not always true under
+this measurement.
 
 ## Reading list (anchored to discussions in the conversation)
 
