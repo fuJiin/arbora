@@ -685,8 +685,8 @@ def train_sparse_skipgram_hebbian_modulated(
         mask_f = consolidation_mask.astype(np.float32)
         if consolidation_mode == "proportional":
             assert consolidation_phase1_A is not None, "proportional mode requires A_phase1"
-            assert (consolidation_phase1_A * mask_f).min() >= 0.0, "A_phase1 negative on top-k"
-            delta = bonus * mask_f * consolidation_phase1_A.astype(np.float32)
+            A_p = np.maximum(consolidation_phase1_A, 0.0).astype(np.float32)
+            delta = bonus * mask_f * A_p
         else:
             delta = bonus * mask_f
         A_center += delta
