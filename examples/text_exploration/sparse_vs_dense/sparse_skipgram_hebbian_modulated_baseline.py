@@ -599,6 +599,8 @@ def train_sparse_skipgram_hebbian_modulated(
     initial_A_context: np.ndarray | None = None,
     consolidation_mask: np.ndarray | None = None,
     consolidation_bonus: float = 0.0,
+    consolidation_mode: str = "absolute",
+    consolidation_phase1_A: np.ndarray | None = None,
     n_workers: int = 1,
 ) -> tuple[ModulatedSSHEmbeddings, dict]:
     """Train modulated SSH on `token_ids`.
@@ -680,9 +682,16 @@ def train_sparse_skipgram_hebbian_modulated(
     # so the bonus persists into both A_center and (when single_table) A_context.
     if consolidation_mask is not None and consolidation_bonus > 0.0:
         bonus = np.float32(consolidation_bonus)
-        A_center += bonus * consolidation_mask.astype(np.float32)
+        mask_f = consolidation_mask.astype(np.float32)
+        if consolidation_mode == "proportional":
+            assert consolidation_phase1_A is not None, "proportional mode requires A_phase1"
+            assert (consolidation_phase1_A * mask_f).min() >= 0.0, "A_phase1 negative on top-k"
+            delta = bonus * mask_f * consolidation_phase1_A.astype(np.float32)
+        else:
+            delta = bonus * mask_f
+        A_center += delta
         if not single_table and A_context is not A_center:
-            A_context += bonus * consolidation_mask.astype(np.float32)
+            A_context += delta
 
     # EMA tables — start identical to live A so initial top_k is consistent.
     # Always allocate (numba-jitted loop expects array args even if ema_alpha=0;

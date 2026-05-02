@@ -182,6 +182,7 @@ def train_ssh_continual(
     k_eval: int | None = None,
     cache_phase1_path: Path | None = None,
     consolidation_bonus: float = 0.0,
+    consolidation_mode: str = "absolute",
     n_epochs_phase1: int = 1,
     n_epochs_phase2: int = 1,
     n_workers: int = 1,
@@ -339,8 +340,8 @@ def train_ssh_continual(
     if consolidation_bonus > 0.0:
         consolidation_mask = _build_consolidation_mask(A_phase1, k_active)
         print(
-            f"  consolidation: bonus={consolidation_bonus} on top_k={k_active} "
-            f"phase-1 bits per word"
+            f"  consolidation: bonus={consolidation_bonus} mode={consolidation_mode} "
+            f"on top_k={k_active} phase-1 bits per word"
         )
 
     print(
@@ -371,6 +372,8 @@ def train_ssh_continual(
             initial_A_center=A_curr,
             consolidation_mask=cm,
             consolidation_bonus=cb,
+            consolidation_mode=consolidation_mode,
+            consolidation_phase1_A=A_phase1 if cm is not None else None,
             n_workers=n_workers,
         )
         A_curr = emb2.A_center
@@ -425,6 +428,10 @@ def main() -> None:
                         "top_k(A_phase1, k=k_active) receive an additive bonus "
                         "on the initial phase-2 accumulator. Protects phase-1 "
                         "structure during phase-2 training.")
+    p.add_argument("--ssh-consolidation-mode", type=str, default="absolute",
+                   choices=["absolute", "proportional"],
+                   help="BCM bonus form: absolute adds bonus*mask, "
+                        "proportional scales by phase-1 magnitude (bonus*mask*A_phase1).")
     p.add_argument("--ssh-n-workers", type=int, default=1,
                    help="Hogwild! parallel workers for SSH inner loop. 4 is "
                         "the sweet spot — 2x speedup with negligible race noise.")
@@ -558,6 +565,7 @@ def main() -> None:
                 k_eval=args.ssh_k_eval,
                 cache_phase1_path=cache_path,
                 consolidation_bonus=args.ssh_consolidation_bonus,
+                consolidation_mode=args.ssh_consolidation_mode,
                 n_epochs_phase1=args.n_epochs_phase1,
                 n_epochs_phase2=args.n_epochs_phase2,
                 n_workers=args.ssh_n_workers,
