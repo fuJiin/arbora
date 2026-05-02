@@ -22,3 +22,7 @@ experiments/figures/
 /data/
 environment_files/
 .ipynb_checkpoints/
+
+# ARB-139 sweep snapshot pickles + phase-1 caches — reproducible from the
+# sweep script + per-cell results.csv + per_pair_retention.parquet.
+runs/**/*.pkl

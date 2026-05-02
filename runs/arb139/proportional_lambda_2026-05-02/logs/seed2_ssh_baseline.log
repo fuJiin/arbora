@@ -1,0 +1,52 @@
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: training on A (8 epochs, n_workers=4) ...
+    phase 1 epoch 1/8 done (93.0s)  simlex=+0.0622 (n=527)
+    phase 1 epoch 2/8 done (122.7s)  simlex=+0.1453 (n=527)
+    phase 1 epoch 3/8 done (89.3s)  simlex=+0.1558 (n=527)
+    phase 1 epoch 4/8 done (121.0s)  simlex=+0.1607 (n=527)
+    phase 1 epoch 5/8 done (122.9s)  simlex=+0.1519 (n=527)
+    phase 1 epoch 6/8 done (122.9s)  simlex=+0.1430 (n=527)
+    phase 1 epoch 7/8 done (125.9s)  simlex=+0.1815 (n=527)
+    phase 1 epoch 8/8 done (121.1s)  simlex=+0.1221 (n=527)
+    final epoch SimLex +0.1221 below peak at epoch=7 (+0.1815); reverting to peak
+    phase 1 total trained in 922.1s
+    wrote per-epoch SimLex log to runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_baseline/ssh_phase1_epoch_simlex.csv
+    cached phase-1 accumulator to runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_2.pkl
+  SSH phase 2: continuing on B (698,805 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (125.0s)
+    phase 2 total trained in 125.2s
+    phase1 |   a_only | simlex=+0.5571  n=15
+    phase1 |   b_only | simlex=-0.3856  n=8
+    phase1 |   shared | simlex=+0.1815  n=527
+    phase1 |    cross | simlex=+0.0935  n=202
+    phase2 |   a_only | simlex=+0.5571  n=15
+    phase2 |   b_only | simlex=-0.4671  n=8
+    phase2 |   shared | simlex=+0.0110  n=527
+    phase2 |    cross | simlex=+0.2206  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.537  p10=0.290  p50=0.553
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_baseline/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_baseline/per_word_drift.csv

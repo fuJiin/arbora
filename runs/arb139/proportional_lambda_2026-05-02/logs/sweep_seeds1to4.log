@@ -1,0 +1,715 @@
+=== seed=1 variant=ssh_baseline ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: training on A (8 epochs, n_workers=4) ...
+    phase 1 epoch 1/8 done (124.4s)  simlex=+0.1308 (n=527)
+    phase 1 epoch 2/8 done (86.7s)  simlex=+0.1243 (n=527)
+    phase 1 epoch 3/8 done (118.5s)  simlex=+0.0974 (n=527)
+    phase 1 epoch 4/8 done (123.8s)  simlex=+0.1264 (n=527)
+    early stop: 3 epochs without improvement (patience=3); reverting to best epoch=1 simlex=+0.1308
+    final epoch SimLex +0.1264 below peak at epoch=1 (+0.1308); reverting to peak
+    phase 1 total trained in 455.3s
+    wrote per-epoch SimLex log to runs/arb139/proportional_lambda_2026-05-02/seed_1/ssh_baseline/ssh_phase1_epoch_simlex.csv
+    cached phase-1 accumulator to runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_1.pkl
+  SSH phase 2: continuing on B (699,075 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (121.4s)
+    phase 2 total trained in 121.6s
+    phase1 |   a_only | simlex=+0.0215  n=15
+    phase1 |   b_only | simlex=-0.4791  n=8
+    phase1 |   shared | simlex=+0.1308  n=527
+    phase1 |    cross | simlex=+0.0737  n=202
+    phase2 |   a_only | simlex=+0.0215  n=15
+    phase2 |   b_only | simlex=-0.4072  n=8
+    phase2 |   shared | simlex=-0.0774  n=527
+    phase2 |    cross | simlex=+0.1756  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.489  p10=0.345  p50=0.475
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_1/ssh_baseline/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_1/ssh_baseline/per_word_drift.csv
+=== seed=1 variant=ssh_absolute ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: loading cached state from runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_1.pkl
+    cache hit: A shape=(10000, 1024), snap1 (k_eval=160) size=10000
+  consolidation: bonus=0.5 mode=absolute on top_k=40 phase-1 bits per word
+  SSH phase 2: continuing on B (699,075 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (125.2s)
+    phase 2 total trained in 125.4s
+    phase1 |   a_only | simlex=+0.0215  n=15
+    phase1 |   b_only | simlex=-0.4791  n=8
+    phase1 |   shared | simlex=+0.1308  n=527
+    phase1 |    cross | simlex=+0.0737  n=202
+    phase2 |   a_only | simlex=+0.0215  n=15
+    phase2 |   b_only | simlex=-0.5238  n=8
+    phase2 |   shared | simlex=+0.0052  n=527
+    phase2 |    cross | simlex=+0.1407  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.462  p10=0.270  p50=0.468
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_1/ssh_absolute/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_1/ssh_absolute/per_word_drift.csv
+=== seed=1 variant=ssh_proportional ===
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/dev/arbora/examples/text_exploration/sparse_vs_dense/continual_learning_v2.py", line 663, in <module>
+    main()
+  File "/home/dev/arbora/examples/text_exploration/sparse_vs_dense/continual_learning_v2.py", line 558, in main
+    snap1, snap2, timings = train_ssh_continual(
+                            ^^^^^^^^^^^^^^^^^^^^
+  File "/home/dev/arbora/examples/text_exploration/sparse_vs_dense/continual_learning_v2.py", line 359, in train_ssh_continual
+    emb2, stats2 = train_sparse_skipgram_hebbian_modulated(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dev/arbora/examples/text_exploration/sparse_vs_dense/sparse_skipgram_hebbian_modulated_baseline.py", line 688, in train_sparse_skipgram_hebbian_modulated
+    assert (consolidation_phase1_A * mask_f).min() >= 0.0, "A_phase1 negative on top-k"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: A_phase1 negative on top-k
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: loading cached state from runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_1.pkl
+    cache hit: A shape=(10000, 1024), snap1 (k_eval=160) size=10000
+  consolidation: bonus=0.5 mode=proportional on top_k=40 phase-1 bits per word
+  SSH phase 2: continuing on B (699,075 tokens, 1 epoch, n_workers=4) ...
+=== seed=1 variant=w2v_baseline ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- word2vec ---
+
+  word2vec phase 1: training on A (8 epochs) ...
+    phase 1 trained in 12.4s
+  word2vec phase 2: continuing on B (1 epochs) ...
+    phase 2 trained in 1.6s
+    phase1 |   a_only | simlex=+0.4179  n=15
+    phase1 |   b_only | simlex=+0.0000  n=8
+    phase1 |   shared | simlex=+0.1703  n=527
+    phase1 |    cross | simlex=+0.1507  n=202
+    phase2 |   a_only | simlex=+0.4179  n=15
+    phase2 |   b_only | simlex=-0.1190  n=8
+    phase2 |   shared | simlex=+0.0948  n=527
+    phase2 |    cross | simlex=+0.1360  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.964  p10=0.900  p50=0.985
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_1/w2v_baseline/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_1/w2v_baseline/per_word_drift.csv
+=== seed=2 variant=ssh_baseline ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: training on A (8 epochs, n_workers=4) ...
+    phase 1 epoch 1/8 done (93.0s)  simlex=+0.0622 (n=527)
+    phase 1 epoch 2/8 done (122.7s)  simlex=+0.1453 (n=527)
+    phase 1 epoch 3/8 done (89.3s)  simlex=+0.1558 (n=527)
+    phase 1 epoch 4/8 done (121.0s)  simlex=+0.1607 (n=527)
+    phase 1 epoch 5/8 done (122.9s)  simlex=+0.1519 (n=527)
+    phase 1 epoch 6/8 done (122.9s)  simlex=+0.1430 (n=527)
+    phase 1 epoch 7/8 done (125.9s)  simlex=+0.1815 (n=527)
+    phase 1 epoch 8/8 done (121.1s)  simlex=+0.1221 (n=527)
+    final epoch SimLex +0.1221 below peak at epoch=7 (+0.1815); reverting to peak
+    phase 1 total trained in 922.1s
+    wrote per-epoch SimLex log to runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_baseline/ssh_phase1_epoch_simlex.csv
+    cached phase-1 accumulator to runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_2.pkl
+  SSH phase 2: continuing on B (698,805 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (125.0s)
+    phase 2 total trained in 125.2s
+    phase1 |   a_only | simlex=+0.5571  n=15
+    phase1 |   b_only | simlex=-0.3856  n=8
+    phase1 |   shared | simlex=+0.1815  n=527
+    phase1 |    cross | simlex=+0.0935  n=202
+    phase2 |   a_only | simlex=+0.5571  n=15
+    phase2 |   b_only | simlex=-0.4671  n=8
+    phase2 |   shared | simlex=+0.0110  n=527
+    phase2 |    cross | simlex=+0.2206  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.537  p10=0.290  p50=0.553
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_baseline/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_baseline/per_word_drift.csv
+=== seed=2 variant=ssh_absolute ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: loading cached state from runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_2.pkl
+    cache hit: A shape=(10000, 1024), snap1 (k_eval=160) size=10000
+  consolidation: bonus=0.5 mode=absolute on top_k=40 phase-1 bits per word
+  SSH phase 2: continuing on B (698,805 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (128.3s)
+    phase 2 total trained in 128.5s
+    phase1 |   a_only | simlex=+0.5571  n=15
+    phase1 |   b_only | simlex=-0.3856  n=8
+    phase1 |   shared | simlex=+0.1815  n=527
+    phase1 |    cross | simlex=+0.0935  n=202
+    phase2 |   a_only | simlex=+0.5571  n=15
+    phase2 |   b_only | simlex=-0.1796  n=8
+    phase2 |   shared | simlex=+0.0549  n=527
+    phase2 |    cross | simlex=+0.3090  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.540  p10=0.290  p50=0.553
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_absolute/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_absolute/per_word_drift.csv
+=== seed=2 variant=ssh_proportional ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: loading cached state from runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_2.pkl
+    cache hit: A shape=(10000, 1024), snap1 (k_eval=160) size=10000
+  consolidation: bonus=0.5 mode=proportional on top_k=40 phase-1 bits per word
+  SSH phase 2: continuing on B (698,805 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (130.2s)
+    phase 2 total trained in 130.4s
+    phase1 |   a_only | simlex=+0.5571  n=15
+    phase1 |   b_only | simlex=-0.3856  n=8
+    phase1 |   shared | simlex=+0.1815  n=527
+    phase1 |    cross | simlex=+0.0935  n=202
+    phase2 |   a_only | simlex=+0.5571  n=15
+    phase2 |   b_only | simlex=-0.7143  n=8
+    phase2 |   shared | simlex=+0.0349  n=527
+    phase2 |    cross | simlex=+0.1942  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.540  p10=0.301  p50=0.553
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_proportional/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/ssh_proportional/per_word_drift.csv
+=== seed=2 variant=w2v_baseline ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- word2vec ---
+
+  word2vec phase 1: training on A (8 epochs) ...
+    phase 1 trained in 12.8s
+  word2vec phase 2: continuing on B (1 epochs) ...
+    phase 2 trained in 1.6s
+    phase1 |   a_only | simlex=+0.5071  n=15
+    phase1 |   b_only | simlex=+0.3810  n=8
+    phase1 |   shared | simlex=+0.1801  n=527
+    phase1 |    cross | simlex=+0.0622  n=202
+    phase2 |   a_only | simlex=+0.5071  n=15
+    phase2 |   b_only | simlex=-0.0238  n=8
+    phase2 |   shared | simlex=+0.0793  n=527
+    phase2 |    cross | simlex=+0.1212  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.964  p10=0.900  p50=0.985
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/w2v_baseline/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_2/w2v_baseline/per_word_drift.csv
+=== seed=3 variant=ssh_baseline ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: training on A (8 epochs, n_workers=4) ...
+    phase 1 epoch 1/8 done (124.0s)  simlex=+0.0931 (n=527)
+    phase 1 epoch 2/8 done (113.5s)  simlex=+0.1064 (n=527)
+    phase 1 epoch 3/8 done (118.5s)  simlex=+0.1183 (n=527)
+    phase 1 epoch 4/8 done (118.8s)  simlex=+0.1461 (n=527)
+    phase 1 epoch 5/8 done (89.3s)  simlex=+0.1331 (n=527)
+    phase 1 epoch 6/8 done (113.6s)  simlex=+0.1537 (n=527)
+    phase 1 epoch 7/8 done (122.8s)  simlex=+0.1567 (n=527)
+    phase 1 epoch 8/8 done (117.5s)  simlex=+0.1708 (n=527)
+    phase 1 total trained in 921.3s
+    wrote per-epoch SimLex log to runs/arb139/proportional_lambda_2026-05-02/seed_3/ssh_baseline/ssh_phase1_epoch_simlex.csv
+    cached phase-1 accumulator to runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_3.pkl
+  SSH phase 2: continuing on B (698,640 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (123.6s)
+    phase 2 total trained in 123.9s
+    phase1 |   a_only | simlex=+0.2726  n=15
+    phase1 |   b_only | simlex=-0.7832  n=8
+    phase1 |   shared | simlex=+0.1708  n=527
+    phase1 |    cross | simlex=+0.1037  n=202
+    phase2 |   a_only | simlex=+0.2726  n=15
+    phase2 |   b_only | simlex=-0.4431  n=8
+    phase2 |   shared | simlex=+0.0011  n=527
+    phase2 |    cross | simlex=+0.2334  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.536  p10=0.280  p50=0.553
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_3/ssh_baseline/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_3/ssh_baseline/per_word_drift.csv
+=== seed=3 variant=ssh_absolute ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: loading cached state from runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_3.pkl
+    cache hit: A shape=(10000, 1024), snap1 (k_eval=160) size=10000
+  consolidation: bonus=0.5 mode=absolute on top_k=40 phase-1 bits per word
+  SSH phase 2: continuing on B (698,640 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (124.8s)
+    phase 2 total trained in 125.1s
+    phase1 |   a_only | simlex=+0.2726  n=15
+    phase1 |   b_only | simlex=-0.7832  n=8
+    phase1 |   shared | simlex=+0.1708  n=527
+    phase1 |    cross | simlex=+0.1037  n=202
+    phase2 |   a_only | simlex=+0.2726  n=15
+    phase2 |   b_only | simlex=-0.4431  n=8
+    phase2 |   shared | simlex=+0.0527  n=527
+    phase2 |    cross | simlex=+0.2724  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.541  p10=0.280  p50=0.561
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_3/ssh_absolute/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_3/ssh_absolute/per_word_drift.csv
+=== seed=3 variant=ssh_proportional ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: loading cached state from runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_3.pkl
+    cache hit: A shape=(10000, 1024), snap1 (k_eval=160) size=10000
+  consolidation: bonus=0.5 mode=proportional on top_k=40 phase-1 bits per word
+  SSH phase 2: continuing on B (698,640 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (124.1s)
+    phase 2 total trained in 124.3s
+    phase1 |   a_only | simlex=+0.2726  n=15
+    phase1 |   b_only | simlex=-0.7832  n=8
+    phase1 |   shared | simlex=+0.1708  n=527
+    phase1 |    cross | simlex=+0.1037  n=202
+    phase2 |   a_only | simlex=+0.2726  n=15
+    phase2 |   b_only | simlex=-0.3353  n=8
+    phase2 |   shared | simlex=-0.0029  n=527
+    phase2 |    cross | simlex=+0.2042  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.541  p10=0.290  p50=0.553
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_3/ssh_proportional/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_3/ssh_proportional/per_word_drift.csv
+=== seed=3 variant=w2v_baseline ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- word2vec ---
+
+  word2vec phase 1: training on A (8 epochs) ...
+    phase 1 trained in 12.9s
+  word2vec phase 2: continuing on B (1 epochs) ...
+    phase 2 trained in 1.7s
+    phase1 |   a_only | simlex=+0.5143  n=15
+    phase1 |   b_only | simlex=-0.1429  n=8
+    phase1 |   shared | simlex=+0.1879  n=527
+    phase1 |    cross | simlex=+0.1342  n=202
+    phase2 |   a_only | simlex=+0.5143  n=15
+    phase2 |   b_only | simlex=+0.0238  n=8
+    phase2 |   shared | simlex=+0.1029  n=527
+    phase2 |    cross | simlex=+0.1488  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.964  p10=0.900  p50=0.985
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_3/w2v_baseline/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_3/w2v_baseline/per_word_drift.csv
+=== seed=4 variant=ssh_baseline ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: training on A (8 epochs, n_workers=4) ...
+    phase 1 epoch 1/8 done (126.8s)  simlex=+0.1402 (n=527)
+    phase 1 epoch 2/8 done (92.2s)  simlex=+0.1542 (n=527)
+    phase 1 epoch 3/8 done (122.3s)  simlex=+0.1428 (n=527)
+    phase 1 epoch 4/8 done (90.2s)  simlex=+0.1400 (n=527)
+    phase 1 epoch 5/8 done (123.1s)  simlex=+0.1303 (n=527)
+    early stop: 3 epochs without improvement (patience=3); reverting to best epoch=2 simlex=+0.1542
+    final epoch SimLex +0.1303 below peak at epoch=2 (+0.1542); reverting to peak
+    phase 1 total trained in 556.8s
+    wrote per-epoch SimLex log to runs/arb139/proportional_lambda_2026-05-02/seed_4/ssh_baseline/ssh_phase1_epoch_simlex.csv
+    cached phase-1 accumulator to runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_4.pkl
+  SSH phase 2: continuing on B (698,721 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (129.3s)
+    phase 2 total trained in 129.5s
+    phase1 |   a_only | simlex=+0.6960  n=15
+    phase1 |   b_only | simlex=-0.4338  n=8
+    phase1 |   shared | simlex=+0.1542  n=527
+    phase1 |    cross | simlex=+0.1063  n=202
+    phase2 |   a_only | simlex=+0.6960  n=15
+    phase2 |   b_only | simlex=-0.4286  n=8
+    phase2 |   shared | simlex=-0.0108  n=527
+    phase2 |    cross | simlex=+0.1716  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.514  p10=0.339  p50=0.509
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_4/ssh_baseline/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_4/ssh_baseline/per_word_drift.csv
+=== seed=4 variant=ssh_absolute ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: loading cached state from runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_4.pkl
+    cache hit: A shape=(10000, 1024), snap1 (k_eval=160) size=10000
+  consolidation: bonus=0.5 mode=absolute on top_k=40 phase-1 bits per word
+  SSH phase 2: continuing on B (698,721 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (129.4s)
+    phase 2 total trained in 129.6s
+    phase1 |   a_only | simlex=+0.6960  n=15
+    phase1 |   b_only | simlex=-0.4338  n=8
+    phase1 |   shared | simlex=+0.1542  n=527
+    phase1 |    cross | simlex=+0.1063  n=202
+    phase2 |   a_only | simlex=+0.6960  n=15
+    phase2 |   b_only | simlex=+0.0476  n=8
+    phase2 |   shared | simlex=+0.0624  n=527
+    phase2 |    cross | simlex=+0.2626  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.503  p10=0.285  p50=0.517
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_4/ssh_absolute/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_4/ssh_absolute/per_word_drift.csv
+=== seed=4 variant=ssh_proportional ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- ssh ---
+
+  SSH phase 1: loading cached state from runs/arb139/proportional_lambda_2026-05-02/ssh_phase1_caches/seed_4.pkl
+    cache hit: A shape=(10000, 1024), snap1 (k_eval=160) size=10000
+  consolidation: bonus=0.5 mode=proportional on top_k=40 phase-1 bits per word
+  SSH phase 2: continuing on B (698,721 tokens, 1 epoch, n_workers=4) ...
+    phase 2 epoch 1/1 done (125.0s)
+    phase 2 total trained in 125.2s
+    phase1 |   a_only | simlex=+0.6960  n=15
+    phase1 |   b_only | simlex=-0.4338  n=8
+    phase1 |   shared | simlex=+0.1542  n=527
+    phase1 |    cross | simlex=+0.1063  n=202
+    phase2 |   a_only | simlex=+0.6960  n=15
+    phase2 |   b_only | simlex=-0.4762  n=8
+    phase2 |   shared | simlex=+0.0095  n=527
+    phase2 |    cross | simlex=+0.2296  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.520  p10=0.345  p50=0.524
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_4/ssh_proportional/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_4/ssh_proportional/per_word_drift.csv
+=== seed=4 variant=w2v_baseline ===
+=== continual learning at 1,000,000 tokens per phase, split=cross_domain ===
+Loading text8 (A=1,000,000) + Gutenberg (B=1,000,000) ...
+  book_id=   11:    27,572 tokens (cached)
+  book_id=   12:    31,256 tokens (cached)
+  book_id=   16:    48,186 tokens (cached)
+  book_id=   74:    74,536 tokens (cached)
+  book_id=   76:   117,929 tokens (cached)
+  book_id=   84:    75,562 tokens (cached)
+  book_id=   98:   138,634 tokens (cached)
+  book_id=  174:    80,631 tokens (cached)
+  book_id=  345:   163,804 tokens (cached)
+  book_id= 1342:   128,864 tokens (cached)
+  book_id= 1661:   106,133 tokens (cached)
+  book_id= 2701:   219,575 tokens (cached)
+
+  total: 1,000,000 tokens from 12 books
+Applying matched preprocessing (chunking + subsampling) ...
+Joint vocab size: 10000
+a_only: 3492  b_only: 1364  shared: 5143
+SimLex partitions: a_only=15 b_only=8 shared=527 cross=202 total_in_vocab=752
+
+--- word2vec ---
+
+  word2vec phase 1: training on A (8 epochs) ...
+    phase 1 trained in 12.1s
+  word2vec phase 2: continuing on B (1 epochs) ...
+    phase 2 trained in 1.6s
+    phase1 |   a_only | simlex=+0.5286  n=15
+    phase1 |   b_only | simlex=+0.2857  n=8
+    phase1 |   shared | simlex=+0.1829  n=527
+    phase1 |    cross | simlex=+0.1516  n=202
+    phase2 |   a_only | simlex=+0.5286  n=15
+    phase2 |   b_only | simlex=-0.1667  n=8
+    phase2 |   shared | simlex=+0.0842  n=527
+    phase2 |    cross | simlex=+0.1466  n=202
+    drift on A-only words (n=3492): mean=1.000  p10=1.000  p50=1.000
+    drift on shared words (n=5143): mean=0.964  p10=0.899  p50=0.985
+
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_4/w2v_baseline/results.csv
+Wrote runs/arb139/proportional_lambda_2026-05-02/seed_4/w2v_baseline/per_word_drift.csv
+=== sweep complete ===
