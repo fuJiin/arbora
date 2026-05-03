@@ -26,3 +26,6 @@ environment_files/
 # ARB-139 sweep snapshot pickles + phase-1 caches — reproducible from the
 # sweep script + per-cell results.csv + per_pair_retention.parquet.
 runs/**/*.pkl
+
+# Training outputs — see triadic-org/research for the policy.
+runs/
