@@ -45,8 +45,14 @@ def build_t1(encoder: OneHotCharEncoder, seed: int = 0):
     char-level input (~6.25% activation). `encoding_width=0` gives
     full L4-to-column connectivity, which is what we want for single-
     char-per-step input that has no positional substructure.
+
+    `n_l5=0` for the M1 single-region setup: L5 in sensory cortex
+    projects subcortically (higher-order thalamus, basal ganglia,
+    amygdala) — nothing in this circuit reads it. Intra-cortical
+    feedforward when T2 arrives (M2) will go L2/3 → L4, not via L5.
     """
     cfg = _default_t1_config()
+    cfg.n_l5 = 0
     return make_sensory_region(
         cfg,
         input_dim=encoder.input_dim,

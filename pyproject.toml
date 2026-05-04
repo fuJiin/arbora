@@ -47,6 +47,13 @@ Issues = "https://github.com/triadic-org/arbora/issues"
 viz = ["matplotlib", "plotly"]
 minigrid = ["minigrid>=3.0", "gymnasium>=1.0"]
 arc = ["arc-agi>=0.9.6"]
+explorer = [
+    "plotly",
+    "ipywidgets>=8",
+    "ipykernel",
+    "jupyterlab",
+    "scikit-learn>=1.8.0",
+]
 
 [dependency-groups]
 dev = [
