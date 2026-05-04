@@ -1,9 +1,35 @@
 [project]
 name = "arbora"
 version = "0.1.0"
+description = "Biologically-plausible cortical learning framework. Hebbian + three-factor reward-modulated learning, no backprop."
+readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
+authors = [
+    {name = "Elpizo Choi", email = "203277+fuJiin@users.noreply.github.com"},
+]
+keywords = [
+    "neuroscience",
+    "machine-learning",
+    "hebbian-learning",
+    "cortical-learning",
+    "biologically-plausible",
+    "spiking-neural-networks",
+    "three-factor-learning",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
 dependencies = [
     "numpy",
     "transformers",
@@ -11,6 +37,11 @@ dependencies = [
     "numba>=0.61,<0.64",
     "llvmlite<0.46",
 ]
+
+[project.urls]
+Homepage = "https://github.com/triadic-org/arbora"
+Repository = "https://github.com/triadic-org/arbora"
+Issues = "https://github.com/triadic-org/arbora/issues"
 
 [project.optional-dependencies]
 viz = ["matplotlib", "plotly"]
@@ -32,6 +63,18 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/arbora"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/README.md",
+    "/LICENSE",
+    "/CONTRIBUTING.md",
+    "/pyproject.toml",
+    "/uv.lock",
+]
 
 [tool.ruff]
 line-length = 88
