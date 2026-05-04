@@ -21,3 +21,8 @@ experiments/figures/
 .agents
 /data/
 environment_files/
+.ipynb_checkpoints/
+
+# Training outputs — these belong in triadic-org/research, not arbora.
+# Defensive: catches accidental local creation in this tree.
+/runs/
