@@ -73,10 +73,28 @@ Connection roles:
 
 ## Getting started
 
-Requires Python 3.12+. No PyPI package yet — clone and run from source:
+Requires Python 3.12+. Not yet on PyPI; install from git:
 
 ```bash
-git clone https://github.com/fuJiin/arbora.git
+pip install git+https://github.com/triadic-org/arbora.git
+# or, with optional extras:
+pip install 'arbora[viz] @ git+https://github.com/triadic-org/arbora.git'
+pip install 'arbora[minigrid] @ git+https://github.com/triadic-org/arbora.git'
+pip install 'arbora[arc] @ git+https://github.com/triadic-org/arbora.git'
+```
+
+For an editable install (e.g. from a sibling clone in your workspace):
+
+```bash
+pip install -e ../arbora      # if cloned alongside your project
+# or with uv:
+# pyproject.toml: arbora = { path = "../arbora", editable = true }
+```
+
+For development, clone and bootstrap:
+
+```bash
+git clone https://github.com/triadic-org/arbora.git
 cd arbora
 ./scripts/bootstrap.sh
 ```

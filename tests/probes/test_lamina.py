@@ -147,6 +147,25 @@ class TestL23KPIs:
         snap = probe.snapshot()
         assert snap == {}  # no regions observed
 
+    def test_l23_recall_precision_populated(self):
+        """L2/3 recall/precision should populate alongside eff_dim.
+
+        Uses sample_interval=1 so the eff_dim path runs every step too;
+        the recall/precision accumulators run every step unconditionally.
+        """
+        circuit, encoder = make_circuit()
+        probe = LaminaProbe(l23_sample_interval=1)
+        rng = np.random.default_rng(42)
+        for _ in range(50):
+            step_circuit(circuit, encoder, rng)
+            probe.observe(circuit)
+        snap = probe.snapshot()["T1"].association
+        # Both should be in [0, 1] — non-strict bounds because predictions
+        # might be empty early in training.
+        assert 0.0 <= snap.recall <= 1.0
+        assert 0.0 <= snap.precision <= 1.0
+        assert 0.0 <= snap.sparseness <= 1.0
+
 
 # ---------------------------------------------------------------------------
 # ChatLaminaProbe: linear probe

@@ -23,9 +23,18 @@ class InputSnapshot:
 
 @dataclass
 class AssociationSnapshot:
-    """Association KPIs (measured on L2/3)."""
+    """Association KPIs (measured on L2/3).
+
+    `recall`, `precision`, `sparseness` mirror the `InputSnapshot`
+    fields but on L2/3 — useful for regions where L2/3 carries its
+    own prediction (e.g. T1 next-char next-L2/3 learning). Default 0
+    so callers that only care about `eff_dim` keep working.
+    """
 
     eff_dim: float = 0.0
+    recall: float = 0.0
+    precision: float = 0.0
+    sparseness: float = 0.0
 
 
 @dataclass

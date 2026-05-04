@@ -61,14 +61,22 @@ class LaminaProbe:
     name: str = "lamina"
 
     def __init__(self, *, l23_sample_interval: int = 10):
-        # Per-region input reception accumulators
+        # Per-region input-lamina reception accumulators.
         self._input_predicted_total: dict[str, int] = defaultdict(int)
         self._input_predicted_correct: dict[str, int] = defaultdict(int)
         self._input_active_total: dict[str, int] = defaultdict(int)
         self._input_active_predicted: dict[str, int] = defaultdict(int)
         self._input_sparseness: dict[str, list[float]] = defaultdict(list)
 
-        # Per-region association accumulators
+        # Per-region L2/3 reception accumulators — same shape as the
+        # input-lamina ones, just measured on l23.{active,predicted}.
+        self._l23_predicted_total: dict[str, int] = defaultdict(int)
+        self._l23_predicted_correct: dict[str, int] = defaultdict(int)
+        self._l23_active_total: dict[str, int] = defaultdict(int)
+        self._l23_active_predicted: dict[str, int] = defaultdict(int)
+        self._l23_sparseness: dict[str, list[float]] = defaultdict(list)
+
+        # Per-region L2/3 association (eff_dim) accumulators.
         self._l23_samples: dict[str, list[np.ndarray]] = defaultdict(list)
         self._l23_sample_interval = l23_sample_interval
         self._step_count = 0
@@ -134,12 +142,37 @@ class LaminaProbe:
             self._input_sparseness[region_name].append(float(mean_r**2 / mean_r2))
 
     def _observe_association(self, region, region_name: str) -> None:
-        """Sample L2/3 activations at configured interval."""
-        if self._step_count % self._l23_sample_interval != 0:
-            return
-        # Subcortical regions (BG, etc.) don't have a L2/3 associative lamina.
+        """Observe L2/3: recall/precision/sparseness every step,
+        eff_dim-worthy samples at `l23_sample_interval`."""
+        # Subcortical regions (BG, etc.) don't have an L2/3 lamina.
         l23 = getattr(region, "l23", None)
         if l23 is None:
+            return
+
+        # Recall / precision — only if L2/3 has its own predicted state.
+        predicted = getattr(l23, "predicted", None)
+        if predicted is not None:
+            active = l23.active
+            n_active = int(active.sum())
+            if n_active > 0:
+                n_predicted_and_active = int((predicted & active).sum())
+                self._l23_active_total[region_name] += n_active
+                self._l23_active_predicted[region_name] += n_predicted_and_active
+            n_predicted = int(predicted.sum())
+            if n_predicted > 0:
+                n_correct = int((predicted & active).sum())
+                self._l23_predicted_total[region_name] += n_predicted
+                self._l23_predicted_correct[region_name] += n_correct
+
+            # Population sparseness (Treves-Rolls) — same formula as L4.
+            r = active.astype(np.float64)
+            mean_r = r.mean()
+            mean_r2 = (r**2).mean()
+            if mean_r2 > 0:
+                self._l23_sparseness[region_name].append(float(mean_r**2 / mean_r2))
+
+        # eff_dim sample (periodic to bound cost).
+        if self._step_count % self._l23_sample_interval != 0:
             return
         self._l23_samples[region_name].append(l23.active.astype(np.float64))
 
@@ -165,9 +198,30 @@ class LaminaProbe:
         return InputSnapshot(recall=recall, precision=precision, sparseness=sparseness)
 
     def _snapshot_association(self, name: str) -> AssociationSnapshot:
-        """Compute association KPIs from accumulated state."""
+        """Compute L2/3 KPIs from accumulated state."""
         samples = self._l23_samples.get(name, [])
-        return AssociationSnapshot(eff_dim=_participation_ratio(samples))
+
+        active_total = self._l23_active_total.get(name, 0)
+        recall = (
+            self._l23_active_predicted.get(name, 0) / active_total
+            if active_total > 0
+            else 0.0
+        )
+        pred_total = self._l23_predicted_total.get(name, 0)
+        precision = (
+            self._l23_predicted_correct.get(name, 0) / pred_total
+            if pred_total > 0
+            else 0.0
+        )
+        vals = self._l23_sparseness.get(name, [])
+        sparseness = float(np.mean(vals)) if vals else 0.0
+
+        return AssociationSnapshot(
+            eff_dim=_participation_ratio(samples),
+            recall=recall,
+            precision=precision,
+            sparseness=sparseness,
+        )
 
 
 # ---------------------------------------------------------------------------
