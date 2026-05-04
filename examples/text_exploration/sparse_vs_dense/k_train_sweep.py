@@ -51,7 +51,7 @@ def run_one(*, n_tokens: int, n_dims: int, k_active: int, seed: int) -> dict:
     token_ids = encode_tokens(tokens, token_to_id)
 
     t0 = time.monotonic()
-    emb, stats = train_sparse_skipgram_hebbian_modulated(
+    emb, _stats = train_sparse_skipgram_hebbian_modulated(
         token_ids,
         id_to_token=id_to_token,
         n_dims=n_dims,
@@ -133,9 +133,9 @@ def main() -> None:
 
     plan = [
         # (n_dims, k_active)
-        (1024, 40),    # baseline (already known)
-        (1024, 160),   # denser readout, same D
-        (4096, 160),   # preserved 4% sparsity, 4× D
+        (1024, 40),  # baseline (already known)
+        (1024, 160),  # denser readout, same D
+        (4096, 160),  # preserved 4% sparsity, 4× D
     ]
 
     all_rows: list[dict] = list(existing)

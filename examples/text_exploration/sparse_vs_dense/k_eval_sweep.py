@@ -85,8 +85,10 @@ def main() -> None:
 
         vocab_set = set(accumulator.keys())
         pairs = load_simlex(vocab=vocab_set)
-        print(f"  loaded {len(accumulator)} accumulator rows, "
-              f"{len(pairs)} SimLex pairs in vocab")
+        print(
+            f"  loaded {len(accumulator)} accumulator rows, "
+            f"{len(pairs)} SimLex pairs in vocab"
+        )
 
         for k in k_values:
             jac, cos = evaluate_with_k(accumulator, pairs, k)
@@ -99,8 +101,10 @@ def main() -> None:
                     "simlex_n_pairs": len(pairs),
                 }
             )
-            print(f"  k_eval={k:4d}  simlex(jaccard)={jac:+.4f}  "
-                  f"simlex(cosine_cont)={cos:+.4f}")
+            print(
+                f"  k_eval={k:4d}  simlex(jaccard)={jac:+.4f}  "
+                f"simlex(cosine_cont)={cos:+.4f}"
+            )
 
     out_csv = OUT_DIR / "k_eval_sweep.csv"
     keys = sorted({k for r in rows for k in r})

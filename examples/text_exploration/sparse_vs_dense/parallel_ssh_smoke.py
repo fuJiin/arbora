@@ -59,8 +59,10 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
-    print(f"=== parallel SSH smoke test: n_tokens={args.n_tokens:,}, "
-          f"n_workers={args.n_workers} ===")
+    print(
+        f"=== parallel SSH smoke test: n_tokens={args.n_tokens:,}, "
+        f"n_workers={args.n_workers} ==="
+    )
     raw = load_text8(max_tokens=args.n_tokens)
     plan = CorpusPlan(
         chunk_size=1000,
@@ -75,8 +77,10 @@ def main() -> None:
     token_to_id, id_to_token = build_vocab(tokens, vocab_size=10_000)
     tids = encode_tokens(tokens, token_to_id)
     pairs = load_simlex(vocab=set(id_to_token))
-    print(f"Vocab: {len(id_to_token)}, prepared tokens: {len(tids):,}, "
-          f"SimLex pairs: {len(pairs)}")
+    print(
+        f"Vocab: {len(id_to_token)}, prepared tokens: {len(tids):,}, "
+        f"SimLex pairs: {len(pairs)}"
+    )
 
     base_kwargs = dict(
         id_to_token=id_to_token,
@@ -94,8 +98,10 @@ def main() -> None:
 
     print("\n--- sequential (n_workers=1) ---")
     t0 = time.monotonic()
-    emb_s, stats_s = train_sparse_skipgram_hebbian_modulated(
-        tids, n_workers=1, **base_kwargs,
+    emb_s, _stats_s = train_sparse_skipgram_hebbian_modulated(
+        tids,
+        n_workers=1,
+        **base_kwargs,
     )
     seq_time = time.monotonic() - t0
     rho_s, n_s = eval_simlex(emb_s, pairs)
@@ -107,7 +113,9 @@ def main() -> None:
     print(f"\n--- parallel (n_workers={args.n_workers}) ---")
     t0 = time.monotonic()
     emb_p, stats_p = train_sparse_skipgram_hebbian_modulated(
-        tids, n_workers=args.n_workers, **base_kwargs,
+        tids,
+        n_workers=args.n_workers,
+        **base_kwargs,
     )
     par_time = time.monotonic() - t0
     rho_p, n_p = eval_simlex(emb_p, pairs)

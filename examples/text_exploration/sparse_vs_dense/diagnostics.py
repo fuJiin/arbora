@@ -205,8 +205,10 @@ def diag_pairwise_overlap_distribution(sample_size: int = 1000) -> None:
         pairs_a = pairs_a[mask]
         pairs_b = pairs_b[mask]
         sims = np.array(
-            [jaccard(payload[words[a]], payload[words[b]])
-             for a, b in zip(pairs_a, pairs_b)]
+            [
+                jaccard(payload[words[a]], payload[words[b]])
+                for a, b in zip(pairs_a, pairs_b, strict=False)
+            ]
         )
         rows.append(
             {

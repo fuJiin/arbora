@@ -20,11 +20,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from examples.text_exploration.sparse_vs_dense.data import load_simlex
 from examples.text_exploration.sparse_vs_dense.continual_learning_v2 import (
+    CorpusPlan,
+    build_vocab,
+    prepare_corpus,
     split_simlex_pairs,
     words_in_corpus,
 )
+from examples.text_exploration.sparse_vs_dense.data import load_simlex, load_text8
 from examples.text_exploration.sparse_vs_dense.evaluation import (
     cosine_similarity,
     jaccard_similarity,
@@ -32,13 +35,6 @@ from examples.text_exploration.sparse_vs_dense.evaluation import (
 from examples.text_exploration.sparse_vs_dense.gutenberg_loader import (
     load_gutenberg_corpus,
 )
-from examples.text_exploration.sparse_vs_dense.data import load_text8
-from examples.text_exploration.sparse_vs_dense.continual_learning_v2 import (
-    prepare_corpus,
-    CorpusPlan,
-    build_vocab,
-)
-
 
 VARIANTS = ["w2v_baseline", "ssh_baseline", "ssh_absolute", "ssh_proportional"]
 
@@ -103,8 +99,12 @@ def main() -> None:
     p.add_argument("--n-per-phase", type=int, default=1_000_000)
     p.add_argument("--vocab-hint", type=int, default=10_000)
     p.add_argument("--seeds", type=str, default="0,1,2,3,4")
-    p.add_argument("--bonus", type=float, default=0.5,
-                   help="Bonus magnitude used in the sweep (for histogram annotation).")
+    p.add_argument(
+        "--bonus",
+        type=float,
+        default=0.5,
+        help="Bonus magnitude used in the sweep (for histogram annotation).",
+    )
     args = p.parse_args()
 
     sweep_root = Path(args.sweep_root)
@@ -126,9 +126,10 @@ def main() -> None:
     for seed in seeds:
         for variant in VARIANTS:
             cell_dir = sweep_root / f"seed_{seed}" / variant
-            if not (cell_dir / "snap1_word2vec.pkl").exists() and not (
-                cell_dir / "snap1_ssh.pkl"
-            ).exists():
+            if (
+                not (cell_dir / "snap1_word2vec.pkl").exists()
+                and not (cell_dir / "snap1_ssh.pkl").exists()
+            ):
                 print(f"  [skip] {cell_dir} — no snapshots")
                 continue
             method = "word2vec" if variant == "w2v_baseline" else "ssh"

@@ -49,23 +49,29 @@ def analyze_one(n_tokens: int, seed: int) -> dict:
     # Stack all accumulator rows: V × D
     words = sorted(acc.keys())
     A = np.stack([acc[w] for w in words])  # (V, D)
-    V, D = A.shape
+    _V, _D = A.shape
 
     # Distribution stats
     A_flat = A.flatten()
-    print(f"  A values: mean={A_flat.mean():+.3f}  std={A_flat.std():.3f}  "
-          f"min={A_flat.min():+.3f}  max={A_flat.max():+.3f}")
-    print(f"  |A| percentiles:  "
-          f"p50={np.percentile(np.abs(A_flat), 50):.3f}  "
-          f"p90={np.percentile(np.abs(A_flat), 90):.3f}  "
-          f"p99={np.percentile(np.abs(A_flat), 99):.3f}")
+    print(
+        f"  A values: mean={A_flat.mean():+.3f}  std={A_flat.std():.3f}  "
+        f"min={A_flat.min():+.3f}  max={A_flat.max():+.3f}"
+    )
+    print(
+        f"  |A| percentiles:  "
+        f"p50={np.percentile(np.abs(A_flat), 50):.3f}  "
+        f"p90={np.percentile(np.abs(A_flat), 90):.3f}  "
+        f"p99={np.percentile(np.abs(A_flat), 99):.3f}"
+    )
 
     # Saturation fraction: a bit is "saturated" if |sigmoid(A) - 0.5| > 0.45,
     # which is |A| > log(0.95/0.05) = 2.94.
     sat_frac = float((np.abs(A_flat) > 2.94).mean())
     print(f"  saturation fraction (|A| > 2.94, σ outside [0.05, 0.95]): {sat_frac:.4f}")
     sat_frac_strict = float((np.abs(A_flat) > 4.6).mean())  # σ outside [0.01, 0.99]
-    print(f"  strict saturation fraction (|A| > 4.6, σ outside [0.01, 0.99]): {sat_frac_strict:.4f}")
+    print(
+        f"  strict saturation fraction (|A| > 4.6, σ outside [0.01, 0.99]): {sat_frac_strict:.4f}"
+    )
 
     # For each word, does its top-k contain saturated bits?
     sat_bits_per_word = []
@@ -80,8 +86,10 @@ def analyze_one(n_tokens: int, seed: int) -> dict:
         sat_at_active = (np.abs(a_at_active) > 2.94).mean()
         sat_bits_per_word.append(sat_at_active)
     sat_bits_arr = np.array(sat_bits_per_word)
-    print(f"  for top-k bits: mean fraction saturated = {sat_bits_arr.mean():.3f}  "
-          f"(p10={np.percentile(sat_bits_arr, 10):.3f} p90={np.percentile(sat_bits_arr, 90):.3f})")
+    print(
+        f"  for top-k bits: mean fraction saturated = {sat_bits_arr.mean():.3f}  "
+        f"(p10={np.percentile(sat_bits_arr, 10):.3f} p90={np.percentile(sat_bits_arr, 90):.3f})"
+    )
 
     # SimLex-specific: pull A values at top-k bits for SimLex pair words only
     simlex = load_simlex(vocab=set(words))
@@ -100,11 +108,15 @@ def analyze_one(n_tokens: int, seed: int) -> dict:
         a_at_active = acc[w][active_bits]
         simlex_a_top.extend(a_at_active.tolist())
     simlex_a_top = np.asarray(simlex_a_top)
-    print(f"  SimLex words ({len(simlex_words)}): top-k bit A values  "
-          f"mean={simlex_a_top.mean():+.3f}  p50={np.percentile(simlex_a_top, 50):+.3f}  "
-          f"p90={np.percentile(simlex_a_top, 90):+.3f}")
-    print(f"    saturated fraction at SimLex top-k bits: "
-          f"{(np.abs(simlex_a_top) > 2.94).mean():.3f}")
+    print(
+        f"  SimLex words ({len(simlex_words)}): top-k bit A values  "
+        f"mean={simlex_a_top.mean():+.3f}  p50={np.percentile(simlex_a_top, 50):+.3f}  "
+        f"p90={np.percentile(simlex_a_top, 90):+.3f}"
+    )
+    print(
+        f"    saturated fraction at SimLex top-k bits: "
+        f"{(np.abs(simlex_a_top) > 2.94).mean():.3f}"
+    )
 
     return {
         "n_tokens": n_tokens,
@@ -129,9 +141,11 @@ def cross_compare(r1: dict, r2: dict) -> None:
     A1 = np.stack([r1["A"][r1["words"].index(w)] for w in common])
     A2 = np.stack([r2["A"][r2["words"].index(w)] for w in common])
     delta = A2 - A1
-    print(f"  per-bit change |ΔA|:  mean={np.abs(delta).mean():.3f}  "
-          f"p50={np.percentile(np.abs(delta), 50):.3f}  "
-          f"p90={np.percentile(np.abs(delta), 90):.3f}")
+    print(
+        f"  per-bit change |ΔA|:  mean={np.abs(delta).mean():.3f}  "
+        f"p50={np.percentile(np.abs(delta), 50):.3f}  "
+        f"p90={np.percentile(np.abs(delta), 90):.3f}"
+    )
 
     # How much did top-k change per word?
     bit_changes = []
@@ -145,21 +159,26 @@ def cross_compare(r1: dict, r2: dict) -> None:
         jaccard = inter / union if union > 0 else 0.0
         bit_changes.append(jaccard)
     bc_arr = np.asarray(bit_changes)
-    print(f"  top-k jaccard between {r1['n_tokens']:,} and {r2['n_tokens']:,}:  "
-          f"mean={bc_arr.mean():.3f}  p10={np.percentile(bc_arr, 10):.3f}  "
-          f"frac<0.5: {(bc_arr < 0.5).mean():.3f}")
+    print(
+        f"  top-k jaccard between {r1['n_tokens']:,} and {r2['n_tokens']:,}:  "
+        f"mean={bc_arr.mean():.3f}  p10={np.percentile(bc_arr, 10):.3f}  "
+        f"frac<0.5: {(bc_arr < 0.5).mean():.3f}"
+    )
 
 
 def make_plots(results: list[dict]) -> None:
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    _fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
     # 1. A_w distribution per corpus size
     ax = axes[0, 0]
     for r in results:
         A_flat = r["A"].flatten()
         ax.hist(
-            A_flat, bins=80, alpha=0.5,
-            label=f"n={r['n_tokens']:,}", density=True,
+            A_flat,
+            bins=80,
+            alpha=0.5,
+            label=f"n={r['n_tokens']:,}",
+            density=True,
         )
     ax.set_xlabel("A_w[i] value")
     ax.set_ylabel("density")
@@ -173,10 +192,17 @@ def make_plots(results: list[dict]) -> None:
     ax = axes[0, 1]
     for r in results:
         A_flat = r["A"].flatten()
-        ax.hist(np.abs(A_flat), bins=80, alpha=0.5,
-                label=f"n={r['n_tokens']:,}", density=True)
+        ax.hist(
+            np.abs(A_flat),
+            bins=80,
+            alpha=0.5,
+            label=f"n={r['n_tokens']:,}",
+            density=True,
+        )
     ax.axvline(2.94, color="red", lw=0.8, ls="--", alpha=0.5, label="|A|=2.94 (σ=0.95)")
-    ax.axvline(4.6, color="darkred", lw=0.8, ls="--", alpha=0.5, label="|A|=4.6 (σ=0.99)")
+    ax.axvline(
+        4.6, color="darkred", lw=0.8, ls="--", alpha=0.5, label="|A|=4.6 (σ=0.99)"
+    )
     ax.set_xlabel("|A_w[i]|")
     ax.set_ylabel("density")
     ax.set_title("Magnitude distribution")
@@ -186,8 +212,13 @@ def make_plots(results: list[dict]) -> None:
     # 3. Per-word saturation: fraction of top-k bits that are saturated
     ax = axes[1, 0]
     for r in results:
-        ax.hist(r["sat_bits_arr"], bins=20, alpha=0.5,
-                label=f"n={r['n_tokens']:,}", density=True)
+        ax.hist(
+            r["sat_bits_arr"],
+            bins=20,
+            alpha=0.5,
+            label=f"n={r['n_tokens']:,}",
+            density=True,
+        )
     ax.set_xlabel("Fraction of word's top-k bits at saturation")
     ax.set_ylabel("density")
     ax.set_title("Per-word saturation fraction at top-k bits")
@@ -197,8 +228,13 @@ def make_plots(results: list[dict]) -> None:
     # 4. SimLex-word A values at top-k bits
     ax = axes[1, 1]
     for r in results:
-        ax.hist(r["simlex_a_top"], bins=80, alpha=0.5,
-                label=f"n={r['n_tokens']:,}", density=True)
+        ax.hist(
+            r["simlex_a_top"],
+            bins=80,
+            alpha=0.5,
+            label=f"n={r['n_tokens']:,}",
+            density=True,
+        )
     ax.axvline(2.94, color="red", lw=0.8, ls="--", alpha=0.5)
     ax.set_xlabel("A_w[i] at top-k bits of SimLex words")
     ax.set_ylabel("density")

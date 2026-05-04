@@ -42,8 +42,7 @@ def shuffle_tokens(token_ids: list[int], seed: int) -> list[int]:
 
 def run_one(*, n_tokens: int, vocab_size: int, seed: int, shuffle: bool) -> dict:
     print(
-        f"\n--- sigmoid-bounded shuffle={shuffle} "
-        f"n_tokens={n_tokens:,} seed={seed} ---"
+        f"\n--- sigmoid-bounded shuffle={shuffle} n_tokens={n_tokens:,} seed={seed} ---"
     )
     tokens = load_text8(max_tokens=n_tokens)
     token_to_id, id_to_token = build_vocab(tokens, vocab_size=vocab_size)

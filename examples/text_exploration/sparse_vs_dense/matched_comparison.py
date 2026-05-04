@@ -18,8 +18,6 @@ import csv
 import time
 from pathlib import Path
 
-import numpy as np
-
 from examples.text_exploration.sparse_vs_dense.data import (
     load_analogy,
     load_simlex,
@@ -76,6 +74,7 @@ def train_w2v_matched(
 
     # Restrict to shared vocab so both models report on the same words.
     from gensim.models.keyedvectors import KeyedVectors
+
     present = [w for w in vocab if w in model.wv.key_to_index]
     kv = KeyedVectors(vector_size=vector_size)
     kv.add_vectors(present, [model.wv[w] for w in present])
@@ -116,7 +115,7 @@ def run_one(*, n_tokens: int, vocab_size_hint: int, seed: int) -> list[dict]:
     # ---- word2vec ----
     print("  --- word2vec ---")
     t0 = time.monotonic()
-    w2v_emb, w2v_stats = train_w2v_matched(
+    w2v_emb, _w2v_stats = train_w2v_matched(
         prep.chunks,
         vocab=prep.vocab,
         vector_size=100,
@@ -126,17 +125,19 @@ def run_one(*, n_tokens: int, vocab_size_hint: int, seed: int) -> list[dict]:
     )
     s_w2v = evaluate_simlex(w2v_emb, simlex)
     a_w2v = evaluate_analogy(w2v_emb, analogy)
-    rows.append({
-        "model": "word2vec",
-        "n_tokens": n_tokens,
-        "seed": seed,
-        "eval_method": "cosine_dense",
-        "simlex_spearman": s_w2v["spearman"],
-        "simlex_n": s_w2v["n_pairs"],
-        "analogy_top1": a_w2v["top1"],
-        "analogy_n": a_w2v["n_entries"],
-        "train_s": time.monotonic() - t0,
-    })
+    rows.append(
+        {
+            "model": "word2vec",
+            "n_tokens": n_tokens,
+            "seed": seed,
+            "eval_method": "cosine_dense",
+            "simlex_spearman": s_w2v["spearman"],
+            "simlex_n": s_w2v["n_pairs"],
+            "analogy_top1": a_w2v["top1"],
+            "analogy_n": a_w2v["n_entries"],
+            "train_s": time.monotonic() - t0,
+        }
+    )
     print(
         f"    simlex(cosine)={s_w2v['spearman']:+.3f}  "
         f"analogy={a_w2v['top1']:.3f}  "
@@ -146,7 +147,7 @@ def run_one(*, n_tokens: int, vocab_size_hint: int, seed: int) -> list[dict]:
     # ---- SSH (sigmoid-bounded, single-table, modulated) ----
     print("  --- SSH ---")
     t0 = time.monotonic()
-    ssh_emb, ssh_stats = train_sparse_skipgram_hebbian_modulated(
+    ssh_emb, _ssh_stats = train_sparse_skipgram_hebbian_modulated(
         prep.flat_token_ids,
         id_to_token=prep.vocab,
         n_dims=1024,
@@ -167,28 +168,32 @@ def run_one(*, n_tokens: int, vocab_size_hint: int, seed: int) -> list[dict]:
     s_binary = evaluate_simlex(ssh_emb, simlex)
     s_continuous = evaluate_simlex(ssh_emb.continuous, simlex)
     a_ssh = evaluate_analogy(ssh_emb, analogy)
-    rows.append({
-        "model": "ssh_sigmoid",
-        "n_tokens": n_tokens,
-        "seed": seed,
-        "eval_method": "jaccard_binary",
-        "simlex_spearman": s_binary["spearman"],
-        "simlex_n": s_binary["n_pairs"],
-        "analogy_top1": a_ssh["top1"],
-        "analogy_n": a_ssh["n_entries"],
-        "train_s": train_dt,
-    })
-    rows.append({
-        "model": "ssh_sigmoid",
-        "n_tokens": n_tokens,
-        "seed": seed,
-        "eval_method": "cosine_continuous",
-        "simlex_spearman": s_continuous["spearman"],
-        "simlex_n": s_continuous["n_pairs"],
-        "analogy_top1": float("nan"),
-        "analogy_n": 0,
-        "train_s": train_dt,
-    })
+    rows.append(
+        {
+            "model": "ssh_sigmoid",
+            "n_tokens": n_tokens,
+            "seed": seed,
+            "eval_method": "jaccard_binary",
+            "simlex_spearman": s_binary["spearman"],
+            "simlex_n": s_binary["n_pairs"],
+            "analogy_top1": a_ssh["top1"],
+            "analogy_n": a_ssh["n_entries"],
+            "train_s": train_dt,
+        }
+    )
+    rows.append(
+        {
+            "model": "ssh_sigmoid",
+            "n_tokens": n_tokens,
+            "seed": seed,
+            "eval_method": "cosine_continuous",
+            "simlex_spearman": s_continuous["spearman"],
+            "simlex_n": s_continuous["n_pairs"],
+            "analogy_top1": float("nan"),
+            "analogy_n": 0,
+            "train_s": train_dt,
+        }
+    )
     print(
         f"    simlex(jaccard)={s_binary['spearman']:+.3f}  "
         f"simlex(cosine)={s_continuous['spearman']:+.3f}  "
@@ -201,7 +206,9 @@ def run_one(*, n_tokens: int, vocab_size_hint: int, seed: int) -> list[dict]:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--vocab-size", type=int, default=5000)  # not used directly but kept for parity
+    p.add_argument(
+        "--vocab-size", type=int, default=5000
+    )  # not used directly but kept for parity
     p.add_argument(
         "--n-tokens",
         type=int,

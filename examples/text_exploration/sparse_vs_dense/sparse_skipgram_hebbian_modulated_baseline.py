@@ -27,6 +27,7 @@ extraction time we read top-k(A_center) per word, matching word2vec's
 
 from __future__ import annotations
 
+import contextlib
 import math
 import time
 
@@ -34,6 +35,7 @@ import numpy as np
 
 try:
     import numba
+
     HAS_NUMBA = True
 except ImportError:
     HAS_NUMBA = False
@@ -53,7 +55,7 @@ class ModulatedSSHEmbeddings:
     def __init__(
         self,
         sdrs: dict[str, np.ndarray],
-        continuous: "ContinuousSSHEmbeddings | None" = None,
+        continuous: ContinuousSSHEmbeddings | None = None,
     ) -> None:
         self._sdrs = sdrs
         self.continuous = continuous
@@ -113,6 +115,7 @@ def _build_unigram_cdf(
 # Inner loop. Written so the entire body is numba-friendly: only ndarray ops,
 # explicit loops, no Python objects. The argpartition dance is replaced with
 # a manual top-k scan that numba can compile efficiently.
+
 
 def _make_train_loop():
     """Return a JIT-compiled inner-loop function (or a Python fallback)."""
@@ -315,17 +318,30 @@ def _make_train_loop():
         _overlap_jit = numba.njit(cache=True, fastmath=True)(_overlap)
 
         # Re-bind the helpers inside _train so numba inlines them.
-        train_src = _train
 
         @numba.njit(cache=True, fastmath=True)
         def _train_jit(
-            A_center, A_context,
-            A_ema_center, A_ema_context,
-            tids, cdf,
-            negs_buf, e_center_buf, e_context_buf, e_neg_buf,
-            n_dims, k_active, window, n_neg,
-            lr_pos, lr_neg, decay, modulate,
-            ema_alpha, subtract_mean, sigmoid_bounded,
+            A_center,
+            A_context,
+            A_ema_center,
+            A_ema_context,
+            tids,
+            cdf,
+            negs_buf,
+            e_center_buf,
+            e_context_buf,
+            e_neg_buf,
+            n_dims,
+            k_active,
+            window,
+            n_neg,
+            lr_pos,
+            lr_neg,
+            decay,
+            modulate,
+            ema_alpha,
+            subtract_mean,
+            sigmoid_bounded,
         ):
             N = tids.shape[0]
             neg_pos = 0
@@ -355,7 +371,9 @@ def _make_train_loop():
                         _top_k_jit(A_context[context], k_active, e_context_buf)
 
                     if modulate:
-                        overlap_pos = _overlap_jit(e_center_buf, e_context_buf, k_active)
+                        overlap_pos = _overlap_jit(
+                            e_center_buf, e_context_buf, k_active
+                        )
                         mod_pos = 1.0 - overlap_pos / k_active
                     else:
                         mod_pos = 1.0
@@ -415,7 +433,9 @@ def _make_train_loop():
                         else:
                             _top_k_jit(A_context[neg_id], k_active, e_neg_buf)
                         if modulate:
-                            overlap_neg = _overlap_jit(e_center_buf, e_neg_buf, k_active)
+                            overlap_neg = _overlap_jit(
+                                e_center_buf, e_neg_buf, k_active
+                            )
                             mod_neg = overlap_neg / k_active
                         else:
                             mod_neg = 1.0
@@ -443,15 +463,28 @@ def _make_train_loop():
         # ------------------------------------------------------------------
         @numba.njit(cache=True, fastmath=True, parallel=True)
         def _train_jit_parallel(
-            A_center, A_context,
-            A_ema_center, A_ema_context,
+            A_center,
+            A_context,
+            A_ema_center,
+            A_ema_context,
             tids,
-            chunk_starts, chunk_ends,        # (n_workers,) int64
-            negs_bufs,                        # (n_workers, max_negs_per_worker)
-            e_center_bufs, e_context_bufs, e_neg_bufs,  # (n_workers, k_active)
-            n_dims, k_active, window, n_neg,
-            lr_pos, lr_neg, decay, modulate,
-            ema_alpha, subtract_mean, sigmoid_bounded,
+            chunk_starts,
+            chunk_ends,  # (n_workers,) int64
+            negs_bufs,  # (n_workers, max_negs_per_worker)
+            e_center_bufs,
+            e_context_bufs,
+            e_neg_bufs,  # (n_workers, k_active)
+            n_dims,
+            k_active,
+            window,
+            n_neg,
+            lr_pos,
+            lr_neg,
+            decay,
+            modulate,
+            ema_alpha,
+            subtract_mean,
+            sigmoid_bounded,
         ):
             n_workers = chunk_starts.shape[0]
             ema_on = ema_alpha > 0.0
@@ -490,7 +523,9 @@ def _make_train_loop():
                             _top_k_jit(A_context[context], k_active, e_context_buf)
 
                         if modulate:
-                            overlap_pos = _overlap_jit(e_center_buf, e_context_buf, k_active)
+                            overlap_pos = _overlap_jit(
+                                e_center_buf, e_context_buf, k_active
+                            )
                             mod_pos = 1.0 - overlap_pos / k_active
                         else:
                             mod_pos = 1.0
@@ -517,7 +552,8 @@ def _make_train_loop():
                                 A_context[context, bit2] += step_pos
                             if ema_on:
                                 A_ema_context[context, bit2] += ema_alpha * (
-                                    A_context[context, bit2] - A_ema_context[context, bit2]
+                                    A_context[context, bit2]
+                                    - A_ema_context[context, bit2]
                                 )
 
                         if subtract_mean:
@@ -550,7 +586,9 @@ def _make_train_loop():
                             else:
                                 _top_k_jit(A_context[neg_id], k_active, e_neg_buf)
                             if modulate:
-                                overlap_neg = _overlap_jit(e_center_buf, e_neg_buf, k_active)
+                                overlap_neg = _overlap_jit(
+                                    e_center_buf, e_neg_buf, k_active
+                                )
                                 mod_neg = overlap_neg / k_active
                             else:
                                 mod_neg = 1.0
@@ -565,7 +603,8 @@ def _make_train_loop():
                                     A_center[center, bit] -= step_neg
                                 if ema_on:
                                     A_ema_center[center, bit] += ema_alpha * (
-                                        A_center[center, bit] - A_ema_center[center, bit]
+                                        A_center[center, bit]
+                                        - A_ema_center[center, bit]
                                     )
 
         return _train_jit, _train_jit_parallel, True
@@ -673,7 +712,9 @@ def train_sparse_skipgram_hebbian_modulated(
         if single_table:
             A_context = A_center
         else:
-            A_context = (rng.standard_normal((V, n_dims)) * init_scale).astype(np.float32)
+            A_context = (rng.standard_normal((V, n_dims)) * init_scale).astype(
+                np.float32
+            )
 
     # Consolidation bonus: BCM-style meta-plasticity. Add a fixed bonus to the
     # accumulator entries marked as "phase-1 winners" — they start with extra
@@ -684,7 +725,9 @@ def train_sparse_skipgram_hebbian_modulated(
         bonus = np.float32(consolidation_bonus)
         mask_f = consolidation_mask.astype(np.float32)
         if consolidation_mode == "proportional":
-            assert consolidation_phase1_A is not None, "proportional mode requires A_phase1"
+            assert consolidation_phase1_A is not None, (
+                "proportional mode requires A_phase1"
+            )
             A_p = np.maximum(consolidation_phase1_A, 0.0).astype(np.float32)
             delta = bonus * mask_f * A_p
         else:
@@ -697,10 +740,7 @@ def train_sparse_skipgram_hebbian_modulated(
     # Always allocate (numba-jitted loop expects array args even if ema_alpha=0;
     # cheap when single_table aliases).
     A_ema_center = A_center.copy()
-    if single_table:
-        A_ema_context = A_ema_center
-    else:
-        A_ema_context = A_context.copy()
+    A_ema_context = A_ema_center if single_table else A_context.copy()
 
     cdf = _build_unigram_cdf(tids, V, neg_power)
 
@@ -738,21 +778,32 @@ def train_sparse_skipgram_hebbian_modulated(
         e_neg_bufs = np.empty((n_workers, k_active), dtype=np.int64)
 
         # Tell numba how many threads to use for this prange.
-        try:
+        with contextlib.suppress(Exception):
             numba.set_num_threads(n_workers)
-        except Exception:  # noqa: BLE001
-            pass
 
         _TRAIN_FN_PARALLEL(
-            A_center, A_context,
-            A_ema_center, A_ema_context,
+            A_center,
+            A_context,
+            A_ema_center,
+            A_ema_context,
             tids,
-            chunk_starts, chunk_ends,
+            chunk_starts,
+            chunk_ends,
             negs_bufs,
-            e_center_bufs, e_context_bufs, e_neg_bufs,
-            n_dims, k_active, window, n_neg,
-            float(lr_pos), float(lr_neg), float(decay), bool(modulate),
-            float(ema_alpha), bool(subtract_mean), bool(sigmoid_bounded),
+            e_center_bufs,
+            e_context_bufs,
+            e_neg_bufs,
+            n_dims,
+            k_active,
+            window,
+            n_neg,
+            float(lr_pos),
+            float(lr_neg),
+            float(decay),
+            bool(modulate),
+            float(ema_alpha),
+            bool(subtract_mean),
+            bool(sigmoid_bounded),
         )
         n_negs_used = -1  # parallel path doesn't track a global counter
     else:
@@ -768,13 +819,27 @@ def train_sparse_skipgram_hebbian_modulated(
         e_neg_buf = np.empty(k_active, dtype=np.int64)
 
         n_negs_used = _TRAIN_FN(
-            A_center, A_context,
-            A_ema_center, A_ema_context,
-            tids, cdf,
-            negs_buf, e_center_buf, e_context_buf, e_neg_buf,
-            n_dims, k_active, window, n_neg,
-            float(lr_pos), float(lr_neg), float(decay), bool(modulate),
-            float(ema_alpha), bool(subtract_mean), bool(sigmoid_bounded),
+            A_center,
+            A_context,
+            A_ema_center,
+            A_ema_context,
+            tids,
+            cdf,
+            negs_buf,
+            e_center_buf,
+            e_context_buf,
+            e_neg_buf,
+            n_dims,
+            k_active,
+            window,
+            n_neg,
+            float(lr_pos),
+            float(lr_neg),
+            float(decay),
+            bool(modulate),
+            float(ema_alpha),
+            bool(subtract_mean),
+            bool(sigmoid_bounded),
         )
 
     elapsed_train = time.monotonic() - t0

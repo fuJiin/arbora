@@ -40,15 +40,15 @@ def main() -> None:
     p.add_argument("--n-tokens", type=int, default=5_000_000)
     p.add_argument("--max-epochs", type=int, default=50)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument(
-        "--out-dir", type=str, default="data/runs/arb139/w2v_epoch_sweep"
-    )
+    p.add_argument("--out-dir", type=str, default="data/runs/arb139/w2v_epoch_sweep")
     args = p.parse_args()
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"=== w2v epoch sweep: {args.n_tokens:,} tokens, {args.max_epochs} epochs ===")
+    print(
+        f"=== w2v epoch sweep: {args.n_tokens:,} tokens, {args.max_epochs} epochs ==="
+    )
     print(f"Loading text8 ({args.n_tokens:,}) ...")
     raw = load_text8(max_tokens=args.n_tokens)
 
@@ -65,7 +65,7 @@ def main() -> None:
     tokens = prep.flat_tokens
     print(f"  prepared: {len(chunks)} chunks, {len(tokens):,} tokens after subsample")
 
-    token_to_id, id_to_token = build_vocab(tokens, vocab_size=10_000)
+    _token_to_id, id_to_token = build_vocab(tokens, vocab_size=10_000)
     vocab_set = set(id_to_token)
     pairs = load_simlex(vocab=vocab_set)
     print(f"Vocab: {len(id_to_token)}, SimLex pairs in vocab: {len(pairs)}")

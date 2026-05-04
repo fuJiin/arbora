@@ -49,7 +49,7 @@ def dump_one(n_tokens: int, vocab_size: int, seed: int, out_dir: Path) -> None:
     token_ids = encode_tokens(tokens, token_to_id)
 
     t0 = time.monotonic()
-    emb, stats = train_sparse_skipgram_hebbian_modulated(
+    emb, _stats = train_sparse_skipgram_hebbian_modulated(
         token_ids,
         id_to_token=id_to_token,
         n_dims=1024,
@@ -79,8 +79,8 @@ def dump_one(n_tokens: int, vocab_size: int, seed: int, out_dir: Path) -> None:
     with acc_path.open("wb") as f:
         pickle.dump(accumulator, f)
     print(
-        f"  trained in {elapsed:.1f}s, dumped sdrs ({sdr_path.stat().st_size//1024} KB) "
-        f"+ accumulator ({acc_path.stat().st_size//1024} KB)"
+        f"  trained in {elapsed:.1f}s, dumped sdrs ({sdr_path.stat().st_size // 1024} KB) "
+        f"+ accumulator ({acc_path.stat().st_size // 1024} KB)"
     )
 
 

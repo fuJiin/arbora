@@ -45,6 +45,7 @@ import numpy as np
 
 try:
     import numba
+
     HAS_NUMBA = True
 except ImportError:
     HAS_NUMBA = False
@@ -250,7 +251,9 @@ def _make_train_loop():
                         mean_w_at_n = sum_w_n / support_size_n
                         for d in range(n_dims):
                             if e_n_buf[d] > 0.0:
-                                A[neg_id, d] -= lr * error_neg * (e_w_buf[d] - mean_w_at_n)
+                                A[neg_id, d] -= (
+                                    lr * error_neg * (e_w_buf[d] - mean_w_at_n)
+                                )
         return neg_pos
 
     if HAS_NUMBA:
@@ -311,10 +314,18 @@ def train_sparsemax_ssh(
     sort_buf = np.empty(n_dims, dtype=np.float32)
 
     n_negs_used = _TRAIN_FN(
-        A, tids, negs_buf,
-        n_dims, window, n_neg,
-        float(lr), float(l2_decay),
-        e_w_buf, e_c_buf, e_n_buf, sort_buf,
+        A,
+        tids,
+        negs_buf,
+        n_dims,
+        window,
+        n_neg,
+        float(lr),
+        float(l2_decay),
+        e_w_buf,
+        e_c_buf,
+        e_n_buf,
+        sort_buf,
     )
 
     elapsed = time.monotonic() - t0
@@ -324,7 +335,7 @@ def train_sparsemax_ssh(
     n_active_per_word: list[int] = []
     for w in range(V):
         out = np.empty(n_dims, dtype=np.float32)
-        sb = np.empty(n_dims, dtype=np.float32)
+        np.empty(n_dims, dtype=np.float32)
         if HAS_NUMBA:
             # Use the JIT'd inner sparsemax via the inner-loop function's
             # helper. Since _sparsemax_into is closed over, we re-implement

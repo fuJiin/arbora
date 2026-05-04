@@ -97,15 +97,13 @@ def print_table(agg: dict) -> None:
         "sparse_skipgram_hebbian",
         "t1_sparse",
     ]
-    token_counts = sorted({k[1] for k in agg.keys()})
-    models_present = [m for m in models_order if any(k[0] == m for k in agg.keys())]
+    token_counts = sorted({k[1] for k in agg})
+    models_present = [m for m in models_order if any(k[0] == m for k in agg)]
 
     for col, label in HEADLINE_METRICS:
         print(f"\n=== {label} ({col}) ===")
         # Header
-        header = f"{'model':>17s} | " + " | ".join(
-            f"{n:>11,}" for n in token_counts
-        )
+        header = f"{'model':>17s} | " + " | ".join(f"{n:>11,}" for n in token_counts)
         print(header)
         print("-" * len(header))
         for m in models_present:
@@ -115,8 +113,10 @@ def print_table(agg: dict) -> None:
                 if stat is None:
                     cells.append(" - ")
                 else:
-                    decimals = 0 if col in ("bundling_capacity",) else (
-                        1 if col in ("cap_eff_dim", "elapsed_s") else 3
+                    decimals = (
+                        0
+                        if col in ("bundling_capacity",)
+                        else (1 if col in ("cap_eff_dim", "elapsed_s") else 3)
                     )
                     cells.append(fmt_cell(stat, decimals))
             row = f"{m:>17s} | " + " | ".join(f"{c:>11s}" for c in cells)

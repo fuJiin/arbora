@@ -36,8 +36,8 @@ from examples.text_exploration.sparse_vs_dense.evaluation import (
     evaluate_simlex,
 )
 from examples.text_exploration.sparse_vs_dense.sparse_skipgram_hebbian_modulated_baseline import (
-    ModulatedSSHEmbeddings,
     _TRAIN_FN,
+    ModulatedSSHEmbeddings,
     _build_unigram_cdf,
 )
 
@@ -94,13 +94,27 @@ def run_one(
         negs_buf = np.searchsorted(cdf, neg_uniform).astype(np.int64)
 
         _TRAIN_FN(
-            A_center, A_context,
-            A_ema_center, A_ema_context,
-            tids_epoch, cdf,
-            negs_buf, e_center_buf, e_context_buf, e_neg_buf,
-            n_dims, k_active, window, n_neg,
-            float(lr_pos), float(lr_neg), 0.0, True,
-            float(ema_alpha), False, bool(sigmoid_bounded),
+            A_center,
+            A_context,
+            A_ema_center,
+            A_ema_context,
+            tids_epoch,
+            cdf,
+            negs_buf,
+            e_center_buf,
+            e_context_buf,
+            e_neg_buf,
+            n_dims,
+            k_active,
+            window,
+            n_neg,
+            float(lr_pos),
+            float(lr_neg),
+            0.0,
+            True,
+            float(ema_alpha),
+            False,
+            bool(sigmoid_bounded),
         )
 
     train_dt = time.monotonic() - t0
@@ -171,7 +185,7 @@ def main() -> None:
 
     plan = [
         # (label, n_epochs, shuffle_first)
-        ("1ep_inorder",  1, False),
+        ("1ep_inorder", 1, False),
         ("1ep_shuffled", 1, True),
         ("3ep_shuffled", 3, True),
         ("5ep_shuffled", 5, True),

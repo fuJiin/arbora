@@ -22,15 +22,15 @@ import pickle
 import time
 from pathlib import Path
 
+from examples.text_exploration.sparse_vs_dense.brown_cluster_baseline import (
+    train_brown_cluster,
+)
 from examples.text_exploration.sparse_vs_dense.data import (
     build_vocab,
     encode_tokens,
     load_analogy,
     load_simlex,
     load_text8,
-)
-from examples.text_exploration.sparse_vs_dense.brown_cluster_baseline import (
-    train_brown_cluster,
 )
 from examples.text_exploration.sparse_vs_dense.evaluation import (
     evaluate_analogy,

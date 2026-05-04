@@ -38,6 +38,7 @@ import numpy as np
 
 try:
     import numba
+
     HAS_NUMBA = True
 except ImportError:
     HAS_NUMBA = False
@@ -247,10 +248,18 @@ def train_gradient_ste(
     e_n_buf = np.empty(k_active, dtype=np.int64)
 
     n_negs_used = _TRAIN_FN(
-        A, tids, negs_buf,
-        e_w_buf, e_c_buf, e_n_buf,
-        n_dims, k_active, window, n_neg,
-        float(lr), float(l2_decay),
+        A,
+        tids,
+        negs_buf,
+        e_w_buf,
+        e_c_buf,
+        e_n_buf,
+        n_dims,
+        k_active,
+        window,
+        n_neg,
+        float(lr),
+        float(l2_decay),
     )
 
     elapsed = time.monotonic() - t0

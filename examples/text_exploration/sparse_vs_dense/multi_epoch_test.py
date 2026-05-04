@@ -39,8 +39,8 @@ from examples.text_exploration.sparse_vs_dense.evaluation import (
     evaluate_simlex,
 )
 from examples.text_exploration.sparse_vs_dense.sparse_skipgram_hebbian_modulated_baseline import (
-    ModulatedSSHEmbeddings,
     _TRAIN_FN,
+    ModulatedSSHEmbeddings,
     _build_unigram_cdf,
 )
 
@@ -92,13 +92,27 @@ def train_multi_epoch(
         negs_buf = np.searchsorted(cdf, neg_uniform).astype(np.int64)
 
         _TRAIN_FN(
-            A_center, A_context,
-            A_ema_center, A_ema_context,
-            tids_epoch, cdf,
-            negs_buf, e_center_buf, e_context_buf, e_neg_buf,
-            n_dims, k_active, window, n_neg,
-            float(lr_pos), float(lr_neg), 0.0, True,
-            float(ema_alpha), False, False,
+            A_center,
+            A_context,
+            A_ema_center,
+            A_ema_context,
+            tids_epoch,
+            cdf,
+            negs_buf,
+            e_center_buf,
+            e_context_buf,
+            e_neg_buf,
+            n_dims,
+            k_active,
+            window,
+            n_neg,
+            float(lr_pos),
+            float(lr_neg),
+            0.0,
+            True,
+            float(ema_alpha),
+            False,
+            False,
         )
         n_total_pairs_processed += n_pairs
 
@@ -152,10 +166,10 @@ def main() -> None:
 
     plan = [
         # (label, n_epochs, tokens_per_epoch)
-        ("1 epoch x 1M",     1, 1_000_000),
-        ("2 epochs x 500k",  2,   500_000),
-        ("4 epochs x 250k",  4,   250_000),
-        ("10 epochs x 100k", 10,  100_000),
+        ("1 epoch x 1M", 1, 1_000_000),
+        ("2 epochs x 500k", 2, 500_000),
+        ("4 epochs x 250k", 4, 250_000),
+        ("10 epochs x 100k", 10, 100_000),
     ]
 
     rows: list[dict] = []

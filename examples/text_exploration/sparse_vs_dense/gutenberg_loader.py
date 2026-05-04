@@ -20,15 +20,15 @@ CACHE_DIR = Path(__file__).resolve().parents[3] / "data" / "cache" / "gutenberg"
 # Curated list of Gutenberg book IDs spanning genres and eras. Size estimates
 # from PG metadata. Total ~5M tokens after cleaning.
 GUTENBERG_BOOK_IDS = [
-    11,    # Alice's Adventures in Wonderland (Carroll)
-    12,    # Through the Looking-Glass (Carroll)
-    16,    # Peter Pan (Barrie)
-    74,    # The Adventures of Tom Sawyer (Twain)
-    76,    # Adventures of Huckleberry Finn (Twain)
-    84,    # Frankenstein (Shelley)
-    98,    # A Tale of Two Cities (Dickens)
-    174,   # The Picture of Dorian Gray (Wilde)
-    345,   # Dracula (Stoker)
+    11,  # Alice's Adventures in Wonderland (Carroll)
+    12,  # Through the Looking-Glass (Carroll)
+    16,  # Peter Pan (Barrie)
+    74,  # The Adventures of Tom Sawyer (Twain)
+    76,  # Adventures of Huckleberry Finn (Twain)
+    84,  # Frankenstein (Shelley)
+    98,  # A Tale of Two Cities (Dickens)
+    174,  # The Picture of Dorian Gray (Wilde)
+    345,  # Dracula (Stoker)
     1342,  # Pride and Prejudice (Austen)
     1661,  # The Adventures of Sherlock Holmes (Doyle)
     2701,  # Moby Dick (Melville)
@@ -39,27 +39,27 @@ GUTENBERG_BOOK_IDS = [
     1184,  # The Count of Monte Cristo (Dumas)
     1497,  # Republic (Plato)
     2542,  # A Doll's House (Ibsen)
-    100,   # Complete Works of Shakespeare
-    158,   # Emma (Austen)
-    161,   # Sense and Sensibility (Austen)
-    768,   # Wuthering Heights (Bronte)
+    100,  # Complete Works of Shakespeare
+    158,  # Emma (Austen)
+    161,  # Sense and Sensibility (Austen)
+    768,  # Wuthering Heights (Bronte)
     1232,  # The Prince (Machiavelli)
     1260,  # Jane Eyre (Bronte)
-    35,    # The Time Machine (Wells)
-    36,    # The War of the Worlds (Wells)
-    120,   # Treasure Island (Stevenson)
-    144,   # The Strange Case of Dr. Jekyll and Mr. Hyde (Stevenson)
-    219,   # Heart of Darkness (Conrad)
+    35,  # The Time Machine (Wells)
+    36,  # The War of the Worlds (Wells)
+    120,  # Treasure Island (Stevenson)
+    144,  # The Strange Case of Dr. Jekyll and Mr. Hyde (Stevenson)
+    219,  # Heart of Darkness (Conrad)
     1080,  # A Modest Proposal (Swift)
-    829,   # Gulliver's Travels (Swift)
-    23,    # Narrative of the Life of Frederick Douglass
-    600,   # Notes from the Underground (Dostoevsky)
+    829,  # Gulliver's Travels (Swift)
+    23,  # Narrative of the Life of Frederick Douglass
+    600,  # Notes from the Underground (Dostoevsky)
     2554,  # Crime and Punishment (Dostoevsky)
-    28054, # The Brothers Karamazov (Dostoevsky)
+    28054,  # The Brothers Karamazov (Dostoevsky)
     2600,  # War and Peace (Tolstoy)
     1399,  # Anna Karenina (Tolstoy)
-    140,   # The Jungle (Sinclair)
-    779,   # Babbit (Sinclair Lewis)
+    140,  # The Jungle (Sinclair)
+    779,  # Babbit (Sinclair Lewis)
 ]
 
 
@@ -80,7 +80,7 @@ def _strip_pg_header_footer(text: str) -> str:
     m_start = start_re.search(text)
     m_end = end_re.search(text)
     if m_start:
-        text = text[m_start.end():]
+        text = text[m_start.end() :]
     if m_end:
         text = text[: m_end.start()]
     return text
@@ -115,7 +115,7 @@ def _download_book(book_id: int) -> str | None:
                 except UnicodeDecodeError:
                     continue
             return raw.decode("utf-8", errors="ignore")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"  fetch failed for book_id={book_id} via {url}: {e}")
             continue
     return None
@@ -125,7 +125,9 @@ def _cached_book_path(book_id: int) -> Path:
     return CACHE_DIR / f"pg{book_id}.txt"
 
 
-def load_gutenberg_corpus(max_tokens: int | None = None, verbose: bool = True) -> list[str]:
+def load_gutenberg_corpus(
+    max_tokens: int | None = None, verbose: bool = True
+) -> list[str]:
     """Download (or load from cache) Gutenberg books, return tokenized list.
 
     Args:

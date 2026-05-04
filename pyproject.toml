@@ -44,6 +44,14 @@ line-length = 88
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# Research-exploration scripts. Math notation in comments (×, ε, λ) is
+# intentional, not the kind of homoglyph mistake RUF001-3 catches in
+# auth/security code. E501 long lines are typically wide config tables
+# or driver-script invocations that read better unwrapped. SIM102 is
+# stylistic.
+"examples/text_exploration/sparse_vs_dense/**" = ["E501", "RUF001", "RUF002", "RUF003", "SIM102"]
+
 [tool.ty.rules]
 # Motor/PFC attributes accessed on CorticalRegion-typed variables
 # after `if s.motor:` runtime checks. Type narrowing not supported.

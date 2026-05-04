@@ -39,13 +39,12 @@ from examples.text_exploration.sparse_vs_dense.data import (
     load_simlex,
     load_text8,
 )
-from examples.text_exploration.sparse_vs_dense.gutenberg_loader import (
-    load_gutenberg_corpus,
-)
 from examples.text_exploration.sparse_vs_dense.evaluation import (
     cosine_similarity,
-    evaluate_simlex,
     jaccard_similarity,
+)
+from examples.text_exploration.sparse_vs_dense.gutenberg_loader import (
+    load_gutenberg_corpus,
 )
 from examples.text_exploration.sparse_vs_dense.prepare_corpus import (
     CorpusPlan,
@@ -274,17 +273,21 @@ def train_ssh_continual(
                 f"({stats1['elapsed_train_s']:.1f}s)"
             )
             if do_eval:
-                snap_ep = {w: _build_sdr(A_phase1[i]) for i, w in enumerate(id_to_token)}
+                snap_ep = {
+                    w: _build_sdr(A_phase1[i]) for i, w in enumerate(id_to_token)
+                }
                 rho_ep, n_ep = evaluate_simlex_partition(
                     snap_ep, eval_pairs, is_sparse=True
                 )
                 ep_msg += f"  simlex={rho_ep:+.4f} (n={n_ep})"
-                epoch_log.append({
-                    "epoch": ep + 1,
-                    "simlex_spearman": rho_ep,
-                    "n_pairs": n_ep,
-                    "elapsed_train_s": stats1["elapsed_train_s"],
-                })
+                epoch_log.append(
+                    {
+                        "epoch": ep + 1,
+                        "simlex_spearman": rho_ep,
+                        "n_pairs": n_ep,
+                        "elapsed_train_s": stats1["elapsed_train_s"],
+                    }
+                )
                 if rho_ep > best_simlex:
                     best_simlex = rho_ep
                     best_epoch = ep + 1
@@ -317,6 +320,7 @@ def train_ssh_continual(
 
         if epoch_log_path is not None and epoch_log:
             import csv as _csv
+
             epoch_log_path.parent.mkdir(parents=True, exist_ok=True)
             keys = ["epoch", "simlex_spearman", "n_pairs", "elapsed_train_s"]
             with epoch_log_path.open("w") as f:
@@ -412,41 +416,77 @@ def evaluate_simlex_partition(
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--n-per-phase", type=int, default=5_000_000)
-    p.add_argument("--n-tokens-b", type=int, default=None,
-                   help="If set, override the phase-2 corpus size (defaults to n-per-phase).")
+    p.add_argument(
+        "--n-tokens-b",
+        type=int,
+        default=None,
+        help="If set, override the phase-2 corpus size (defaults to n-per-phase).",
+    )
     p.add_argument("--ssh-n-dims", type=int, default=1024)
     p.add_argument("--ssh-k-active", type=int, default=40)
-    p.add_argument("--ssh-k-eval", type=int, default=None,
-                   help="Top-k used to BUILD the snapshot SDRs (defaults to "
-                        "--ssh-k-active). Decoupling lets us train cheap (k=40) "
-                        "but read out at the wider aperture (k=160) where our "
-                        "k_eval sweep showed best SimLex.")
-    p.add_argument("--ssh-cache-phase1", type=str, default=None,
-                   help="Path to load/save SSH phase-1 accumulator state.")
-    p.add_argument("--ssh-consolidation-bonus", type=float, default=0.0,
-                   help="BCM-style meta-plasticity. If > 0, bits in "
-                        "top_k(A_phase1, k=k_active) receive an additive bonus "
-                        "on the initial phase-2 accumulator. Protects phase-1 "
-                        "structure during phase-2 training.")
-    p.add_argument("--ssh-consolidation-mode", type=str, default="absolute",
-                   choices=["absolute", "proportional"],
-                   help="BCM bonus form: absolute adds bonus*mask, "
-                        "proportional scales by phase-1 magnitude (bonus*mask*A_phase1).")
-    p.add_argument("--ssh-n-workers", type=int, default=1,
-                   help="Hogwild! parallel workers for SSH inner loop. 4 is "
-                        "the sweet spot — 2x speedup with negligible race noise.")
-    p.add_argument("--n-epochs-phase1", type=int, default=1,
-                   help="Max number of training passes over the phase-1 corpus "
-                        "for both methods. Default 1 matches prior behavior. For "
-                        "SSH, used as the upper bound when --ssh-early-stop-patience "
-                        "is set: training stops earlier if SimLex peaks.")
-    p.add_argument("--n-epochs-phase2", type=int, default=1,
-                   help="Number of training passes over the phase-2 corpus.")
-    p.add_argument("--ssh-early-stop-patience", type=int, default=0,
-                   help="If >0, stop SSH phase-1 training when SimLex hasn't "
-                        "improved for this many epochs. Reverts the accumulator "
-                        "to the peak-SimLex epoch before phase 2 starts. Disabled "
-                        "(0) by default — runs all --n-epochs-phase1 epochs.")
+    p.add_argument(
+        "--ssh-k-eval",
+        type=int,
+        default=None,
+        help="Top-k used to BUILD the snapshot SDRs (defaults to "
+        "--ssh-k-active). Decoupling lets us train cheap (k=40) "
+        "but read out at the wider aperture (k=160) where our "
+        "k_eval sweep showed best SimLex.",
+    )
+    p.add_argument(
+        "--ssh-cache-phase1",
+        type=str,
+        default=None,
+        help="Path to load/save SSH phase-1 accumulator state.",
+    )
+    p.add_argument(
+        "--ssh-consolidation-bonus",
+        type=float,
+        default=0.0,
+        help="BCM-style meta-plasticity. If > 0, bits in "
+        "top_k(A_phase1, k=k_active) receive an additive bonus "
+        "on the initial phase-2 accumulator. Protects phase-1 "
+        "structure during phase-2 training.",
+    )
+    p.add_argument(
+        "--ssh-consolidation-mode",
+        type=str,
+        default="absolute",
+        choices=["absolute", "proportional"],
+        help="BCM bonus form: absolute adds bonus*mask, "
+        "proportional scales by phase-1 magnitude (bonus*mask*A_phase1).",
+    )
+    p.add_argument(
+        "--ssh-n-workers",
+        type=int,
+        default=1,
+        help="Hogwild! parallel workers for SSH inner loop. 4 is "
+        "the sweet spot — 2x speedup with negligible race noise.",
+    )
+    p.add_argument(
+        "--n-epochs-phase1",
+        type=int,
+        default=1,
+        help="Max number of training passes over the phase-1 corpus "
+        "for both methods. Default 1 matches prior behavior. For "
+        "SSH, used as the upper bound when --ssh-early-stop-patience "
+        "is set: training stops earlier if SimLex peaks.",
+    )
+    p.add_argument(
+        "--n-epochs-phase2",
+        type=int,
+        default=1,
+        help="Number of training passes over the phase-2 corpus.",
+    )
+    p.add_argument(
+        "--ssh-early-stop-patience",
+        type=int,
+        default=0,
+        help="If >0, stop SSH phase-1 training when SimLex hasn't "
+        "improved for this many epochs. Reverts the accumulator "
+        "to the peak-SimLex epoch before phase 2 starts. Disabled "
+        "(0) by default — runs all --n-epochs-phase1 epochs.",
+    )
     p.add_argument("--vocab-size-hint", type=int, default=10_000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -456,10 +496,14 @@ def main() -> None:
         choices=["same_domain", "cross_domain"],
         help="same_domain = text8 halves; cross_domain = text8 → Gutenberg.",
     )
-    p.add_argument("--methods", type=str, default="both",
-                   choices=["both", "word2vec", "ssh"],
-                   help="Which method(s) to run. 'both' runs w2v + SSH "
-                        "(default). 'ssh' or 'word2vec' restricts to one.")
+    p.add_argument(
+        "--methods",
+        type=str,
+        default="both",
+        choices=["both", "word2vec", "ssh"],
+        help="Which method(s) to run. 'both' runs w2v + SSH "
+        "(default). 'ssh' or 'word2vec' restricts to one.",
+    )
     p.add_argument(
         "--out-dir",
         type=str,
@@ -480,7 +524,7 @@ def main() -> None:
         tokens_a_raw = load_text8(max_tokens=args.n_per_phase)
         # Phase B from text8 second half — load enough to skip A then take n_b
         tokens_full = load_text8(max_tokens=args.n_per_phase + n_b)
-        tokens_b_raw = tokens_full[args.n_per_phase:]
+        tokens_b_raw = tokens_full[args.n_per_phase :]
     else:
         print(f"Loading text8 (A={args.n_per_phase:,}) + Gutenberg (B={n_b:,}) ...")
         tokens_a_raw = load_text8(max_tokens=args.n_per_phase)
@@ -504,7 +548,9 @@ def main() -> None:
 
     # Build joint vocab from A ∪ B for both methods.
     combined_tokens = tokens_a + tokens_b
-    token_to_id, id_to_token = build_vocab(combined_tokens, vocab_size=args.vocab_size_hint)
+    token_to_id, id_to_token = build_vocab(
+        combined_tokens, vocab_size=args.vocab_size_hint
+    )
     vocab_set = set(id_to_token)
     print(f"Joint vocab size: {len(id_to_token)}")
 
@@ -535,22 +581,20 @@ def main() -> None:
     rows: list[dict] = []
     drift_rows: list[dict] = []
 
-    methods_to_run = (
-        ["word2vec", "ssh"] if args.methods == "both" else [args.methods]
-    )
+    methods_to_run = ["word2vec", "ssh"] if args.methods == "both" else [args.methods]
     for method_name in methods_to_run:
         print(f"\n--- {method_name} ---")
         if method_name == "word2vec":
             snap1, snap2, timings = train_w2v_continual(
-                chunks_a, chunks_b, args.seed,
+                chunks_a,
+                chunks_b,
+                args.seed,
                 n_epochs_phase1=args.n_epochs_phase1,
                 n_epochs_phase2=args.n_epochs_phase2,
             )
             is_sparse = False
         else:
-            cache_path = (
-                Path(args.ssh_cache_phase1) if args.ssh_cache_phase1 else None
-            )
+            cache_path = Path(args.ssh_cache_phase1) if args.ssh_cache_phase1 else None
             # Use the shared partition for SSH per-epoch eval — largest n,
             # most reliable signal. Falls back to all in-vocab pairs if shared
             # is empty (e.g., same-domain split).
@@ -598,10 +642,7 @@ def main() -> None:
                         "phase2_s": timings["phase2_s"],
                     }
                 )
-                print(
-                    f"    {phase:>6s} | {part_name:>8s} | "
-                    f"simlex={rho:+.4f}  n={n}"
-                )
+                print(f"    {phase:>6s} | {part_name:>8s} | simlex={rho:+.4f}  n={n}")
 
         # Per-word drift between phase 1 and phase 2.
         drift = per_word_drift(snap1, snap2, is_sparse)
@@ -620,10 +661,16 @@ def main() -> None:
             )
 
         # Drift histogram summary.
-        sims_a_only = [d["phase_similarity"] for d in drift_rows
-                       if d["method"] == method_name and d["tag"] == "a_only"]
-        sims_shared = [d["phase_similarity"] for d in drift_rows
-                       if d["method"] == method_name and d["tag"] == "shared"]
+        sims_a_only = [
+            d["phase_similarity"]
+            for d in drift_rows
+            if d["method"] == method_name and d["tag"] == "a_only"
+        ]
+        sims_shared = [
+            d["phase_similarity"]
+            for d in drift_rows
+            if d["method"] == method_name and d["tag"] == "shared"
+        ]
         if sims_a_only:
             print(
                 f"    drift on A-only words (n={len(sims_a_only)}): "

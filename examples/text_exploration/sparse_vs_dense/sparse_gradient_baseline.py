@@ -37,6 +37,7 @@ import numpy as np
 
 try:
     import numba
+
     HAS_NUMBA = True
 except ImportError:
     HAS_NUMBA = False
@@ -232,9 +233,9 @@ def train_sparse_gradient(
     t0 = time.monotonic()
 
     # Initialize so some bits are above threshold (active).
-    A = (
-        rng.standard_normal((V, n_dims)) * init_scale + init_positive_bias
-    ).astype(np.float32)
+    A = (rng.standard_normal((V, n_dims)) * init_scale + init_positive_bias).astype(
+        np.float32
+    )
 
     cdf = _build_unigram_cdf(tids, V, neg_power)
 

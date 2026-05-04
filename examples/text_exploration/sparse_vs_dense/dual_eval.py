@@ -45,7 +45,7 @@ def run_one(*, n_tokens: int, vocab_size: int, seed: int) -> dict:
     token_ids = encode_tokens(tokens, token_to_id)
 
     t0 = time.monotonic()
-    emb, stats = train_sparse_skipgram_hebbian_modulated(
+    emb, _stats = train_sparse_skipgram_hebbian_modulated(
         token_ids,
         id_to_token=id_to_token,
         n_dims=1024,

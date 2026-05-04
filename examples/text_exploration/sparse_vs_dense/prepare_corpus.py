@@ -27,8 +27,8 @@ Each switch can be turned off independently for ablation.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 import numpy as np
 
@@ -119,9 +119,7 @@ def prepare_corpus(
     total = sum(counts.values())
 
     # Step 2: build vocab with min_count filter.
-    most_common = [
-        tok for tok, c in counts.most_common() if c >= plan.min_count
-    ]
+    most_common = [tok for tok, c in counts.most_common() if c >= plan.min_count]
     vocab = ["<unk>", *most_common]
     token_to_id = {tok: i for i, tok in enumerate(vocab)}
 
@@ -145,7 +143,7 @@ def prepare_corpus(
         # min_count below) are dropped here too.
         kept: list[str] = []
         random_draws = rng.random(n_raw)
-        for tok, r in zip(raw_tokens, random_draws):
+        for tok, r in zip(raw_tokens, random_draws, strict=False):
             if tok not in token_to_id:
                 continue  # filtered by min_count
             if r < keep_prob.get(tok, 1.0):
@@ -158,8 +156,7 @@ def prepare_corpus(
     # Step 4: chunk into pseudo-sentences.
     if plan.chunk_size > 0:
         chunks = [
-            kept[i : i + plan.chunk_size]
-            for i in range(0, n_kept, plan.chunk_size)
+            kept[i : i + plan.chunk_size] for i in range(0, n_kept, plan.chunk_size)
         ]
     else:
         chunks = [kept]
@@ -185,7 +182,9 @@ def prepare_corpus(
             "fraction_kept": n_kept / max(n_raw, 1),
             "vocab_size": len(vocab),
             "n_chunks": len(chunks),
-            "mean_chunk_size": float(np.mean([len(c) for c in chunks])) if chunks else 0.0,
+            "mean_chunk_size": float(np.mean([len(c) for c in chunks]))
+            if chunks
+            else 0.0,
             "shuffled": plan.shuffle_chunks,
         },
     )

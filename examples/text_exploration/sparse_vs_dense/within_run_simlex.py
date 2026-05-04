@@ -33,8 +33,8 @@ from examples.text_exploration.sparse_vs_dense.evaluation import (
     evaluate_simlex,
 )
 from examples.text_exploration.sparse_vs_dense.sparse_skipgram_hebbian_modulated_baseline import (
-    ModulatedSSHEmbeddings,
     _TRAIN_FN,
+    ModulatedSSHEmbeddings,
     _build_unigram_cdf,
 )
 

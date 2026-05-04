@@ -41,7 +41,6 @@ from examples.text_exploration.sparse_vs_dense.sparse_skipgram_hebbian_modulated
     train_sparse_skipgram_hebbian_modulated,
 )
 
-
 VARIANTS = [
     # (name, lr_pos, lr_neg, modulate, decay)
     ("vanilla", 0.05, 0.02, False, 0.0),

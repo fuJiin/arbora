@@ -46,7 +46,7 @@ def main() -> None:
         print("No within_run*.csv found.")
         return
 
-    fig, ax = plt.subplots(figsize=(11, 6))
+    _fig, ax = plt.subplots(figsize=(11, 6))
     for p in csvs:
         label = parse_label_from_name(p.name)
         curve = load_curve(p)
@@ -57,7 +57,10 @@ def main() -> None:
         # Highlight the sigmoid-bounded curve with a thicker line.
         is_sigmoid = "sigmoid" in label
         ax.plot(
-            xs, ys, marker="o", lw=3 if is_sigmoid else 1.5,
+            xs,
+            ys,
+            marker="o",
+            lw=3 if is_sigmoid else 1.5,
             alpha=0.95 if is_sigmoid else 0.7,
             label=f"{label}  (n={len(curve)} ckpts)",
         )

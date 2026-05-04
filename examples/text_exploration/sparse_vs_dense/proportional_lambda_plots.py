@@ -24,7 +24,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
 VARIANT_LABEL = {
     "w2v_baseline": "w2v",
     "ssh_baseline": "SSH (no bonus)",
@@ -73,10 +72,12 @@ def plot_retention_bar(
         )
     ax.set_xticks(xs)
     ax.set_xticklabels([VARIANT_LABEL[VARIANT_ORDER[i]] for i in xs], rotation=15)
-    ax.axhline(0.85, color="green", linestyle="--", alpha=0.4,
-               label="spec target (0.85)")
-    ax.axhline(0.70, color="red", linestyle="--", alpha=0.4,
-               label="falsification (0.70)")
+    ax.axhline(
+        0.85, color="green", linestyle="--", alpha=0.4, label="spec target (0.85)"
+    )
+    ax.axhline(
+        0.70, color="red", linestyle="--", alpha=0.4, label="falsification (0.70)"
+    )
     ax.set_ylabel("retention on shared (sim_phase2 / sim_phase1)")
     ax.set_title(
         f"Proportional-λ vs absolute-λ BCM consolidation\n"
@@ -153,7 +154,7 @@ def plot_bonus_histogram(
     )
     axes[1].set_xlabel("per-bit bonus magnitude")
     axes[1].set_ylabel("# top-k bits across vocab")
-    axes[1].set_title(f"proportional λ·A_phase1 (right-skewed)")
+    axes[1].set_title("proportional λ·A_phase1 (right-skewed)")
     axes[1].legend()
     axes[1].grid(alpha=0.3)
 

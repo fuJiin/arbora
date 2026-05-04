@@ -448,7 +448,7 @@ def evaluate_bundling_capacity(
     """
     vocab = [w for w in emb.vocab() if emb.get(w) is not None]
     V = len(vocab)
-    if V < max(k_values) + n_nonmembers:
+    if max(k_values) + n_nonmembers > V:
         return {"n_words": V, "per_k": [], "capacity_estimate": 0}
 
     sparse = emb.is_sparse()
@@ -502,9 +502,7 @@ def evaluate_bundling_capacity(
             rank_of[order] = np.arange(V)
             ranks_all.extend(rank_of[member_idx].tolist())
             top_k_set = set(order[:k].tolist())
-            hits_all.append(
-                sum(1 for mi in member_idx if mi in top_k_set) / float(k)
-            )
+            hits_all.append(sum(1 for mi in member_idx if mi in top_k_set) / float(k))
 
         member_mean = float(np.mean(member_sims_all)) if member_sims_all else 0.0
         nonmember_mean = (
