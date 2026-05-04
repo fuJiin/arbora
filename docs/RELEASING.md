@@ -12,14 +12,14 @@ Both PyPI and TestPyPI support "pending publishers" — you configure the truste
 
 **TestPyPI** (https://test.pypi.org/manage/account/publishing/):
 - PyPI Project Name: `arbora`
-- Owner: `fuJiin`
+- Owner: `triadic-org`
 - Repository name: `arbora`
 - Workflow name: `release.yml`
 - Environment name: `testpypi`
 
 **PyPI** (https://pypi.org/manage/account/publishing/):
 - PyPI Project Name: `arbora`
-- Owner: `fuJiin`
+- Owner: `triadic-org`
 - Repository name: `arbora`
 - Workflow name: `release.yml`
 - Environment name: `pypi`

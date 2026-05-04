@@ -86,7 +86,7 @@ pip install 'arbora[arc]'
 For development, clone and bootstrap:
 
 ```bash
-git clone https://github.com/fuJiin/arbora.git
+git clone https://github.com/triadic-org/arbora.git
 cd arbora
 ./scripts/bootstrap.sh
 ```
