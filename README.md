@@ -73,7 +73,17 @@ Connection roles:
 
 ## Getting started
 
-Requires Python 3.12+. No PyPI package yet — clone and run from source:
+Requires Python 3.12+.
+
+```bash
+pip install arbora
+# or, with optional extras:
+pip install 'arbora[viz,embeddings]'
+pip install 'arbora[minigrid]'
+pip install 'arbora[arc]'
+```
+
+For development, clone and bootstrap:
 
 ```bash
 git clone https://github.com/fuJiin/arbora.git
