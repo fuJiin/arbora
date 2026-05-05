@@ -31,7 +31,9 @@ from examples.text_exploration.trainer import T1Trainer
 @pytest.fixture
 def primed_trainer() -> T1Trainer:
     """Trainer with a few words of training, small region for speed."""
-    encoder = CharbitEncoder(length=1, width=27, chars=DEFAULT_ALPHABET)
+    encoder = CharbitEncoder(
+        length=1, width=len(DEFAULT_ALPHABET) + 1, chars=DEFAULT_ALPHABET
+    )
     cfg = _default_t1_config()
     cfg.n_columns = 32
     cfg.k_columns = 4
@@ -65,9 +67,11 @@ class TestJaccard:
 
 class TestCharacterSDROverlap:
     def test_returns_both_laminae(self, primed_trainer: T1Trainer):
+        from examples.text_exploration.diagnostics import PHONETIC_ALPHABET
+
         r = character_sdr_overlap(primed_trainer)
         for lamina in (r.l4, r.l23):
-            for c in DEFAULT_ALPHABET:
+            for c in PHONETIC_ALPHABET:
                 assert c in lamina.per_char_sdr
                 assert lamina.per_char_sdr[c].dtype == np.bool_
 
@@ -101,7 +105,9 @@ class TestCharacterSDROverlap:
         assert set(VOWELS) == set("aeiou")
 
     def test_consonants_is_alphabet_minus_vowels(self):
-        assert set(CONSONANTS) == set(DEFAULT_ALPHABET) - set(VOWELS)
+        from examples.text_exploration.diagnostics import PHONETIC_ALPHABET
+
+        assert set(CONSONANTS) == set(PHONETIC_ALPHABET) - set(VOWELS)
 
 
 class TestContextSensitivity:

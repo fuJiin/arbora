@@ -29,7 +29,9 @@ from examples.text_exploration.trainer import T1Trainer  # noqa: E402
 @pytest.fixture
 def state() -> ExplorerState:
     """Explorer state with a few steps of history."""
-    encoder = CharbitEncoder(length=1, width=27, chars=DEFAULT_ALPHABET)
+    encoder = CharbitEncoder(
+        length=1, width=len(DEFAULT_ALPHABET) + 1, chars=DEFAULT_ALPHABET
+    )
     cfg = _default_t1_config()
     cfg.n_columns = 32
     cfg.k_columns = 4
@@ -98,7 +100,9 @@ class TestViewsSmoke:
         assert hasattr(fig, "data")
 
     def test_spike_raster_empty_history(self):
-        encoder = CharbitEncoder(length=1, width=27, chars=DEFAULT_ALPHABET)
+        encoder = CharbitEncoder(
+            length=1, width=len(DEFAULT_ALPHABET) + 1, chars=DEFAULT_ALPHABET
+        )
         region = make_sensory_region(
             _default_t1_config(), input_dim=encoder.input_dim, seed=0
         )
@@ -132,7 +136,9 @@ class TestViewsSmoke:
         assert hasattr(fig, "data")
 
     def test_pca_population_insufficient_history(self):
-        encoder = CharbitEncoder(length=1, width=27, chars=DEFAULT_ALPHABET)
+        encoder = CharbitEncoder(
+            length=1, width=len(DEFAULT_ALPHABET) + 1, chars=DEFAULT_ALPHABET
+        )
         region = make_sensory_region(
             _default_t1_config(), input_dim=encoder.input_dim, seed=0
         )
