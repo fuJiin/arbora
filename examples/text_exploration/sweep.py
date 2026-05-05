@@ -1,0 +1,504 @@
+#!/usr/bin/env python3
+"""Sweep ltd_rate / synapse_decay / learning_rate for T1.
+
+PR B's diagnostics pinpointed `ff_weights` saturation (69% near the
+clip ceiling) as the acute bottleneck — L4 and L2/3 SDRs collapse on
+vowels because the input layer can't differentiate them. This script
+sweeps the three knobs most directly controlling ff weight equilibrium
+and reports accuracy + saturation + SDR overlap per config.
+
+Measurement matrix per config:
+- `test_acc` / `test_bpc` — held-out next-char prediction
+- `ff_mean` / `ff_near_0` / `ff_near_1` — ff weight distribution
+- `l4_within_vowel` / `l4_across` — L4 SDR overlap (collapse indicator)
+- `l23_within_vowel` / `l23_across` — L2/3 SDR overlap
+
+Usage:
+    uv run python -m examples.text_exploration.sweep
+    uv run python -m examples.text_exploration.sweep --epochs 3 --csv out.csv
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import time
+from itertools import product
+from pathlib import Path
+
+import numpy as np
+
+from arbora.config import _default_t1_config, make_sensory_region
+from arbora.cortex.circuit import Circuit
+from arbora.decoders.dendritic import DendriticDecoder
+from arbora.encoders.onehot import OneHotCharEncoder
+from arbora.probes.bpc import BPCProbe
+from arbora.probes.core import LaminaProbe
+from examples.text_exploration.data import (
+    DEFAULT_ALPHABET,
+    alphabet_filter,
+    load_natural_chunks,
+    load_words,
+    shuffle_chunks,
+    split_chunks,
+    wordlist_chunks,
+)
+from examples.text_exploration.diagnostics import (
+    character_sdr_overlap,
+    weight_distribution,
+)
+from examples.text_exploration.trainer import T1Trainer
+
+
+def _load_chunks(
+    dataset: str,
+    *,
+    max_chars: int = 50_000,
+    alphabet: str = DEFAULT_ALPHABET,
+) -> list[str]:
+    """Load a dataset as stream chunks.
+
+    `wordlist` → bundled common_words.txt, each chunk = "word " (trailing
+    space) so the continuous stream has natural word boundaries.
+    `tinystories` / `babylm` / `tinydialogues` / `personachat` → natural
+    text from HuggingFace via `examples.chat.data.prepare_tokens_charlevel`,
+    each chunk = one document.
+    """
+    if dataset == "wordlist":
+        words = alphabet_filter(load_words(), alphabet)
+        return wordlist_chunks(words, append_space=True)
+    return load_natural_chunks(dataset, max_chars=max_chars, alphabet=alphabet)
+
+
+def build_region(
+    *,
+    input_dim: int,
+    ltd_rate: float,
+    synapse_decay: float,
+    learning_rate: float,
+    n_columns: int | None = None,
+    k_columns: int | None = None,
+    n_l23: int | None = None,
+    n_l23_segments: int | None = None,
+    n_l4_lat_segments: int | None = None,
+    pre_trace_decay: float | None = None,
+    perm_init: float | None = None,
+    perm_increment: float | None = None,
+    seg_activation_threshold: int | None = None,
+    seed: int = 0,
+):
+    """T1 with overridden saturation-, capacity-, and segment-relevant knobs.
+
+    L5 disabled (not used). `n_columns` / `k_columns` override the T1
+    defaults when set (k scales with cols so activation fraction stays
+    near 6.25%). `n_l23` overrides L2/3 neurons per column — lets us
+    sweep the L4→L2/3 expansion ratio (ARB-128 hypothesis) directly.
+    `n_l23_segments` overrides segments per L2/3 cell (default 4); use
+    to compensate for per-cell firing-rate dilution when expanding
+    `n_l23`. `perm_init` / `perm_increment` / `seg_activation_threshold`
+    control segment growth dynamics.
+    """
+    cfg = _default_t1_config()
+    cfg.n_l5 = 0
+    cfg.ltd_rate = ltd_rate
+    cfg.synapse_decay = synapse_decay
+    cfg.learning_rate = learning_rate
+    if n_columns is not None:
+        cfg.n_columns = n_columns
+    if k_columns is not None:
+        cfg.k_columns = k_columns
+    if n_l23 is not None:
+        cfg.n_l23 = n_l23
+    if n_l23_segments is not None:
+        cfg.n_l23_segments = n_l23_segments
+    if n_l4_lat_segments is not None:
+        cfg.n_l4_lat_segments = n_l4_lat_segments
+    if pre_trace_decay is not None:
+        cfg.pre_trace_decay = pre_trace_decay
+    if perm_init is not None:
+        cfg.perm_init = perm_init
+    if perm_increment is not None:
+        cfg.perm_increment = perm_increment
+    if seg_activation_threshold is not None:
+        cfg.seg_activation_threshold = seg_activation_threshold
+    return make_sensory_region(cfg, input_dim=input_dim, encoding_width=0, seed=seed)
+
+
+def run_config(
+    *,
+    ltd_rate: float,
+    synapse_decay: float,
+    learning_rate: float,
+    train_chunks: list[str],
+    test_chunks: list[str],
+    epochs: int = 2,
+    n_columns: int | None = None,
+    k_columns: int | None = None,
+    n_l23: int | None = None,
+    n_l23_segments: int | None = None,
+    n_l4_lat_segments: int | None = None,
+    pre_trace_decay: float | None = None,
+    perm_init: float | None = None,
+    perm_increment: float | None = None,
+    seg_activation_threshold: int | None = None,
+    reset_per_chunk: bool = True,
+    seed: int = 0,
+) -> dict:
+    encoder = OneHotCharEncoder(chars=DEFAULT_ALPHABET)
+    region = build_region(
+        input_dim=encoder.input_dim,
+        ltd_rate=ltd_rate,
+        synapse_decay=synapse_decay,
+        learning_rate=learning_rate,
+        n_columns=n_columns,
+        k_columns=k_columns,
+        n_l23=n_l23,
+        n_l23_segments=n_l23_segments,
+        n_l4_lat_segments=n_l4_lat_segments,
+        pre_trace_decay=pre_trace_decay,
+        perm_init=perm_init,
+        perm_increment=perm_increment,
+        seg_activation_threshold=seg_activation_threshold,
+        seed=seed,
+    )
+    decoder = DendriticDecoder(source_dim=region.n_l23_total, seed=seed)
+    bpc = BPCProbe()
+    trainer = T1Trainer(region, encoder, decoder=decoder, bpc_probe=bpc)
+
+    # Training. With `reset_per_chunk=True` (ARB-131 default), trainer
+    # working memory is cleared at each chunk boundary (word for the
+    # synthetic wordlist, document for natural text). With False, chars
+    # flow as a continuous stream.
+    #
+    # Per-epoch shuffle: chunks are reshuffled each epoch so we don't
+    # replay the exact same super-sequence — previous versions iterated
+    # fixed order and effectively memorized one long sentence.
+    train_rng = np.random.default_rng(seed)
+    for _ in range(epochs):
+        epoch_chunks = shuffle_chunks(train_chunks, rng=train_rng)
+        for chunk in epoch_chunks:
+            if reset_per_chunk:
+                trainer.reset()
+            for c in chunk:
+                trainer.step(c, train=True)
+
+    # Eval on held-out. Fresh LaminaProbe so recall/precision reflect
+    # the trained state only (not noisy training dynamics). Wrap the
+    # region in a minimal Circuit so LaminaProbe can walk it.
+    probe_circuit = Circuit(encoder)
+    probe_circuit.add_region("T1", region, entry=True, input_region=True)
+    probe_circuit.finalize()
+    lamina = LaminaProbe()
+
+    bpc.reset()
+    n_correct = 0
+    n_chars = 0
+    for chunk in test_chunks:
+        if reset_per_chunk:
+            trainer.reset()
+        for c in chunk:
+            r = trainer.step(c, train=False)
+            n_chars += 1
+            if r.top1_correct:
+                n_correct += 1
+            # Read L4 predicted+active after step — this is the
+            # region's surprise / prediction-match signal.
+            lamina.observe(probe_circuit)
+
+    test_acc = n_correct / max(n_chars, 1)
+    test_bpc = bpc.bpc
+    snap = lamina.snapshot()["T1"]
+
+    sdr = character_sdr_overlap(trainer)
+    weights = weight_distribution(trainer)
+
+    return {
+        "ltd_rate": ltd_rate,
+        "synapse_decay": synapse_decay,
+        "learning_rate": learning_rate,
+        "n_columns": region.n_columns,
+        "k_columns": region.k_columns,
+        "n_l4": region.n_l4,
+        "n_l23": region.n_l23,
+        "n_l23_segments": region.n_l23_segments,
+        "n_l4_lat_segments": region.n_l4_lat_segments,
+        "pre_trace_decay": region._pre_trace_decay,
+        "expansion_ratio": region.n_l23 / region.n_l4,
+        "perm_init": region.perm_init,
+        "perm_increment": region.perm_increment,
+        "seg_activation_threshold": region.seg_activation_threshold,
+        "epochs": epochs,
+        "reset_per_chunk": reset_per_chunk,
+        # Region-intrinsic surprise / prediction quality. L4 and L2/3.
+        "l4_recall": snap.input.recall,
+        "l4_precision": snap.input.precision,
+        "l4_sparseness": snap.input.sparseness,
+        "l23_recall": snap.association.recall,
+        "l23_precision": snap.association.precision,
+        "l23_sparseness": snap.association.sparseness,
+        "l23_eff_dim": snap.association.eff_dim,
+        # Decoder-based — kept for comparison, demoted in ranking.
+        "test_acc": test_acc,
+        "test_bpc": test_bpc,
+        # ff weights.
+        "ff_mean": weights.ff.mean,
+        "ff_near_0": weights.ff.frac_near_zero,
+        "ff_near_1": weights.ff.frac_near_one,
+        # Segment utilization.
+        "l4_seg_mean": weights.l4_lat_perm.mean,
+        "l4_seg_near_0": weights.l4_lat_perm.frac_near_zero,
+        "l23_seg_mean": weights.l23_seg_perm.mean,
+        "l23_seg_near_0": weights.l23_seg_perm.frac_near_zero,
+        # SDR structure (isolated reset+1step).
+        "l4_within_vowel": sdr.l4.within_vowel_mean,
+        "l4_within_consonant": sdr.l4.within_consonant_mean,
+        "l4_across": sdr.l4.across_mean,
+        "l23_within_vowel": sdr.l23.within_vowel_mean,
+        "l23_across": sdr.l23.across_mean,
+    }
+
+
+def format_row(r: dict) -> str:
+    reset = "yes" if r["reset_per_chunk"] else "NO"
+    return (
+        f"cols={r['n_columns']:>4d} k={r['k_columns']:>2d} "
+        f"l23/l4={r['n_l23']}/{r['n_l4']} l23segs={r['n_l23_segments']:>2d} "
+        f"l4segs={r['n_l4_lat_segments']:>2d} "
+        f"ptd={r['pre_trace_decay']:.2f} "
+        f"ep={r['epochs']:>2d} sat={r['seg_activation_threshold']} "
+        f"reset={reset} | "
+        f"L4(r={r['l4_recall']:.2f} p={r['l4_precision']:.2f} "
+        f"sp={r['l4_sparseness']:.2f}) "
+        f"L23(r={r['l23_recall']:.2f} p={r['l23_precision']:.2f} "
+        f"sp={r['l23_sparseness']:.2f} ed={r['l23_eff_dim']:>4.1f}) | "
+        f"l4m={r['l4_seg_mean']:.2f} l23m={r['l23_seg_mean']:.2f} | "
+        f"acc={r['test_acc']:.3f}"
+    )
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description="T1 saturation / capacity / segment sweep")
+    p.add_argument("--epochs", type=int, nargs="+", default=[2])
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--csv", type=str, default=None, help="Write results CSV to this path"
+    )
+    p.add_argument("--ltd", type=float, nargs="+", default=[0.05, 0.10, 0.15, 0.20])
+    p.add_argument("--decay", type=float, nargs="+", default=[1.0, 0.999, 0.995])
+    p.add_argument("--lr", type=float, nargs="+", default=[0.05, 0.02])
+    p.add_argument(
+        "--cols",
+        type=int,
+        nargs="+",
+        default=[None],
+        help="Column counts to sweep (None = T1 default 128). k scales with cols.",
+    )
+    p.add_argument(
+        "--perm-init",
+        type=float,
+        nargs="+",
+        default=[None],
+        help="Segment perm_init (None = default 0.6).",
+    )
+    p.add_argument(
+        "--perm-increment",
+        type=float,
+        nargs="+",
+        default=[None],
+        help="Segment perm_increment (None = default 0.2).",
+    )
+    p.add_argument(
+        "--seg-threshold",
+        type=int,
+        nargs="+",
+        default=[None],
+        help="Segment activation threshold (None = default 2).",
+    )
+    p.add_argument(
+        "--n-l23",
+        type=int,
+        nargs="+",
+        default=[None],
+        help=(
+            "L2/3 neurons per column (None = default 4 = 1:1 with L4). "
+            "Sweep higher values (8, 16, 40) to test the ARB-128 "
+            "expansion-ratio hypothesis."
+        ),
+    )
+    p.add_argument(
+        "--n-l23-segments",
+        type=int,
+        nargs="+",
+        default=[None],
+        help="Segments per L2/3 cell (None = default 4).",
+    )
+    p.add_argument(
+        "--n-l4-lat-segments",
+        type=int,
+        nargs="+",
+        default=[None],
+        help="L4 lateral segments per cell (None = default 4).",
+    )
+    p.add_argument(
+        "--pre-trace-decay",
+        type=float,
+        nargs="+",
+        default=[None],
+        help=(
+            "STDP-like presynaptic trace decay (None = default 0.8). "
+            "Higher = longer memory in segment learning (0.95 ~20 steps, "
+            "0.99 ~100)."
+        ),
+    )
+    p.add_argument(
+        "--scale-segments",
+        action="store_true",
+        help=(
+            "Auto-scale n_l23_segments proportional to n_l23 "
+            "(n_l23_segments = 4 * n_l23 / 4 = n_l23). Overrides "
+            "--n-l23-segments for configs where --n-l23 is set. "
+            "Compensates for per-cell firing-rate dilution under "
+            "L2/3 expansion."
+        ),
+    )
+    p.add_argument(
+        "--no-reset",
+        dest="no_reset",
+        action="store_true",
+        help=(
+            "Disable the reset between chunks — chars flow as a "
+            "continuous stream. Tests whether per-chunk memory reset "
+            "(word boundary for wordlist, document boundary for "
+            "natural text) is self-limiting."
+        ),
+    )
+    p.add_argument(
+        "--dataset",
+        type=str,
+        default="wordlist",
+        choices=["wordlist", "tinystories", "babylm", "tinydialogues", "personachat"],
+        help=(
+            "Data source. `wordlist` = bundled common_words.txt with "
+            "space-suffixed chunks. Others load from HuggingFace via "
+            "examples.chat.data (char-level, per-document chunks)."
+        ),
+    )
+    p.add_argument(
+        "--max-chars",
+        type=int,
+        default=50_000,
+        help="Cap on chars loaded from natural datasets (ignored for wordlist).",
+    )
+    args = p.parse_args()
+
+    chunks = _load_chunks(args.dataset, max_chars=args.max_chars)
+    train_chunks, test_chunks = split_chunks(chunks, test_frac=0.2, seed=args.seed)
+    n_train_chars = sum(len(c) for c in train_chunks)
+    n_test_chars = sum(len(c) for c in test_chunks)
+    configs = list(
+        product(
+            args.ltd,
+            args.decay,
+            args.lr,
+            args.cols,
+            args.epochs,
+            args.perm_init,
+            args.perm_increment,
+            args.seg_threshold,
+            args.n_l23,
+            args.n_l23_segments,
+            args.n_l4_lat_segments,
+            args.pre_trace_decay,
+        )
+    )
+    print(
+        f"{len(configs)} configs on dataset={args.dataset} "
+        f"({len(train_chunks)} train chunks / {len(test_chunks)} test, "
+        f"{n_train_chars}+{n_test_chars} chars)"
+    )
+
+    # Base L2/3 per-cell cell count (4 per _default_t1_config). Used by
+    # --scale-segments to compute the segment-per-cell multiplier.
+    BASE_N_L23 = 4
+    BASE_N_L23_SEGMENTS = 4
+
+    rows: list[dict] = []
+    t_start = time.monotonic()
+    for i, (
+        ltd,
+        decay,
+        lr,
+        cols,
+        epochs,
+        pi,
+        pinc,
+        sat,
+        n_l23,
+        n_l23_segments,
+        n_l4_lat_segs,
+        ptd,
+    ) in enumerate(configs):
+        t0 = time.monotonic()
+        # k scales with cols to keep activation fraction ~6.25% (T1 default).
+        k = None if cols is None else max(1, cols // 16)
+        # Auto-scale n_l23_segments with n_l23 when requested, unless an
+        # explicit --n-l23-segments override is already set for this config.
+        if args.scale_segments and n_l23 is not None and n_l23_segments is None:
+            n_l23_segments = BASE_N_L23_SEGMENTS * n_l23 // BASE_N_L23
+        r = run_config(
+            ltd_rate=ltd,
+            synapse_decay=decay,
+            learning_rate=lr,
+            train_chunks=train_chunks,
+            test_chunks=test_chunks,
+            epochs=epochs,
+            n_columns=cols,
+            k_columns=k,
+            n_l23=n_l23,
+            n_l23_segments=n_l23_segments,
+            n_l4_lat_segments=n_l4_lat_segs,
+            pre_trace_decay=ptd,
+            perm_init=pi,
+            perm_increment=pinc,
+            seg_activation_threshold=sat,
+            reset_per_chunk=not args.no_reset,
+            seed=args.seed,
+        )
+        rows.append(r)
+        dt = time.monotonic() - t0
+        print(f"[{i + 1:2d}/{len(configs)}] {format_row(r)} ({dt:.1f}s)")
+
+    total = time.monotonic() - t_start
+    print(f"\nTotal: {total:.1f}s")
+
+    # Ranked summary: prioritize region-intrinsic surprise metrics.
+    # test_acc is kept as the last ranking to spot decoder/region coupling.
+    print("\n=== Top 5 by highest L4 recall (lowest surprise) ===")
+    for r in sorted(rows, key=lambda x: -x["l4_recall"])[:5]:
+        print("  " + format_row(r))
+    print("\n=== Top 5 by highest L2/3 recall ===")
+    for r in sorted(rows, key=lambda x: -x["l23_recall"])[:5]:
+        print("  " + format_row(r))
+    print("\n=== Top 5 by highest L2/3 eff_dim (richness) ===")
+    for r in sorted(rows, key=lambda x: -x["l23_eff_dim"])[:5]:
+        print("  " + format_row(r))
+    print("\n=== Top 5 by highest L2/3 segment mean perm (most growth) ===")
+    for r in sorted(rows, key=lambda x: -x["l23_seg_mean"])[:5]:
+        print("  " + format_row(r))
+    print("\n=== Top 5 by test_acc (decoder-coupled, for comparison) ===")
+    for r in sorted(rows, key=lambda x: -x["test_acc"])[:5]:
+        print("  " + format_row(r))
+
+    if args.csv:
+        out = Path(args.csv)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("w") as f:
+            writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+            writer.writeheader()
+            for r in rows:
+                writer.writerow(r)
+        print(f"\nWrote {out}")
+
+
+if __name__ == "__main__":
+    main()
