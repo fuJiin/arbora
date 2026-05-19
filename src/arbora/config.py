@@ -55,6 +55,11 @@ class CortexConfig:
     l23_prediction_boost: float = 0.0
     pre_trace_decay: float = 0.8
     plasticity_rule: PlasticityRule = PlasticityRule.HEBBIAN
+    # Per-neuron L2 norm budget on ff_weights, applied as a hard projection
+    # after each plasticity step. None = off (default Hebbian behavior).
+    # Set to a positive float to cap each post-synaptic neuron's incoming
+    # ff weight vector at that L2 magnitude (training-time variance pressure).
+    ff_weight_norm_budget: float | None = None
     seed: int = 0
 
 

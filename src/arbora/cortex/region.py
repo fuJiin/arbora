@@ -90,6 +90,7 @@ class CorticalRegion:
         ff_sparsity: float = 0.0,
         pre_trace_decay: float = 0.0,
         plasticity_rule: PlasticityRule = PlasticityRule.HEBBIAN,
+        ff_weight_norm_budget: float | None = None,
         seed: int = 0,
     ):
         self.input_dim = input_dim
@@ -230,6 +231,10 @@ class CorticalRegion:
         # Plasticity rule: HEBBIAN (immediate LTP/LTD) vs THREE_FACTOR
         # (eligibility trace, consolidated by apply_reward).
         self.plasticity_rule = plasticity_rule
+
+        # Per-neuron L2 weight-norm budget on ff_weights. Applied as a
+        # hard projection at the end of _learn_ff. None = off.
+        self.ff_weight_norm_budget = ff_weight_norm_budget
 
         # Three-factor learning: eligibility clip threshold and trace.
         # Allocated when plasticity_rule is THREE_FACTOR.
@@ -454,6 +459,17 @@ class CorticalRegion:
             self._learn_ff_three_factor(ltp_signal, winner_indices)
         else:
             self._learn_ff_hebbian(flat_input, ltp_signal, winner_indices)
+
+        # Per-neuron L2 norm projection (Cell B of arbora-text-variance-
+        # preserving-rule). Training-time analogue of the W21 ρ_var=0.10
+        # KEEP mechanism: hard cap on each post-synaptic neuron's incoming
+        # ff weight magnitude. No-op when budget is None.
+        if self.ff_weight_norm_budget is not None:
+            norms = np.linalg.norm(self.ff_weights, axis=0)
+            scale = np.minimum(
+                1.0, self.ff_weight_norm_budget / np.maximum(norms, 1e-10)
+            )
+            self.ff_weights *= scale
 
     def _learn_ff_three_factor(
         self, ltp_signal: np.ndarray, winner_indices: np.ndarray
