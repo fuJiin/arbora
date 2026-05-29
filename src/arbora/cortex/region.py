@@ -91,6 +91,7 @@ class CorticalRegion:
         pre_trace_decay: float = 0.0,
         plasticity_rule: PlasticityRule = PlasticityRule.HEBBIAN,
         ff_weight_norm_budget: float | None = None,
+        ff_variance_penalty: float = 0.0,
         seed: int = 0,
     ):
         self.input_dim = input_dim
@@ -235,6 +236,12 @@ class CorticalRegion:
         # Per-neuron L2 weight-norm budget on ff_weights. Applied as a
         # hard projection at the end of _learn_ff. None = off.
         self.ff_weight_norm_budget = ff_weight_norm_budget
+
+        # Soft per-column variance-floor penalty on ff_weights. Applied
+        # inside _learn_ff_hebbian after the LTP/LTD/subthreshold update
+        # and before the optional ff_weight_norm_budget projection. 0.0
+        # = off. Soft analogue of the hard-projection variance pressure.
+        self.ff_variance_penalty = ff_variance_penalty
 
         # Three-factor learning: eligibility clip threshold and trace.
         # Allocated when plasticity_rule is THREE_FACTOR.
@@ -576,6 +583,18 @@ class CorticalRegion:
             w_sub *= ff_mask[active_dims]
             np.minimum(w_sub, 1, out=w_sub)
             ff_weights[active_dims] = w_sub
+
+        # Soft variance-floor penalty: nudge each weight column away from
+        # its column mean to discourage low across-input-dim variance.
+        # Soft analogue of ff_weight_norm_budget hard projection; runs
+        # before that projection in _learn_ff. The W21 ρ_var=0.10 KEEP
+        # acted at the loss level; this acts at the rule's effective
+        # update — the form-matters intervention.
+        if self.ff_variance_penalty > 0.0:
+            col_mean = ff_weights.mean(axis=0, keepdims=True)
+            ff_weights += self.ff_variance_penalty * (ff_weights - col_mean)
+            ff_weights *= self.ff_mask
+            np.clip(ff_weights, 0, 1, out=ff_weights)
 
     # ------------------------------------------------------------------
     # Three-factor reward consolidation

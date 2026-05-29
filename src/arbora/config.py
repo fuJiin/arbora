@@ -60,6 +60,13 @@ class CortexConfig:
     # Set to a positive float to cap each post-synaptic neuron's incoming
     # ff weight vector at that L2 magnitude (training-time variance pressure).
     ff_weight_norm_budget: float | None = None
+    # Soft variance-floor penalty weight applied during Hebbian ff update.
+    # Penalises low across-input-dim variance per post-synaptic neuron by
+    # nudging each weight column away from its column mean. 0.0 = off
+    # (default). Soft analogue of the hard ff_weight_norm_budget projection;
+    # tests whether intervention *form* (soft penalty vs hard projection)
+    # determines whether training-time variance pressure preserves BPC.
+    ff_variance_penalty: float = 0.0
     seed: int = 0
 
 

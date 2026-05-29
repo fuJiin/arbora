@@ -85,6 +85,7 @@ def build_region(
     perm_init: float | None = None,
     perm_increment: float | None = None,
     seg_activation_threshold: int | None = None,
+    ff_variance_penalty: float = 0.0,
     seed: int = 0,
 ):
     """T1 with overridden saturation-, capacity-, and segment-relevant knobs.
@@ -121,6 +122,7 @@ def build_region(
         cfg.perm_increment = perm_increment
     if seg_activation_threshold is not None:
         cfg.seg_activation_threshold = seg_activation_threshold
+    cfg.ff_variance_penalty = ff_variance_penalty
     return make_sensory_region(cfg, input_dim=input_dim, encoding_width=0, seed=seed)
 
 
@@ -141,6 +143,7 @@ def run_config(
     perm_init: float | None = None,
     perm_increment: float | None = None,
     seg_activation_threshold: int | None = None,
+    ff_variance_penalty: float = 0.0,
     reset_per_chunk: bool = True,
     seed: int = 0,
 ) -> dict:
@@ -159,6 +162,7 @@ def run_config(
         perm_init=perm_init,
         perm_increment=perm_increment,
         seg_activation_threshold=seg_activation_threshold,
+        ff_variance_penalty=ff_variance_penalty,
         seed=seed,
     )
     decoder = DendriticDecoder(source_dim=region.n_l23_total, seed=seed)
@@ -279,7 +283,13 @@ def format_row(r: dict) -> str:
 def main() -> None:
     p = argparse.ArgumentParser(description="T1 saturation / capacity / segment sweep")
     p.add_argument("--epochs", type=int, nargs="+", default=[2])
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--seed",
+        type=int,
+        nargs="+",
+        default=[0],
+        help="Seed(s) to sweep. Pass multiple to repeat each config across seeds.",
+    )
     p.add_argument(
         "--csv", type=str, default=None, help="Write results CSV to this path"
     )
@@ -351,6 +361,19 @@ def main() -> None:
         ),
     )
     p.add_argument(
+        "--ff-variance-penalty",
+        type=float,
+        nargs="+",
+        default=[0.0],
+        help=(
+            "Soft per-column variance-floor penalty applied during the "
+            "Hebbian ff update (0.0 = off, default). Nudges weight columns "
+            "away from their mean to lift across-input-dim variance. "
+            "Soft analogue of ff_weight_norm_budget; tests form-matters "
+            "intervention for arbora-text-soft-variance-penalty spec."
+        ),
+    )
+    p.add_argument(
         "--scale-segments",
         action="store_true",
         help=(
@@ -392,7 +415,9 @@ def main() -> None:
     args = p.parse_args()
 
     chunks = _load_chunks(args.dataset, max_chars=args.max_chars)
-    train_chunks, test_chunks = split_chunks(chunks, test_frac=0.2, seed=args.seed)
+    # Split with the first seed; sweep over seeds for the same train/test
+    # partition so cells are directly comparable.
+    train_chunks, test_chunks = split_chunks(chunks, test_frac=0.2, seed=args.seed[0])
     n_train_chars = sum(len(c) for c in train_chunks)
     n_test_chars = sum(len(c) for c in test_chunks)
     configs = list(
@@ -409,6 +434,8 @@ def main() -> None:
             args.n_l23_segments,
             args.n_l4_lat_segments,
             args.pre_trace_decay,
+            args.ff_variance_penalty,
+            args.seed,
         )
     )
     print(
@@ -437,6 +464,8 @@ def main() -> None:
         n_l23_segments,
         n_l4_lat_segs,
         ptd,
+        ff_var_pen,
+        seed,
     ) in enumerate(configs):
         t0 = time.monotonic()
         # k scales with cols to keep activation fraction ~6.25% (T1 default).
@@ -461,9 +490,12 @@ def main() -> None:
             perm_init=pi,
             perm_increment=pinc,
             seg_activation_threshold=sat,
+            ff_variance_penalty=ff_var_pen,
             reset_per_chunk=not args.no_reset,
-            seed=args.seed,
+            seed=seed,
         )
+        r["ff_variance_penalty"] = ff_var_pen
+        r["seed"] = seed
         rows.append(r)
         dt = time.monotonic() - t0
         print(f"[{i + 1:2d}/{len(configs)}] {format_row(r)} ({dt:.1f}s)")
