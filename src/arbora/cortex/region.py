@@ -56,6 +56,11 @@ except ImportError:
 
 
 class CorticalRegion:
+    # BCM target firing rate. Winners with θ_i ≥ this fraction get full
+    # LTP suppression. 0.1 = 10% of steps; well above the balanced k/N
+    # average so only seriously over-active neurons get damped.
+    _BCM_THETA_TARGET: float = 0.1
+
     def __init__(
         self,
         input_dim: int,
@@ -92,6 +97,7 @@ class CorticalRegion:
         plasticity_rule: PlasticityRule = PlasticityRule.HEBBIAN,
         ff_weight_norm_budget: float | None = None,
         ff_variance_penalty: float = 0.0,
+        bcm_theta_lr: float = 0.0,
         seed: int = 0,
     ):
         self.input_dim = input_dim
@@ -242,6 +248,14 @@ class CorticalRegion:
         # and before the optional ff_weight_norm_budget projection. 0.0
         # = off. Soft analogue of the hard-projection variance pressure.
         self.ff_variance_penalty = ff_variance_penalty
+
+        # BCM sliding-threshold homeostasis. Per-input-lamina-neuron EMA of
+        # win frequency; modulates winner LTP to suppress over-active neurons.
+        # 0.0 = off. Init at 0 (no prior win history; modulation factor
+        # max(0, 1 - 0/0.1) = 1 → full LTP on warmup, modulation grows in as
+        # win frequencies accumulate).
+        self.bcm_theta_lr = bcm_theta_lr
+        self._bcm_theta = np.zeros(_ff_n_total)
 
         # Three-factor learning: eligibility clip threshold and trace.
         # Allocated when plasticity_rule is THREE_FACTOR.
@@ -528,6 +542,16 @@ class CorticalRegion:
         if self.synapse_decay < 1.0:
             self.ff_weights *= self.synapse_decay
 
+        # BCM sliding-threshold update: EMA of winner_flag per neuron.
+        # θ_i tracks fraction of steps neuron i wins; converges toward
+        # the per-neuron mean firing rate. Update for ALL neurons each
+        # step so non-winners decay toward 0 and winners grow toward 1.
+        if self.bcm_theta_lr > 0.0:
+            winner_flag = np.zeros_like(self._bcm_theta)
+            if len(winner_indices) > 0:
+                winner_flag[winner_indices] = 1.0
+            self._bcm_theta += self.bcm_theta_lr * (winner_flag - self._bcm_theta)
+
         # Cache attribute lookups for hot loop
         ff_weights = self.ff_weights
         neuromod = self.surprise_modulator * self.reward_modulator
@@ -545,7 +569,23 @@ class CorticalRegion:
             # would add 0. Big win for one-hot / small-trace inputs.
             active_ltp_idx = np.flatnonzero(ltp_signal > 0)
             if active_ltp_idx.size > 0:
-                w[active_ltp_idx] += ltp_rate * ltp_signal[active_ltp_idx, np.newaxis]
+                if self.bcm_theta_lr > 0.0:
+                    # BCM homeostatic modulation: damp LTP for over-active
+                    # winners. modulation ∈ [0, 1]; 1 = full LTP, 0 = total
+                    # suppression at θ_i ≥ θ_target.
+                    theta_winners = self._bcm_theta[winner_indices]
+                    ltp_modulation = np.maximum(
+                        0.0, 1.0 - theta_winners / self._BCM_THETA_TARGET
+                    )
+                    w[active_ltp_idx] += (
+                        ltp_rate
+                        * ltp_signal[active_ltp_idx, np.newaxis]
+                        * ltp_modulation[np.newaxis, :]
+                    )
+                else:
+                    w[active_ltp_idx] += (
+                        ltp_rate * ltp_signal[active_ltp_idx, np.newaxis]
+                    )
 
             # LTD: weaken synapses from NOT-recently-active inputs → winners
             # Uses flat_input (not trace) for LTD — only current step's

@@ -86,6 +86,7 @@ def build_region(
     perm_increment: float | None = None,
     seg_activation_threshold: int | None = None,
     ff_variance_penalty: float = 0.0,
+    bcm_theta_lr: float = 0.0,
     seed: int = 0,
 ):
     """T1 with overridden saturation-, capacity-, and segment-relevant knobs.
@@ -123,6 +124,7 @@ def build_region(
     if seg_activation_threshold is not None:
         cfg.seg_activation_threshold = seg_activation_threshold
     cfg.ff_variance_penalty = ff_variance_penalty
+    cfg.bcm_theta_lr = bcm_theta_lr
     return make_sensory_region(cfg, input_dim=input_dim, encoding_width=0, seed=seed)
 
 
@@ -144,6 +146,7 @@ def run_config(
     perm_increment: float | None = None,
     seg_activation_threshold: int | None = None,
     ff_variance_penalty: float = 0.0,
+    bcm_theta_lr: float = 0.0,
     reset_per_chunk: bool = True,
     seed: int = 0,
 ) -> dict:
@@ -163,6 +166,7 @@ def run_config(
         perm_increment=perm_increment,
         seg_activation_threshold=seg_activation_threshold,
         ff_variance_penalty=ff_variance_penalty,
+        bcm_theta_lr=bcm_theta_lr,
         seed=seed,
     )
     decoder = DendriticDecoder(source_dim=region.n_l23_total, seed=seed)
@@ -374,6 +378,18 @@ def main() -> None:
         ),
     )
     p.add_argument(
+        "--bcm-theta-lr",
+        type=float,
+        nargs="+",
+        default=[0.0],
+        help=(
+            "BCM sliding-threshold learning rate (0.0 = off, default). "
+            "Per-L4-neuron EMA of win frequency; winner LTP modulated by "
+            "max(0, 1 - θ_i / 0.1). Structural-homeostasis intervention "
+            "form for arbora-text-cell-a-bcm spec."
+        ),
+    )
+    p.add_argument(
         "--scale-segments",
         action="store_true",
         help=(
@@ -435,6 +451,7 @@ def main() -> None:
             args.n_l4_lat_segments,
             args.pre_trace_decay,
             args.ff_variance_penalty,
+            args.bcm_theta_lr,
             args.seed,
         )
     )
@@ -465,6 +482,7 @@ def main() -> None:
         n_l4_lat_segs,
         ptd,
         ff_var_pen,
+        bcm_lr,
         seed,
     ) in enumerate(configs):
         t0 = time.monotonic()
@@ -491,10 +509,12 @@ def main() -> None:
             perm_increment=pinc,
             seg_activation_threshold=sat,
             ff_variance_penalty=ff_var_pen,
+            bcm_theta_lr=bcm_lr,
             reset_per_chunk=not args.no_reset,
             seed=seed,
         )
         r["ff_variance_penalty"] = ff_var_pen
+        r["bcm_theta_lr"] = bcm_lr
         r["seed"] = seed
         rows.append(r)
         dt = time.monotonic() - t0

@@ -67,6 +67,15 @@ class CortexConfig:
     # tests whether intervention *form* (soft penalty vs hard projection)
     # determines whether training-time variance pressure preserves BPC.
     ff_variance_penalty: float = 0.0
+    # BCM sliding-threshold homeostasis on Hebbian LTP. 0.0 = off (default).
+    # When > 0, each input-lamina neuron carries an EMA `θ_i` of its win
+    # frequency (lr = bcm_theta_lr). Winner LTP is modulated by
+    # max(0, 1 - θ_i / θ_target) where θ_target = 0.1: neurons winning
+    # ≥10% of steps get fully suppressed, neurons rarely winning get
+    # full LTP. Third intervention form (structural homeostasis) tested
+    # alongside soft variance penalty + hard L2 projection for the
+    # form-matters-cross-modality story on arbora-text.
+    bcm_theta_lr: float = 0.0
     seed: int = 0
 
 
