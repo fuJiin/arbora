@@ -482,7 +482,7 @@ class CorticalRegion:
             self._learn_ff_hebbian(flat_input, ltp_signal, winner_indices)
 
         # Per-neuron L2 norm projection (Cell B of arbora-text-variance-
-        # preserving-rule). Training-time analogue of the W21 ρ_var=0.10
+        # preserving-rule). Training-time analogue of the W21 ρ_var=0.10  # noqa: RUF003
         # KEEP mechanism: hard cap on each post-synaptic neuron's incoming
         # ff weight magnitude. No-op when budget is None.
         if self.ff_weight_norm_budget is not None:
@@ -627,7 +627,7 @@ class CorticalRegion:
         # Soft variance-floor penalty: nudge each weight column away from
         # its column mean to discourage low across-input-dim variance.
         # Soft analogue of ff_weight_norm_budget hard projection; runs
-        # before that projection in _learn_ff. The W21 ρ_var=0.10 KEEP
+        # before that projection in _learn_ff. The W21 ρ_var=0.10 KEEP  # noqa: RUF003
         # acted at the loss level; this acts at the rule's effective
         # update — the form-matters intervention.
         if self.ff_variance_penalty > 0.0:
